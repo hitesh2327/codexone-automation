@@ -20,6 +20,7 @@
       ]
     },
     "status": "replaced",
+    "publish_at": null,
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -54,6 +55,7 @@
       "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790464351/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel_cover.jpg"
     },
     "status": "replaced",
+    "publish_at": null,
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -82,6 +84,7 @@
       "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790465843/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel_cover.jpg"
     },
     "status": "published",
+    "publish_at": null,
     "version": 2,
     "feedback": "",
     "tg_message_ids": [
@@ -116,6 +119,7 @@
       ]
     },
     "status": "published",
+    "publish_at": null,
     "version": 2,
     "feedback": "",
     "tg_message_ids": [
@@ -134,5 +138,73 @@
     "ig_media_id": "18004120772792652",
     "error": null,
     "attempts": 1
+  },
+  {
+    "id": "20260927-c-8c30a3",
+    "kind": "carousel",
+    "date": "2026-09-27",
+    "topic": "How Timezones and UTC are Handled in Databases",
+    "category": "SystemDesign",
+    "source_url": "https://www.reddit.com/r/programming/comments/1wrc4sh/postgres_at_time_zone_utc_does_not_do_what_you/",
+    "angle": "This post teaches junior developers why saving timestamps in UTC is crucial and how the Postgres AT TIME ZONE command actually converts time instead of changing stored data.",
+    "post_dir": "output/2026-09-27/how-timezones-and-utc-are-handled-in-databases",
+    "caption": "Handling dates and times in distributed systems is notoriously tricky. If your database stores local time instead of UTC, you risk data corruption, inaccurate logging, and bugs during daylight saving transitions. The golden rule of backend engineering is to always persist timestamps in UTC. When using databases like PostgreSQL, commands such as AT TIME ZONE help translate those values for display rather than altering the stored truth. How do you currently handle timezones in your backend applications?\n\n#coding #programming #systemdesign #developer #softwareengineer #database #backend #sql #postgres #techindia #webdev #computerscience",
+    "media": {
+      "carousel": [
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790499615/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/slide_01.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790499616/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/slide_02.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790499616/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/slide_03.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790499617/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/slide_04.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790499618/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/slide_05.jpg"
+      ]
+    },
+    "status": "pending",
+    "publish_at": "2026-09-27T10:00:00+05:30",
+    "version": 1,
+    "feedback": "",
+    "tg_message_ids": [
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "tg_control_id": 31,
+    "created_at": "2026-09-27T09:00:20+00:00",
+    "decided_at": null,
+    "published_at": null,
+    "ig_media_id": null,
+    "error": null,
+    "attempts": 0
+  },
+  {
+    "id": "20260927-r-8c30a3",
+    "kind": "reel",
+    "date": "2026-09-27",
+    "topic": "How Timezones and UTC are Handled in Databases",
+    "category": "SystemDesign",
+    "source_url": "https://www.reddit.com/r/programming/comments/1wrc4sh/postgres_at_time_zone_utc_does_not_do_what_you/",
+    "angle": "This post teaches junior developers why saving timestamps in UTC is crucial and how the Postgres AT TIME ZONE command actually converts time instead of changing stored data.",
+    "post_dir": "output/2026-09-27/how-timezones-and-utc-are-handled-in-databases",
+    "caption": "Handling dates and times in distributed systems is notoriously tricky. If your database stores local time instead of UTC, you risk data corruption, inaccurate logging, and bugs during daylight saving transitions. The golden rule of backend engineering is to always persist timestamps in UTC. When using databases like PostgreSQL, commands such as AT TIME ZONE help translate those values for display rather than altering the stored truth. How do you currently handle timezones in your backend applications?\n\n#coding #programming #systemdesign #developer #softwareengineer #database #backend #sql #postgres #techindia #webdev #computerscience",
+    "media": {
+      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790499619/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/reel.mp4",
+      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790499620/codexone/2026-09-27/how-timezones-and-utc-are-handled-in-databases/reel_cover.jpg"
+    },
+    "status": "pending",
+    "publish_at": "2026-09-27T10:00:00+05:30",
+    "version": 1,
+    "feedback": "",
+    "tg_message_ids": [
+      32
+    ],
+    "tg_control_id": 32,
+    "created_at": "2026-09-27T09:00:20+00:00",
+    "decided_at": null,
+    "published_at": null,
+    "ig_media_id": null,
+    "error": null,
+    "attempts": 0
   }
 ]
