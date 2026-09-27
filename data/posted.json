@@ -16,5 +16,23 @@
     "ig_media_id": "18004120772792652",
     "date": "2026-09-27",
     "published_at": "2026-09-27T00:02:23+00:00"
+  },
+  {
+    "title": "How Timezones and UTC are Handled in Databases",
+    "url": "https://www.reddit.com/r/programming/comments/1wrc4sh/postgres_at_time_zone_utc_does_not_do_what_you/",
+    "category": "SystemDesign",
+    "kind": "carousel",
+    "ig_media_id": "17918400273240314",
+    "date": "2026-09-27",
+    "published_at": "2026-09-27T14:44:47+00:00"
+  },
+  {
+    "title": "How Timezones and UTC are Handled in Databases",
+    "url": "https://www.reddit.com/r/programming/comments/1wrc4sh/postgres_at_time_zone_utc_does_not_do_what_you/",
+    "category": "SystemDesign",
+    "kind": "reel",
+    "ig_media_id": "17886921702680823",
+    "date": "2026-09-27",
+    "published_at": "2026-09-27T14:45:26+00:00"
   }
 ]
