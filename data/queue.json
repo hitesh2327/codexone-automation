@@ -1,0 +1,138 @@
+[
+  {
+    "id": "20260927-c-7b6909",
+    "kind": "carousel",
+    "date": "2026-09-27",
+    "topic": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
+    "category": "DSA",
+    "source_url": "",
+    "angle": "",
+    "post_dir": "output/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare",
+    "caption": "Detecting a cycle in a linked list is a classic technical interview problem.\n\nMost beginners reach for a hash set to store visited nodes. That works, but it costs O(n) extra space.\n\nFloyd's Cycle Detection algorithm solves this in O(1) auxiliary space using two pointers. A slow pointer moves one step at a time, while a fast pointer moves two steps.\n\nIf there is a cycle, both pointers enter the loop. With each step, the fast pointer gains exactly one node on the slow pointer, closing the gap until they inevitably collide. Because the relative distance shrinks by one each step, the slow pointer takes at most n steps before a meeting occurs.\n\nHave you used this two-pointer pattern for other linked list problems?\n\n#dsa #coding #programming #developer #softwareengineer #techindia #algorithms #datastructures #pythonprogramming #leetcode #computerscience #learntocode",
+    "media": {
+      "carousel": [
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790464344/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_01.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790464344/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_02.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790464345/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_03.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790464346/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_04.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790464346/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_05.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790464347/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_06.jpg"
+      ]
+    },
+    "status": "replaced",
+    "version": 1,
+    "feedback": "",
+    "tg_message_ids": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "tg_control_id": 9,
+    "created_at": "2026-09-26T23:13:59+00:00",
+    "decided_at": null,
+    "published_at": null,
+    "ig_media_id": null,
+    "error": null,
+    "attempts": 0
+  },
+  {
+    "id": "20260927-r-7b6909",
+    "kind": "reel",
+    "date": "2026-09-27",
+    "topic": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
+    "category": "DSA",
+    "source_url": "",
+    "angle": "",
+    "post_dir": "output/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare",
+    "caption": "Detecting a cycle in a linked list is a classic technical interview problem.\n\nMost beginners reach for a hash set to store visited nodes. That works, but it costs O(n) extra space.\n\nFloyd's Cycle Detection algorithm solves this in O(1) auxiliary space using two pointers. A slow pointer moves one step at a time, while a fast pointer moves two steps.\n\nIf there is a cycle, both pointers enter the loop. With each step, the fast pointer gains exactly one node on the slow pointer, closing the gap until they inevitably collide. Because the relative distance shrinks by one each step, the slow pointer takes at most n steps before a meeting occurs.\n\nHave you used this two-pointer pattern for other linked list problems?\n\n#dsa #coding #programming #developer #softwareengineer #techindia #algorithms #datastructures #pythonprogramming #leetcode #computerscience #learntocode",
+    "media": {
+      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790464350/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel.mp4",
+      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790464351/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel_cover.jpg"
+    },
+    "status": "replaced",
+    "version": 1,
+    "feedback": "",
+    "tg_message_ids": [
+      10
+    ],
+    "tg_control_id": 10,
+    "created_at": "2026-09-26T23:14:17+00:00",
+    "decided_at": null,
+    "published_at": null,
+    "ig_media_id": null,
+    "error": null,
+    "attempts": 0
+  },
+  {
+    "id": "20260927-r-83dd8b",
+    "kind": "reel",
+    "date": "2026-09-27",
+    "topic": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
+    "category": "DSA",
+    "source_url": "",
+    "angle": "Learn how moving two pointers at different speeds detects loops in a linked list using O(1) extra memory.",
+    "post_dir": "output/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare",
+    "caption": "Detecting a cycle in a linked list is a classic technical interview question. While you could store visited nodes in a hash set, that costs O(n) auxiliary space. Floyd's Cycle Detection algorithm solves it in O(1) space using two pointers: a slow pointer moving one step and a fast pointer moving two steps. If a loop exists, the distance between them decreases by one node in each cycle iteration until they collide. Have you ever been asked this pattern in an interview?\n\n#dsa #coding #programming #softwareengineer #developer #techindia #leetcode #python #computerscience #datastructures #algorithms",
+    "media": {
+      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790465842/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel.mp4",
+      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790465843/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel_cover.jpg"
+    },
+    "status": "published",
+    "version": 2,
+    "feedback": "",
+    "tg_message_ids": [
+      19
+    ],
+    "tg_control_id": 19,
+    "created_at": "2026-09-26T23:37:28+00:00",
+    "decided_at": "2026-09-26T23:55:32+00:00",
+    "published_at": "2026-09-26T23:59:15+00:00",
+    "ig_media_id": "18065576519527237",
+    "error": null,
+    "attempts": 2
+  },
+  {
+    "id": "20260927-c-83dd8b",
+    "kind": "carousel",
+    "date": "2026-09-27",
+    "topic": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
+    "category": "DSA",
+    "source_url": "",
+    "angle": "Learn how moving two pointers at different speeds detects loops in a linked list using O(1) extra memory.",
+    "post_dir": "output/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare",
+    "caption": "Detecting a cycle in a linked list is a classic technical interview question. While you could store visited nodes in a hash set, that costs O(n) auxiliary space. Floyd's Cycle Detection algorithm solves it in O(1) space using two pointers: a slow pointer moving one step and a fast pointer moving two steps. If a loop exists, the distance between them decreases by one node in each cycle iteration until they collide. Have you ever been asked this pattern in an interview?\n\n#dsa #coding #programming #softwareengineer #developer #techindia #leetcode #python #computerscience #datastructures #algorithms",
+    "media": {
+      "carousel": [
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790465806/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_01.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790465809/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_02.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790465812/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_03.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790465817/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_04.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790465821/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_05.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790465825/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/slide_06.jpg"
+      ]
+    },
+    "status": "published",
+    "version": 2,
+    "feedback": "",
+    "tg_message_ids": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17
+    ],
+    "tg_control_id": 17,
+    "created_at": "2026-09-26T23:37:28+00:00",
+    "decided_at": "2026-09-27T00:01:29+00:00",
+    "published_at": "2026-09-27T00:02:23+00:00",
+    "ig_media_id": "18004120772792652",
+    "error": null,
+    "attempts": 1
+  }
+]

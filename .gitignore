@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+output/*
+!output/.gitkeep
+logs/*
+!logs/.gitkeep
+data/topics_*.json
+data/ranked_*.json

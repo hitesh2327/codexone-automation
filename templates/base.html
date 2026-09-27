@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family={{ fonts.heading|replace(' ', '+') }}:wght@500;600;700;800&family={{ fonts.body|replace(' ', '+') }}:wght@400;500;600&family={{ fonts.code|replace(' ', '+') }}:wght@400;500;700&display=block" rel="stylesheet">
+<style>
+  :root {
+    --bg: {{ colors.bg }};
+    --primary: {{ colors.primary }};
+    --accent: {{ colors.accent }};
+    --text: {{ colors.text }};
+    --muted: color-mix(in srgb, var(--text) 62%, var(--bg));
+    --line: color-mix(in srgb, var(--text) 12%, var(--bg));
+    --panel: color-mix(in srgb, var(--text) 5%, var(--bg));
+    --heading: '{{ fonts.heading }}', system-ui, sans-serif;
+    --body: '{{ fonts.body }}', system-ui, sans-serif;
+    --code: '{{ fonts.code }}', ui-monospace, monospace;
+    --scale: 1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: {{ width }}px; height: {{ height }}px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .slide {
+    position: relative;
+    width: 100%; height: 100%;
+    padding: 84px 88px 72px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 700px at 105% -10%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 60%),
+      radial-gradient(700px 600px at -15% 115%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+      var(--bg);
+  }
+  /* faint dot grid */
+  .slide::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(color-mix(in srgb, var(--text) 9%, transparent) 1.6px, transparent 1.6px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(180deg, #000 0%, transparent 75%);
+  }
+  .slide > * { position: relative; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 64px; }
+  .brand { display: flex; align-items: center; gap: 18px; font-family: var(--heading); font-weight: 600; font-size: 30px; }
+  .logo {
+    width: 60px; height: 60px; border-radius: 16px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 50%, var(--accent)));
+    color: var(--bg); font-family: var(--code); font-weight: 700; font-size: 24px; letter-spacing: -1px;
+  }
+  .counter { font-family: var(--code); font-size: 26px; color: var(--muted); }
+  .counter b { color: var(--text); font-weight: 500; }
+
+  .kicker {
+    display: inline-block; align-self: flex-start;
+    font-family: var(--code); font-weight: 500; font-size: 26px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 28px;
+  }
+  .kicker::before { content: "// "; color: var(--muted); }
+
+  h1, h2 { font-family: var(--heading); font-weight: 700; letter-spacing: -1.5px; line-height: 1.08; }
+  h1 .hl, h2 .hl { color: var(--primary); }
+
+  .main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .fit { font-size: calc(var(--base) * var(--scale)); }
+
+  .footer { display: flex; align-items: center; justify-content: space-between; margin-top: 48px; }
+  .dots { display: flex; gap: 12px; }
+  .dots i { width: 14px; height: 14px; border-radius: 99px; background: var(--line); }
+  .dots i.on { width: 48px; background: var(--primary); }
+  .swipe { font-family: var(--heading); font-weight: 600; font-size: 28px; color: var(--muted); display: flex; align-items: center; gap: 14px; }
+  .swipe span { color: var(--accent); font-size: 34px; }
+  code.inline {
+    font-variant-ligatures: none;
+    font-family: var(--code); font-size: 0.86em;
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary); padding: 2px 10px; border-radius: 8px;
+  }
+  {% block style %}{% endblock %}
+</style>
+</head>
+<body>
+<script>window.__beforeFit = null;  /* the window survives set_content() */</script>
+<div class="slide">
+  <div class="topbar">
+    <div class="brand"><div class="logo">&lt;/&gt;</div>{{ handle }}</div>
+    <div class="counter"><b>{{ '%02d' % index }}</b> / {{ '%02d' % total }}</div>
+  </div>
+  <div class="main">{% block main %}{% endblock %}</div>
+  <div class="footer">
+    <div class="dots">{% for i in range(1, total + 1) %}<i class="{{ 'on' if i == index }}"></i>{% endfor %}</div>
+    {% block footer_right %}{% if index < total %}<div class="swipe">Swipe <span>&rarr;</span></div>{% endif %}{% endblock %}
+  </div>
+</div>
+<script>
+  // Shrink text until the main area stops overflowing (min 60%).
+  window.__fit = async () => {
+    await document.fonts.ready;
+    if (window.__beforeFit) window.__beforeFit();  // e.g. build visualizations
+    const main = document.querySelector('.main');
+    let s = 1;
+    while (main.scrollHeight > main.clientHeight + 1 && s > 0.6) {
+      s -= 0.03;
+      document.documentElement.style.setProperty('--scale', s.toFixed(2));
+    }
+    return s;
+  };
+</script>
+</body>
+</html>

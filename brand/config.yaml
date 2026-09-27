@@ -1,0 +1,27 @@
+handle: "@codexonebyhitesh"
+colors:
+  { bg: "#0D1117", primary: "#00E5FF", accent: "#FFB800", text: "#FFFFFF" }
+fonts: { heading: "Poppins", body: "Inter", code: "JetBrains Mono" }
+voice: "en-IN-PrabhatNeural"
+language: "English, simple, beginner-friendly"
+topics_weight:
+  { AI: 30, SystemDesign: 20, DSA: 20, Interview: 15, OS: 10, Dev: 5 }
+posts_per_day: 2
+# One post (reel + carousel) per slot. Generation runs ~1-2h before each slot
+# (see .github/workflows/daily-generate.yml); approved items publish at their slot.
+post_times_ist: ["10:00", "19:00"]
+reel:
+  { size: "1080x1920", duration_sec: "30-60", structure: "hook, 3 points, CTA" }
+carousel: { size: "1080x1350", slides: "5-7" }
+cta: "Follow @codexonebyhitesh for daily dev content"
+hashtags:
+  [
+    "#coding",
+    "#programming",
+    "#systemdesign",
+    "#dsa",
+    "#ai",
+    "#developer",
+    "#softwareengineer",
+    "#techindia",
+  ]

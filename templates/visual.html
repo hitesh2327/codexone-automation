@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block style %}
+  h2 { --base: 76px; margin-bottom: 18px; }
+  .note { --base: 36px; color: var(--muted); line-height: 1.4; margin-bottom: 12px; }
+  .steps { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-evenly; }
+  .step { display: flex; flex-direction: column; align-items: center; }
+  .step-label {
+    align-self: flex-start;
+    font-family: var(--code); font-size: 24px; letter-spacing: 2px; color: var(--muted); margin-bottom: 14px;
+  }
+  .step-label b { color: var(--accent); font-weight: 700; }
+  .step .viz { width: 100%; }
+  .step .viz-caption { margin-bottom: 22px; font-size: 26px; padding: 6px 18px; }
+  .step .viz-ptr .name { font-size: 22px; padding: 6px 10px; }
+  .step .viz-ptr .tip { border-width: 9px; border-bottom-width: 12px; }
+  .step .viz-ptr.left .tip { border-width: 9px; border-right-width: 12px; }
+  {% include "viz.css" %}
+{% endblock %}
+{% block main %}
+  {% if slide.kicker %}<div class="kicker">{{ slide.kicker }}</div>{% endif %}
+  <h2 class="fit">{{ slide.heading_html|safe }}</h2>
+  {% if slide.body %}<p class="note fit">{{ slide.body_inline|safe }}</p>{% endif %}
+  <div class="steps">
+    {% for k in slide.steps %}
+    <div class="step">
+      <div class="step-label">STEP <b>{{ k + 1 }}</b> / {{ demo.steps|length }}</div>
+      <div class="viz" data-step="{{ k }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <script>
+    {% include "viz.js" %}
+    // Scoped: set_content() reuses the same window, so no top-level const/let here.
+    (() => {
+      const DEMO = {{ demo|tojson }};
+      const N_STEPS = {{ slide.steps|length }};
+      window.__beforeFit = () => {
+        document.querySelectorAll('.viz[data-step]').forEach(el => {
+          const step = DEMO.steps[+el.dataset.step];
+          // Fewer steps on the slide → bigger cells.
+          Viz.build(el, DEMO, step, { pointers: true, caption: true,
+                                      cell: N_STEPS >= 2 ? 84 : 104, maxWidth: el.clientWidth });
+        });
+      };
+    })();
+  </script>
+{% endblock %}

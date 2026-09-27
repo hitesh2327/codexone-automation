@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block style %}
+  .main { justify-content: center; }
+  .tag {
+    align-self: flex-start;
+    font-family: var(--code); font-weight: 700; font-size: 26px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--bg); background: var(--accent);
+    padding: 12px 24px; border-radius: 12px; margin-bottom: 44px;
+  }
+  h1 { --base: 112px; margin-bottom: 44px; }
+  .sub { --base: 42px; color: var(--muted); line-height: 1.4; max-width: 860px; }
+  .rule { width: 140px; height: 8px; border-radius: 8px; margin-bottom: 44px;
+          background: linear-gradient(90deg, var(--primary), var(--accent)); }
+{% endblock %}
+{% block main %}
+  {% if slide.kicker %}<div class="tag">{{ slide.kicker }}</div>{% endif %}
+  <h1 class="fit">{{ slide.heading_html|safe }}</h1>
+  <div class="rule"></div>
+  {% if slide.body %}<p class="sub fit">{{ slide.body_inline|safe }}</p>{% endif %}
+{% endblock %}

@@ -1,0 +1,91 @@
+name: Generate posts (twice daily)
+
+# Two posting slots per day (brand/config.yaml post_times_ist). Each run creates one
+# reel + one carousel for its slot and sends Telegram previews. Nothing is published
+# here -- poll-approvals.yml publishes only what you approve, at the slot time.
+on:
+  schedule:
+    - cron: "30 2 * * *"    # 08:00 IST → posts at 10:00 IST
+    - cron: "30 12 * * *"   # 18:00 IST → posts at 19:00 IST
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Posting slot (IST)"
+        type: choice
+        options: ["auto", "10:00", "19:00"]
+        default: "auto"
+      category:
+        description: "Force a category (AI, SystemDesign, DSA, Interview, OS, Dev) — optional"
+        required: false
+      dry_run:
+        description: "Dry run (nothing sent or saved)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: queue-state        # shared with poll + refresh so state commits never race
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+  TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+  TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+  IG_USER_ID: ${{ secrets.IG_USER_ID }}
+  IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+  TZ: Asia/Kolkata
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Generate post and send Telegram previews
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # higher GitHub search API limit in fetch_topics
+        run: |
+          # Map the cron that fired to its slot (keep in sync with post_times_ist).
+          case "${{ github.event.schedule }}" in
+            "30 2 * * *")  SLOT="10:00" ;;
+            "30 12 * * *") SLOT="19:00" ;;
+            *)             SLOT="${{ inputs.slot }}" ;;
+          esac
+          ARGS=""
+          if [ -n "$SLOT" ] && [ "$SLOT" != "auto" ]; then ARGS="$ARGS --slot $SLOT"; fi
+          if [ -n "${{ inputs.category }}" ]; then ARGS="$ARGS --category ${{ inputs.category }}"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python main.py generate $ARGS
+
+      - name: Save queue state
+        if: always() && inputs.dry_run != true
+        run: |
+          git config user.name  "codexone-bot"
+          git config user.email "codexone-bot@users.noreply.github.com"
+          git add data/   # topics_*/ranked_* are gitignored
+          git diff --cached --quiet || git commit -m "chore(state): generate $(date +'%F %H:%M') [skip ci]"
+          git pull --rebase --autostash && git push
+
+      - name: Keep renders + logs for 7 days
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-${{ github.run_id }}
+          path: |
+            output/
+            logs/
+          retention-days: 7

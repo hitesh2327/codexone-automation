@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block style %}
+  .main { justify-content: center; padding-bottom: 40px; }
+  h2 { --base: {{ 72 if slide.code else 88 }}px; margin-bottom: 44px; }
+  .body { --base: {{ 38 if slide.code else 48 }}px; line-height: 1.45; color: color-mix(in srgb, var(--text) 88%, var(--bg)); }
+  .body p + p { margin-top: 0.6em; }
+  .body ul { list-style: none; display: flex; flex-direction: column; gap: 0.55em; margin-top: 0.3em; }
+  .body li { position: relative; padding-left: 1.3em; }
+  .body li::before {
+    content: ""; position: absolute; left: 0; top: 0.5em;
+    width: 0.5em; height: 0.5em; border-radius: 3px;
+    background: var(--primary); transform: rotate(45deg);
+  }
+  .body li:nth-child(even)::before { background: var(--accent); }
+
+  .code {
+    margin-top: 44px;
+    border-radius: 24px; overflow: hidden;
+    background: color-mix(in srgb, #000 35%, var(--bg));
+    border: 2px solid var(--line);
+    box-shadow: 0 30px 80px -30px color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+  .code-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 20px 28px; border-bottom: 2px solid var(--line);
+  }
+  .code-head i { width: 18px; height: 18px; border-radius: 99px; background: #FF5F57; }
+  .code-head i:nth-child(2) { background: #FEBC2E; }
+  .code-head i:nth-child(3) { background: #28C840; }
+  .code-head span { margin-left: auto; font-family: var(--code); font-size: 22px; color: var(--muted); }
+  pre {
+    --base: {{ 34 if slide.code.splitlines()|length < 10 else 30 }}px;
+    font-family: var(--code); line-height: 1.5; font-variant-ligatures: none;
+    padding: 28px 32px; white-space: pre; color: var(--text);
+    counter-reset: ln;
+  }
+  pre .ln { display: block; }
+  pre .ln::before {
+    counter-increment: ln; content: counter(ln);
+    display: inline-block; width: 1.8em; margin-right: 0.9em; text-align: right;
+    color: color-mix(in srgb, var(--text) 25%, var(--bg));
+  }
+  /* Pygments tokens mapped to brand colors */
+  .k, .kd, .kn, .kr, .kc, .ow { color: var(--primary); }
+  .s, .s1, .s2, .sb, .sc, .sd, .si, .sa { color: var(--accent); }
+  .c, .c1, .cm, .ch, .cs { color: var(--muted); font-style: italic; }
+  .mi, .mf, .mh, .il, .m { color: #FF9E64; }
+  .nf, .fm { color: #7EE787; }
+  .nb, .bp { color: #D2A8FF; }
+  .nc, .nn { color: #79C0FF; }
+  .o, .p { color: color-mix(in srgb, var(--text) 80%, var(--bg)); }
+{% endblock %}
+{% block main %}
+  {% if slide.kicker %}<div class="kicker">{{ slide.kicker }}</div>{% endif %}
+  <h2 class="fit">{{ slide.heading_html|safe }}</h2>
+  {% if slide.body %}<div class="body fit">{{ slide.body_html|safe }}</div>{% endif %}
+  {% if slide.code %}
+  <div class="code">
+    <div class="code-head"><i></i><i></i><i></i><span>{{ slide.code_language or 'code' }}</span></div>
+    <pre class="fit">{{ slide.code_html|safe }}</pre>
+  </div>
+  {% endif %}
+{% endblock %}

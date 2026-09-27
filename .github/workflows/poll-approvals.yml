@@ -1,0 +1,80 @@
+name: Poll Telegram approvals + publish
+
+# No server: every 20 min around each posting slot, read Telegram button presses via
+# getUpdates, publish approved items once their slot time has passed, and regenerate
+# items when asked. Runs exit in seconds when nothing is waiting (saves Actions minutes).
+# Previews with no decision expire after 36h.
+on:
+  schedule:
+    - cron: "*/20 2-7 * * *"    # 07:30–13:10 IST (10:00 slot)
+    - cron: "*/20 12-18 * * *"  # 17:30–00:10 IST (19:00 slot)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (read updates, change nothing)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: queue-state
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+  TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+  TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+  IG_USER_ID: ${{ secrets.IG_USER_ID }}
+  IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+  TZ: Asia/Kolkata
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Anything waiting?
+        id: gate
+        run: python3 scripts/has_work.py
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
+        run: pip install -r requirements.txt
+
+      - name: Apply approvals and publish due items
+        if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
+        run: python main.py poll ${{ inputs.dry_run == true && '--dry-run' || '' }}
+
+      - name: Check for regenerate requests
+        id: regen
+        if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
+        run: python main.py needs-regen
+
+      # Chromium is only needed to re-render, so skip it on most runs.
+      - name: Install Chromium
+        if: steps.regen.outputs.needed == 'true'
+        run: python -m playwright install --with-deps chromium
+
+      - name: Regenerate
+        if: steps.regen.outputs.needed == 'true'
+        run: python main.py regenerate ${{ inputs.dry_run == true && '--dry-run' || '' }}
+
+      - name: Save queue state
+        if: always() && inputs.dry_run != true && (steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch')
+        run: |
+          git config user.name  "codexone-bot"
+          git config user.email "codexone-bot@users.noreply.github.com"
+          git add data/   # topics_*/ranked_* are gitignored
+          git diff --cached --quiet || git commit -m "chore(state): poll $(date +'%F %H:%M') [skip ci]"
+          git pull --rebase --autostash && git push

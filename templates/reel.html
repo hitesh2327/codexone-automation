@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family={{ fonts.heading|replace(' ', '+') }}:wght@600;700;800&family={{ fonts.code|replace(' ', '+') }}:wght@500;700&display=block" rel="stylesheet">
+<style>
+  :root {
+    --bg: {{ colors.bg }}; --primary: {{ colors.primary }}; --accent: {{ colors.accent }}; --text: {{ colors.text }};
+    --muted: color-mix(in srgb, var(--text) 60%, var(--bg));
+    --line: color-mix(in srgb, var(--text) 12%, var(--bg));
+    --heading: '{{ fonts.heading }}', system-ui, sans-serif;
+    --code: '{{ fonts.code }}', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; background: transparent; overflow: hidden; color: var(--text); -webkit-font-smoothing: antialiased; }
+  .layer { position: absolute; inset: 0; display: none; }
+  body[data-mode="bg"] #bg,
+  body[data-mode="text"] #text,
+  body[data-mode="sub"] #sub,
+  body[data-mode="viz"] #viz,
+  body[data-mode="ptr"] #ptr { display: flex; }
+
+  /* ---------- background (static, full video) ---------- */
+  #bg {
+    flex-direction: column; align-items: center;
+    background:
+      radial-gradient(1100px 900px at 110% -5%, color-mix(in srgb, var(--primary) 26%, transparent), transparent 60%),
+      radial-gradient(900px 800px at -20% 105%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+      var(--bg);
+  }
+  #bg::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: radial-gradient(color-mix(in srgb, var(--text) 9%, transparent) 1.8px, transparent 1.8px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+  }
+  .brand {
+    position: absolute; top: 250px; left: 0; right: 0;
+    display: flex; justify-content: center; align-items: center; gap: 18px;
+    font-family: var(--heading); font-weight: 600; font-size: 36px;
+  }
+  .logo {
+    width: 68px; height: 68px; border-radius: 18px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 50%, var(--accent)));
+    color: var(--bg); font-family: var(--code); font-weight: 700; font-size: 26px;
+  }
+  .category {
+    position: absolute; top: 350px; left: 0; right: 0; text-align: center;
+    font-family: var(--code); font-size: 28px; letter-spacing: 4px; text-transform: uppercase; color: var(--muted);
+  }
+
+  /* ---------- scene text (transparent, animated in) ---------- */
+  #text {
+    flex-direction: column; justify-content: center; align-items: center; text-align: center;
+    padding: 0 100px; padding-bottom: 560px; padding-top: 420px;
+  }
+  .kicker {
+    font-family: var(--code); font-weight: 700; font-size: 34px; letter-spacing: 3px;
+    color: var(--bg); background: var(--accent); padding: 12px 28px; border-radius: 14px; margin-bottom: 48px;
+  }
+  .num { font-family: var(--code); font-weight: 700; font-size: 150px; line-height: 1; color: var(--primary); margin-bottom: 30px;
+         text-shadow: 0 0 60px color-mix(in srgb, var(--primary) 55%, transparent); }
+  .big { font-family: var(--heading); font-weight: 800; line-height: 1.08; letter-spacing: -2px; font-size: var(--size, 120px); }
+  .big .hl { color: var(--primary); }
+
+  /* ---------- demo walkthrough (transparent) ---------- */
+  #viz { flex-direction: column; align-items: center; justify-content: center; padding: 440px 70px 720px; }
+  .viz-wrap { display: flex; flex-direction: column; align-items: center; width: 100%; }
+  .viz-wrap .kicker { margin-bottom: 26px; }
+  .viz-title { font-family: var(--heading); font-weight: 800; font-size: 60px; letter-spacing: -1px;
+               text-align: center; line-height: 1.1; margin-bottom: 56px; }
+  .viz-host { width: 100%; }
+  #ptr { align-items: flex-start; justify-content: flex-start; padding: 100px; }
+{% include "viz.css" %}
+
+  /* ---------- subtitles (transparent) ---------- */
+  #sub { align-items: flex-start; justify-content: center; padding: 1270px 90px 0; }
+  .cap {
+    font-family: var(--heading); font-weight: 800; font-size: 66px; line-height: 1.15; text-align: center;
+    padding: 18px 34px; border-radius: 22px;
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    text-transform: uppercase; letter-spacing: -0.5px;
+  }
+  .cap span.on { color: var(--accent); }
+</style>
+</head>
+<body data-mode="bg">
+  <div id="bg" class="layer">
+    <div class="brand"><div class="logo">&lt;/&gt;</div>{{ handle }}</div>
+    <div class="category">{{ category }}</div>
+  </div>
+  <div id="text" class="layer"></div>
+  <div id="sub" class="layer"></div>
+  <div id="viz" class="layer"></div>
+  <div id="ptr" class="layer"></div>
+<script>
+{% include "viz.js" %}
+  var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  window.__viz = async (visual, k) => {
+    document.body.dataset.mode = 'viz';
+    window.__demo = visual;  // pointer colors are assigned by first appearance
+    const host = document.getElementById('viz');
+    host.innerHTML = `<div class="viz-wrap"><div class="kicker">WATCH IT RUN</div>
+      <div class="viz-title">${esc(visual.title)}</div><div class="viz-host"></div></div>`;
+    await document.fonts.ready;
+    return Viz.build(host.querySelector('.viz-host'), visual, visual.steps[k],
+                     { pointers: false, caption: true, cell: 136, maxWidth: 940 });
+  };
+  window.__ptr = async (name, dir) => {
+    document.body.dataset.mode = 'ptr';
+    const host = document.getElementById('ptr');
+    host.innerHTML = '';
+    host.append(Viz.pointerEl(name, Viz.pointerColor(window.__demo || { steps: [] }, name), dir));
+    await document.fonts.ready;
+  };
+  window.__show = async (mode, html) => {
+    document.body.dataset.mode = mode;
+    if (mode !== 'bg') document.getElementById(mode).innerHTML = html;
+    await document.fonts.ready;
+    // Shrink big text until it fits its box.
+    const big = document.querySelector('#text .big');
+    if (mode === 'text' && big) {
+      const box = document.getElementById('text');
+      let size = 120;
+      big.style.setProperty('--size', size + 'px');
+      while (box.scrollHeight > box.clientHeight + 1 && size > 56) {
+        size -= 4; big.style.setProperty('--size', size + 'px');
+      }
+    }
+  };
+</script>
+</body>
+</html>
