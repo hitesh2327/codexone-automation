@@ -133,6 +133,8 @@ def _control_text(item: q.Item, max_caption: int = 3500) -> str:
     if item.voice:  # e.g. en-US-AndrewMultilingualNeural -> Andrew
         name = item.voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
         when += f"🎙 Voice: {name}\n"
+    if item.version > 1 and item.feedback:
+        when += f"📝 Applied feedback: {html.escape(item.feedback[:300])}\n"
     return (f"<b>{kind} · {html.escape(item.category)}{ver}</b>\n"
             f"<b>{html.escape(item.topic)}</b>\n{when}\n{html.escape(cap)}\n\n"
             f"<i>Reply to this message with feedback, then tap Regenerate to apply it.</i>\n"

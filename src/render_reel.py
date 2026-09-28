@@ -47,6 +47,27 @@ TTS_RATE = "+6%"
 MUSIC_VOLUME = 0.12
 
 
+def speakable(text: str) -> str:
+    """Apply brand `pronunciations` (e.g. codexonebyhitesh -> Code Xone By Hitesh) for TTS."""
+    for word, spoken in (load_brand().get("pronunciations") or {}).items():
+        text = re.sub(rf"@?\b{re.escape(word)}\b", spoken, text, flags=re.IGNORECASE)
+    return text
+
+
+def voice_short_name(voice: str) -> str:
+    """en-US-AndrewMultilingualNeural -> Andrew"""
+    return voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
+
+
+def voice_from_feedback(feedback: str) -> str | None:
+    """A rotation voice named in reviewer feedback ("change the voice to Andrew"), if any."""
+    brand = load_brand()
+    for v in brand.get("voices") or [brand.get("voice", "")]:
+        if v and re.search(rf"\b{re.escape(voice_short_name(v))}\b", feedback or "", re.IGNORECASE):
+            return v
+    return None
+
+
 def pick_voice() -> str:
     """Round-robin over brand `voices`: the Nth rotation-era reel gets voices[N % len].
 
@@ -109,7 +130,7 @@ async def _tts(text: str, voice: str, out: Path) -> list[Word]:
 def synthesize(part: Part, voice: str, out: Path, label: str, retries: int = 3) -> None:
     for attempt in range(1, retries + 1):
         try:
-            part.words = asyncio.run(_tts(part.narration, voice, out))
+            part.words = asyncio.run(_tts(speakable(part.narration), voice, out))
             part.audio = out
             with AudioFileClip(str(out)) as a:
                 part.duration = a.duration

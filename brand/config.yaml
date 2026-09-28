@@ -2,7 +2,13 @@ handle: "@codexonebyhitesh"
 colors:
   { bg: "#0D1117", primary: "#00E5FF", accent: "#FFB800", text: "#FFFFFF" }
 fonts: { heading: "Poppins", body: "Inter", code: "JetBrains Mono" }
+# How words should be SPOKEN in reels (applied to narration before text-to-speech;
+# matching is case-insensitive and ignores a leading @).
+pronunciations:
+  codexonebyhitesh: "Code Xone By Hitesh"
+
 # Reels rotate through these voices round-robin (one per reel, in order).
+# Naming one in Telegram feedback before Regenerate (e.g. "use Andrew") picks it instead.
 voices:
   - en-US-AndrewMultilingualNeural   # 1 Andrew: warm, confident
   - en-US-BrianMultilingualNeural    # 2 Brian: casual, friendly

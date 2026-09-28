@@ -132,13 +132,15 @@ def cmd_regenerate(args) -> int:
             if old.kind == "carousel":
                 render_post.render_carousel(content, post_dir / "carousel")
             else:
-                voice = render_reel.pick_voice()
+                voice = render_reel.voice_from_feedback(old.feedback) or render_reel.pick_voice()
                 render_reel.render_reel(content, post_dir, render_reel._default_music(), voice=voice)
             upload.upload_post(post_dir, only=old.kind)
-            new = approve_bot.items_from_post(post_dir, only=old.kind, source_url=old.source_url,
+            new_items = approve_bot.items_from_post(post_dir, only=old.kind, source_url=old.source_url,
                                               angle=old.angle, day=old.date, slug=slug, version=version,
                                               publish_at=approve_bot.item_publish_at(old),
-                                              voice=voice if old.kind == "reel" else "")[0]
+                                              voice=voice if old.kind == "reel" else "")
+            new = new_items[0]
+            new.feedback = old.feedback  # shown on the new preview as "Applied feedback"
             approve_bot.send_preview(new)
             old.status = "replaced"
             q.upsert(old)
