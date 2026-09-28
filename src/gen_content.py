@@ -69,7 +69,7 @@ class Slide(BaseModel):
     kicker: str = Field(default="", description="Tiny label above heading, e.g. 'DSA' or 'Step 2'")
     heading: str = Field(description="Slide heading, max 8 words. On title/cta slides wrap the 1-3 key words in *asterisks*")
     body: str = Field(default="", description="Short text. Use '\\n' separated bullet lines for lists. Max 45 words")
-    code: str = Field(default="", description="Optional code snippet, max 12 lines, max 44 chars per line")
+    code: str = Field(default="", description="Optional code snippet, max 12 lines, max 50 chars per line (break long calls across lines)")
     code_language: str = Field(default="", description="e.g. python, java, cpp, sql, bash")
     steps: list[int] = Field(default_factory=list, description="type=visual only: exactly 2 demo step indices to show")
 
@@ -169,8 +169,11 @@ def validate_shape(c: Content, brand: dict) -> list[str]:
     if len(c.reel.points) != 3:
         problems.append(f"reel must have exactly 3 points, got {len(c.reel.points)}")
     for i, s in enumerate(c.carousel, 1):
-        if s.code and max(len(l) for l in s.code.splitlines()) > 52:
-            problems.append(f"slide {i}: code lines too long (max 44 chars)")
+        long_lines = [(n, l) for n, l in enumerate(s.code.splitlines(), 1) if len(l) > CODE_LINE_MAX]
+        if long_lines:
+            detail = "; ".join(f"line {n} has {len(l)} chars: {l.strip()[:70]!r}" for n, l in long_lines[:4])
+            problems.append(f"slide {i}: code lines must be at most {CODE_LINE_MAX} chars "
+                            f"(split long calls/strings across lines) -- {detail}")
         if s.code and len(s.code.splitlines()) > 14:
             problems.append(f"slide {i}: code too long (max 12 lines)")
     problems += validate_demo(c)
@@ -178,6 +181,8 @@ def validate_shape(c: Content, brand: dict) -> list[str]:
         problems.append("caption + hashtags exceed Instagram's 2200 char limit")
     return problems
 
+
+CODE_LINE_MAX = 56  # the renderer shrinks code to fit this width at >= 23px
 
 MAX_VALUES = {"array": 10, "string": 10, "linked_list": 7, "stack": 6}
 

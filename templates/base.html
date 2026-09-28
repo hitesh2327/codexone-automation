@@ -112,6 +112,11 @@
       s -= 0.03;
       document.documentElement.style.setProperty('--scale', s.toFixed(2));
     }
+    // Code blocks: shrink the font until the longest line fits the width (min 18px).
+    document.querySelectorAll('pre').forEach(pre => {
+      let f = parseFloat(getComputedStyle(pre).fontSize);
+      while (pre.scrollWidth > pre.clientWidth + 1 && f > 18) { f -= 1; pre.style.fontSize = f + 'px'; }
+    });
     return s;
   };
 </script>

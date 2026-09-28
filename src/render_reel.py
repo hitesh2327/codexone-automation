@@ -127,7 +127,7 @@ async def _tts(text: str, voice: str, out: Path) -> list[Word]:
     return words
 
 
-def synthesize(part: Part, voice: str, out: Path, label: str, retries: int = 3) -> None:
+def synthesize(part: Part, voice: str, out: Path, label: str, retries: int = 5) -> None:
     for attempt in range(1, retries + 1):
         try:
             part.words = asyncio.run(_tts(speakable(part.narration), voice, out))
@@ -139,7 +139,7 @@ def synthesize(part: Part, voice: str, out: Path, label: str, retries: int = 3) 
             return
         except Exception as e:  # edge-tts raises various network errors
             log.warning("TTS failed for %s (attempt %d/%d): %s", label, attempt, retries, e)
-            time.sleep(2 * attempt)
+            time.sleep(min(5 * 2 ** (attempt - 1), 30))  # 5, 10, 20, 30s: the service has brief outages
     raise RuntimeError(f"edge-tts failed for '{label}' after {retries} attempts")
 
 
