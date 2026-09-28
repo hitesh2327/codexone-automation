@@ -100,12 +100,13 @@ def gh_pat() -> None:
 
 
 def youtube() -> None:
-    from src.publish_youtube import YTError, credentials
+    from src.publish_youtube import YTError, credentials, privacy
     try:
+        mode = privacy()          # also validates the optional YT_PRIVACY variable
         credentials()
     except YTError as e:
         fail(str(e)[:200])
-    print("OK: YouTube refresh token works (upload scope)")
+    print(f"OK: YouTube refresh token works (upload scope); uploads will be {mode}")
 
 
 CHECKS = {"youtube": youtube, "telegram": telegram, "gemini": gemini, "cloudinary": cloudinary_check,
