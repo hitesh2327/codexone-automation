@@ -109,7 +109,43 @@ def youtube() -> None:
     print(f"OK: YouTube refresh token works (upload scope); uploads will be {mode}")
 
 
-CHECKS = {"youtube": youtube, "telegram": telegram, "gemini": gemini, "cloudinary": cloudinary_check,
+YT_FORMAT = {  # (expected prefix/suffix, hint) -- lets a bad paste be named without printing it
+    "YT_CLIENT_ID": (lambda v: v.endswith(".apps.googleusercontent.com"), "should end with .apps.googleusercontent.com"),
+    "YT_CLIENT_SECRET": (lambda v: v.startswith("GOCSPX-"), "should start with GOCSPX-"),
+    "YT_REFRESH_TOKEN": (lambda v: v.startswith("1//"), "should start with 1//"),
+}
+
+
+def yt_value(name: str) -> None:
+    """One YouTube secret: present, well-formed, and identical to the local .env value.
+
+    EXPECTED_FP_<NAME> is the first 8 hex chars of sha256(value) computed locally -- enough to
+    detect a mismatch, useless for recovering the secret.
+    """
+    import hashlib
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        fail(f"{name} is missing -- add it under Settings → Secrets and variables → Actions → "
+             "Secrets → Repository secrets (not Variables, not an Environment)")
+    v = raw.strip()
+    if raw != v:
+        print(f"note: {name} has leading/trailing whitespace (stripped at runtime)")
+    if v.startswith(f"{name}=") or v[:1] in "\"'" or v[-1:] in "\"'":
+        fail(f"{name} value includes the '{name}=' prefix or quotes -- paste only the value")
+    ok, hint = YT_FORMAT[name]
+    if not ok(v):
+        fail(f"{name} does not look right: {hint} (length {len(v)})")
+    expected = os.getenv(f"EXPECTED_FP_{name}")
+    fp = hashlib.sha256(v.encode()).hexdigest()[:8]
+    if expected and fp != expected:
+        fail(f"{name} differs from the working local value (length {len(v)}); re-copy it from .env")
+    print(f"OK: {name} present, well-formed{', matches local' if expected else ''} (length {len(v)})")
+
+
+CHECKS = {"yt_client_id": lambda: yt_value("YT_CLIENT_ID"),
+          "yt_client_secret": lambda: yt_value("YT_CLIENT_SECRET"),
+          "yt_refresh_token": lambda: yt_value("YT_REFRESH_TOKEN"),
+          "youtube": youtube, "telegram": telegram, "gemini": gemini, "cloudinary": cloudinary_check,
           "instagram": instagram, "gh_pat": gh_pat}
 
 if __name__ == "__main__":
