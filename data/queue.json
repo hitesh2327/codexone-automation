@@ -189,80 +189,6 @@
     "attempts": 1
   },
   {
-    "id": "20260927-c-324144",
-    "kind": "carousel",
-    "date": "2026-09-27",
-    "topic": "Understanding Prompt Injection in AI",
-    "category": "AI",
-    "source_url": "https://dev.to/james_anderson_h/prompt-injection-is-the-new-sql-injection-and-were-not-ready-4ea4",
-    "angle": "Learn how prompt injection allows users to hijack an AI model's system instructions, why it is highly similar to classic SQL injection, and how developers can secure their LLM applications.",
-    "post_dir": "output/2026-09-27/understanding-prompt-injection-in-ai",
-    "caption": "Prompt injection is one of the most critical vulnerabilities in modern AI applications.\n\nWhen you build with large language models, the model consumes your system prompt and user input as a single continuous text sequence. If an attacker inputs instructions like 'ignore previous rules', the model can end up executing the user command instead of yours.\n\nThis vulnerability closely mirrors SQL injection from early web development: data and control instructions get mixed together. Defending against it requires layered security, including structured messaging formats, input sanitization, and output guardrails before triggering external actions.\n\nHave you implemented guardrails against prompt injection in your AI projects yet?\n\n#ai #softwareengineer #coding #programming #systemdesign #developer #techindia #machinelearning #cybersecurity #websecurity #llm #python",
-    "media": {
-      "carousel": [
-        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529297/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_01.jpg",
-        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529297/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_02.jpg",
-        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529298/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_03.jpg",
-        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529298/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_04.jpg",
-        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529299/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_05.jpg",
-        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529300/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_06.jpg"
-      ]
-    },
-    "status": "regenerate",
-    "publish_at": "2026-09-27T19:00:00+05:30",
-    "voice": "",
-    "version": 1,
-    "feedback": "The pronunciation of \"codexonebyhitesh\" is \"Code Xone By Hitesh\" \nIn the third slide show the example prompt properly ut is not shown currently in the image",
-    "tg_message_ids": [
-      41,
-      42,
-      43,
-      44,
-      45,
-      46,
-      47
-    ],
-    "tg_control_id": 47,
-    "created_at": "2026-09-27T17:15:02+00:00",
-    "decided_at": "2026-09-28T05:45:25+00:00",
-    "published_at": null,
-    "ig_media_id": null,
-    "platforms": {},
-    "error": null,
-    "attempts": 0
-  },
-  {
-    "id": "20260927-r-324144",
-    "kind": "reel",
-    "date": "2026-09-27",
-    "topic": "Understanding Prompt Injection in AI",
-    "category": "AI",
-    "source_url": "https://dev.to/james_anderson_h/prompt-injection-is-the-new-sql-injection-and-were-not-ready-4ea4",
-    "angle": "Learn how prompt injection allows users to hijack an AI model's system instructions, why it is highly similar to classic SQL injection, and how developers can secure their LLM applications.",
-    "post_dir": "output/2026-09-27/understanding-prompt-injection-in-ai",
-    "caption": "Prompt injection is one of the most critical vulnerabilities in modern AI applications.\n\nWhen you build with large language models, the model consumes your system prompt and user input as a single continuous text sequence. If an attacker inputs instructions like 'ignore previous rules', the model can end up executing the user command instead of yours.\n\nThis vulnerability closely mirrors SQL injection from early web development: data and control instructions get mixed together. Defending against it requires layered security, including structured messaging formats, input sanitization, and output guardrails before triggering external actions.\n\nHave you implemented guardrails against prompt injection in your AI projects yet?\n\n#ai #softwareengineer #coding #programming #systemdesign #developer #techindia #machinelearning #cybersecurity #websecurity #llm #python",
-    "media": {
-      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790529300/codexone/2026-09-27/understanding-prompt-injection-in-ai/reel.mp4",
-      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790529301/codexone/2026-09-27/understanding-prompt-injection-in-ai/reel_cover.jpg"
-    },
-    "status": "regenerate",
-    "publish_at": "2026-09-27T19:00:00+05:30",
-    "voice": "",
-    "version": 1,
-    "feedback": "Change the voice to Andrew",
-    "tg_message_ids": [
-      48
-    ],
-    "tg_control_id": 48,
-    "created_at": "2026-09-27T17:15:02+00:00",
-    "decided_at": "2026-09-28T05:45:24+00:00",
-    "published_at": null,
-    "ig_media_id": null,
-    "platforms": {},
-    "error": null,
-    "attempts": 0
-  },
-  {
     "id": "20260927-r-83dd8b",
     "kind": "reel",
     "date": "2026-09-27",
@@ -305,5 +231,153 @@
     },
     "error": null,
     "attempts": 4
+  },
+  {
+    "id": "20260927-c-43d90a",
+    "kind": "carousel",
+    "date": "2026-09-27",
+    "topic": "Understanding Prompt Injection in AI",
+    "category": "AI",
+    "source_url": "https://dev.to/james_anderson_h/prompt-injection-is-the-new-sql-injection-and-were-not-ready-4ea4",
+    "angle": "Learn how prompt injection allows users to hijack an AI model's system instructions, why it is highly similar to classic SQL injection, and how developers can secure their LLM applications.",
+    "post_dir": "output/2026-09-27/understanding-prompt-injection-in-ai/v2",
+    "caption": "Prompt injection is one of the most critical security challenges facing AI developers today. Because Large Language Models process system instructions and user inputs in the same context, they are vulnerable to being hijacked by clever phrasing, much like classic SQL injection. If an attacker can trick your model into ignoring its core rules, your application's security fails entirely. Protecting your AI means clearly separating instructions from user data and using strict boundary wrappers. How do you currently handle input sanitization in your AI projects?\n\n#ai #coding #programming #developer #softwareengineer #cybersecurity #techindia #machinelearning #systemdesign #python #security #tech",
+    "media": {
+      "carousel": [
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790574976/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/slide_01.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790574978/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/slide_02.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790574979/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/slide_03.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790574980/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/slide_04.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790574981/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/slide_05.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790574981/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/slide_06.jpg"
+      ]
+    },
+    "status": "pending",
+    "publish_at": "2026-09-27T19:00:00+05:30",
+    "voice": "",
+    "version": 2,
+    "feedback": "The pronunciation of \"codexonebyhitesh\" is \"Code Xone By Hitesh\" \nIn the third slide show the example prompt properly ut is not shown currently in the image",
+    "tg_message_ids": [
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65
+    ],
+    "tg_control_id": 65,
+    "created_at": "2026-09-28T05:56:23+00:00",
+    "decided_at": null,
+    "published_at": null,
+    "ig_media_id": null,
+    "platforms": {},
+    "error": null,
+    "attempts": 0
+  },
+  {
+    "id": "20260927-c-324144",
+    "kind": "carousel",
+    "date": "2026-09-27",
+    "topic": "Understanding Prompt Injection in AI",
+    "category": "AI",
+    "source_url": "https://dev.to/james_anderson_h/prompt-injection-is-the-new-sql-injection-and-were-not-ready-4ea4",
+    "angle": "Learn how prompt injection allows users to hijack an AI model's system instructions, why it is highly similar to classic SQL injection, and how developers can secure their LLM applications.",
+    "post_dir": "output/2026-09-27/understanding-prompt-injection-in-ai",
+    "caption": "Prompt injection is one of the most critical vulnerabilities in modern AI applications.\n\nWhen you build with large language models, the model consumes your system prompt and user input as a single continuous text sequence. If an attacker inputs instructions like 'ignore previous rules', the model can end up executing the user command instead of yours.\n\nThis vulnerability closely mirrors SQL injection from early web development: data and control instructions get mixed together. Defending against it requires layered security, including structured messaging formats, input sanitization, and output guardrails before triggering external actions.\n\nHave you implemented guardrails against prompt injection in your AI projects yet?\n\n#ai #softwareengineer #coding #programming #systemdesign #developer #techindia #machinelearning #cybersecurity #websecurity #llm #python",
+    "media": {
+      "carousel": [
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529297/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_01.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529297/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_02.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529298/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_03.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529298/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_04.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529299/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_05.jpg",
+        "https://res.cloudinary.com/oteyzym4/image/upload/v1790529300/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_06.jpg"
+      ]
+    },
+    "status": "replaced",
+    "publish_at": "2026-09-27T19:00:00+05:30",
+    "voice": "",
+    "version": 1,
+    "feedback": "The pronunciation of \"codexonebyhitesh\" is \"Code Xone By Hitesh\" \nIn the third slide show the example prompt properly ut is not shown currently in the image",
+    "tg_message_ids": [
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47
+    ],
+    "tg_control_id": 47,
+    "created_at": "2026-09-27T17:15:02+00:00",
+    "decided_at": "2026-09-28T05:45:25+00:00",
+    "published_at": null,
+    "ig_media_id": null,
+    "platforms": {},
+    "error": null,
+    "attempts": 0
+  },
+  {
+    "id": "20260927-r-43d90a",
+    "kind": "reel",
+    "date": "2026-09-27",
+    "topic": "Understanding Prompt Injection in AI",
+    "category": "AI",
+    "source_url": "https://dev.to/james_anderson_h/prompt-injection-is-the-new-sql-injection-and-were-not-ready-4ea4",
+    "angle": "Learn how prompt injection allows users to hijack an AI model's system instructions, why it is highly similar to classic SQL injection, and how developers can secure their LLM applications.",
+    "post_dir": "output/2026-09-27/understanding-prompt-injection-in-ai/v2",
+    "caption": "Prompt injection is one of the most critical vulnerabilities in modern AI engineering. It happens because LLMs naturally struggle to separate developer instructions from user data. When we simply concatenate strings to build prompts, we give users full control over the AI's behavior. To secure your applications, always use structured API parameters with separate system and user roles. This helps the model understand what is an instruction and what is just data to be processed. Have you encountered prompt injection issues while building your AI tools?\n\n#ai #security #softwareengineering #programming #coding #cybersecurity #python #developer #techindia #systemdesign #llm",
+    "media": {
+      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790575274/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/reel.mp4",
+      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790575275/codexone/2026-09-27/understanding-prompt-injection-in-ai/v2/reel_cover.jpg"
+    },
+    "status": "pending",
+    "publish_at": "2026-09-27T19:00:00+05:30",
+    "voice": "en-US-AndrewMultilingualNeural",
+    "version": 2,
+    "feedback": "Change the voice to Andrew",
+    "tg_message_ids": [
+      66
+    ],
+    "tg_control_id": 66,
+    "created_at": "2026-09-28T06:01:17+00:00",
+    "decided_at": null,
+    "published_at": null,
+    "ig_media_id": null,
+    "platforms": {},
+    "error": null,
+    "attempts": 0
+  },
+  {
+    "id": "20260927-r-324144",
+    "kind": "reel",
+    "date": "2026-09-27",
+    "topic": "Understanding Prompt Injection in AI",
+    "category": "AI",
+    "source_url": "https://dev.to/james_anderson_h/prompt-injection-is-the-new-sql-injection-and-were-not-ready-4ea4",
+    "angle": "Learn how prompt injection allows users to hijack an AI model's system instructions, why it is highly similar to classic SQL injection, and how developers can secure their LLM applications.",
+    "post_dir": "output/2026-09-27/understanding-prompt-injection-in-ai",
+    "caption": "Prompt injection is one of the most critical vulnerabilities in modern AI applications.\n\nWhen you build with large language models, the model consumes your system prompt and user input as a single continuous text sequence. If an attacker inputs instructions like 'ignore previous rules', the model can end up executing the user command instead of yours.\n\nThis vulnerability closely mirrors SQL injection from early web development: data and control instructions get mixed together. Defending against it requires layered security, including structured messaging formats, input sanitization, and output guardrails before triggering external actions.\n\nHave you implemented guardrails against prompt injection in your AI projects yet?\n\n#ai #softwareengineer #coding #programming #systemdesign #developer #techindia #machinelearning #cybersecurity #websecurity #llm #python",
+    "media": {
+      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790529300/codexone/2026-09-27/understanding-prompt-injection-in-ai/reel.mp4",
+      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790529301/codexone/2026-09-27/understanding-prompt-injection-in-ai/reel_cover.jpg"
+    },
+    "status": "replaced",
+    "publish_at": "2026-09-27T19:00:00+05:30",
+    "voice": "",
+    "version": 1,
+    "feedback": "Change the voice to Andrew",
+    "tg_message_ids": [
+      48
+    ],
+    "tg_control_id": 48,
+    "created_at": "2026-09-27T17:15:02+00:00",
+    "decided_at": "2026-09-28T05:45:24+00:00",
+    "published_at": null,
+    "ig_media_id": null,
+    "platforms": {},
+    "error": null,
+    "attempts": 0
   }
 ]
