@@ -91,7 +91,8 @@ def full_caption(content: Content) -> str:
 # --------------------------------------------------------------------------- #
 def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "",
                     angle: str = "", day: str | None = None, slug: str | None = None,
-                    version: int = 1, publish_at: datetime | None = None) -> list[q.Item]:
+                    version: int = 1, publish_at: datetime | None = None,
+                    voice: str = "") -> list[q.Item]:
     content = Content.model_validate_json((post_dir / "content.json").read_text(encoding="utf-8"))
     media = json.loads((post_dir / "media.json").read_text(encoding="utf-8"))
     day = day or post_dir.parent.name
@@ -110,6 +111,7 @@ def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "
             post_dir=post_dir.resolve().relative_to(ROOT).as_posix(),
             caption=full_caption(content), version=version,
             publish_at=publish_at.isoformat() if publish_at else None,
+            voice=voice if kind == "reel" else "",
             media={k: v for k, v in media.items()
                    if (kind == "carousel" and k == "carousel") or (kind == "reel" and k in ("reel", "cover"))},
         ))
@@ -128,6 +130,9 @@ def _control_text(item: q.Item, max_caption: int = 3500) -> str:
     ver = f" · v{item.version}" if item.version > 1 else ""
     cap = item.caption if len(item.caption) <= max_caption else item.caption[:max_caption].rstrip() + "…"
     when = f"🕒 Posts {item_publish_at(item):%a %d %b, %H:%M} IST after approval\n"
+    if item.voice:  # e.g. en-US-AndrewMultilingualNeural -> Andrew
+        name = item.voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
+        when += f"🎙 Voice: {name}\n"
     return (f"<b>{kind} · {html.escape(item.category)}{ver}</b>\n"
             f"<b>{html.escape(item.topic)}</b>\n{when}\n{html.escape(cap)}\n\n"
             f"<i>Reply to this message with feedback, then tap Regenerate to apply it.</i>\n"

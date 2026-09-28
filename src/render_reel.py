@@ -47,6 +47,19 @@ TTS_RATE = "+6%"
 MUSIC_VOLUME = 0.12
 
 
+def pick_voice() -> str:
+    """Round-robin over brand `voices`: the Nth rotation-era reel gets voices[N % len].
+
+    Counts queued reels that recorded a voice, so the rotation survives CI runs
+    (data/queue.json is committed) and started at voices[0].
+    """
+    from src import queue_store as q
+    brand = load_brand()
+    voices = brand.get("voices") or [brand["voice"]]
+    n = sum(1 for i in q.load() if i.kind == "reel" and i.voice)
+    return voices[n % len(voices)]
+
+
 @dataclass
 class Word:
     text: str
@@ -327,8 +340,10 @@ def _demo_layers(page, content: Content, scene: Scene, work: Path, is_last: bool
 
 
 def render_reel(content: Content, out_dir: Path, music: Path | None = None,
-                dry_run: bool = False) -> Path | None:
+                dry_run: bool = False, voice: str | None = None) -> Path | None:
     brand = load_brand()
+    voice = voice or pick_voice()
+    log.info("voice: %s", voice)
     scenes = build_scenes(content)
     if dry_run:
         for s in scenes:
@@ -346,7 +361,7 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
     for i, s in enumerate(scenes):
         off = 0.0
         for j, p in enumerate(s.parts):
-            synthesize(p, brand["voice"], work / f"voice_{i}_{j}.mp3", f"{s.kind} part {j}")
+            synthesize(p, voice, work / f"voice_{i}_{j}.mp3", f"{s.kind} part {j}")
             p.offset = off
             off += p.duration + PART_GAP
         s.start = t
@@ -447,10 +462,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Render reel MP4 from content.json")
     ap.add_argument("content_json", type=Path)
     ap.add_argument("--music", type=Path, help="optional background music file")
+    ap.add_argument("--voice", help="edge-tts voice (default: next in the brand rotation)")
     ap.add_argument("--dry-run", action="store_true", help="print scenes; render nothing")
     args = ap.parse_args(argv)
     content = Content.model_validate_json(args.content_json.read_text(encoding="utf-8"))
-    render_reel(content, args.content_json.parent, args.music or _default_music(), args.dry_run)
+    render_reel(content, args.content_json.parent, args.music or _default_music(), args.dry_run, args.voice)
     return 0
 
 

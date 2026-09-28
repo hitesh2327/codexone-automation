@@ -2,7 +2,15 @@ handle: "@codexonebyhitesh"
 colors:
   { bg: "#0D1117", primary: "#00E5FF", accent: "#FFB800", text: "#FFFFFF" }
 fonts: { heading: "Poppins", body: "Inter", code: "JetBrains Mono" }
-voice: "en-IN-PrabhatNeural"
+# Reels rotate through these voices round-robin (one per reel, in order).
+voices:
+  - en-US-AndrewMultilingualNeural   # 1 Andrew: warm, confident
+  - en-US-BrianMultilingualNeural    # 2 Brian: casual, friendly
+  - en-US-ChristopherNeural          # 3 Christopher: authoritative
+  - en-US-GuyNeural                  # 4 Guy: energetic
+  - en-GB-RyanNeural                 # 5 Ryan: British
+  - en-US-AvaMultilingualNeural      # 7 Ava: expressive
+  - en-US-EmmaMultilingualNeural     # 8 Emma: cheerful, clear
 language: "English, simple, beginner-friendly"
 topics_weight:
   { AI: 30, SystemDesign: 20, DSA: 20, Interview: 15, OS: 10, Dev: 5 }

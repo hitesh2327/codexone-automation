@@ -84,6 +84,8 @@ For algorithm and data-structure topics, Gemini adds a `demo`: a small concrete 
 
 The shared drawing code is in `templates/viz.js` and `templates/viz.css`.
 
+Voiceover: reels rotate through the `voices` list in `brand/config.yaml` in order, one voice per reel. The Telegram preview shows which voice was used. Edit the list to add or drop voices (`python -c "import asyncio, edge_tts; print([v['ShortName'] for v in asyncio.run(edge_tts.list_voices()) if v['Locale'].startswith('en-')])"` lists them).
+
 Background music is optional: set `reel.music` in `brand/config.yaml` to an mp3 file or a folder of mp3s.
 
 ## GitHub Actions

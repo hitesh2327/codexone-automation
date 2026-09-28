@@ -51,12 +51,14 @@ def cmd_generate(args) -> int:
 
     post_dir = gen_content.save(content, day).parent
     render_post.render_carousel(content, post_dir / "carousel")
+    voice = ""
     if not args.skip_reel:
-        render_reel.render_reel(content, post_dir, args.music or render_reel._default_music())
+        voice = render_reel.pick_voice()
+        render_reel.render_reel(content, post_dir, args.music or render_reel._default_music(), voice=voice)
     upload.upload_post(post_dir)
 
     for item in approve_bot.items_from_post(post_dir, source_url=topic.source_url, angle=topic.angle,
-                                            publish_at=publish_at):
+                                            publish_at=publish_at, voice=voice):
         approve_bot.send_preview(item)
     return 0
 
@@ -116,11 +118,13 @@ def cmd_regenerate(args) -> int:
             if old.kind == "carousel":
                 render_post.render_carousel(content, post_dir / "carousel")
             else:
-                render_reel.render_reel(content, post_dir, render_reel._default_music())
+                voice = render_reel.pick_voice()
+                render_reel.render_reel(content, post_dir, render_reel._default_music(), voice=voice)
             upload.upload_post(post_dir, only=old.kind)
             new = approve_bot.items_from_post(post_dir, only=old.kind, source_url=old.source_url,
                                               angle=old.angle, day=old.date, slug=slug, version=version,
-                                              publish_at=approve_bot.item_publish_at(old))[0]
+                                              publish_at=approve_bot.item_publish_at(old),
+                                              voice=voice if old.kind == "reel" else "")[0]
             approve_bot.send_preview(new)
             old.status = "replaced"
             q.upsert(old)

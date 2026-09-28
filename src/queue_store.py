@@ -41,6 +41,7 @@ class Item(BaseModel):
     media: dict = Field(default_factory=dict)
     status: Status = "pending"
     publish_at: str | None = None          # ISO time (IST) of the slot this post is for
+    voice: str = ""                        # reels: edge-tts voice used
     version: int = 1
     feedback: str = ""                     # text reply in Telegram → used by Regenerate
     tg_message_ids: list[int] = Field(default_factory=list)
