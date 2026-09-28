@@ -1,0 +1,13 @@
+.venv
+.git
+.env
+.env.*
+client_secret*.json
+get_yt_token.py
+output
+logs
+data/topics_*.json
+data/ranked_*.json
+web/node_modules
+web/dist
+**/__pycache__

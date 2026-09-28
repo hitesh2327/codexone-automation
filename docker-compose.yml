@@ -1,6 +1,6 @@
-# Local development. Phase 1: Postgres only; the api and web services are added in later phases.
-#   docker compose up -d db
-#   DATABASE_URL=postgresql+psycopg://codexone:codexone@localhost:5433/codexone
+# Local development: Postgres + admin API + web (Vite dev server with hot reload).
+#   docker compose up --build        ->  http://localhost:5173
+# Secrets come from .env (DATABASE_URL there is overridden to use the local db service).
 services:
   db:
     image: postgres:16-alpine
@@ -17,5 +17,39 @@ services:
       interval: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://codexone:codexone@db:5432/codexone
+      COOKIE_SECURE: "false"
+      PUBLIC_URL: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:   # live code reload
+      - ./src:/app/src
+      - ./api:/app/api
+    command: sh -c "cd api && alembic upgrade head && cd .. && uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir api --reload-dir src"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: node:22-alpine
+    working_dir: /web
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/web
+      - web_node_modules:/web/node_modules   # Linux node_modules, separate from the host's
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
+  web_node_modules:

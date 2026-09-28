@@ -1,0 +1,150 @@
+"""Sign-in: username/password (bcrypt) or Google (Authlib, allowlisted emails only)."""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from urllib.parse import quote
+
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+
+from api.app import ratelimit as rl
+from api.app.deps import CurrentUser, current_user, require_csrf
+from api.app.security import (burn_time, clear_session_cookie, create_session_token, set_session_cookie,
+                              verify_password)
+from api.app.settings import settings
+from src import db
+from src.db.models import User
+
+log = logging.getLogger("codexone.api.auth")
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+oauth = OAuth()
+_google_registered = False
+
+
+def _google():
+    global _google_registered
+    s = settings()
+    if not s.google_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Google sign-in is not configured")
+    if not _google_registered:
+        oauth.register(name="google", client_id=s.google_client_id, client_secret=s.google_client_secret,
+                       server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+                       client_kwargs={"scope": "openid email profile", "prompt": "select_account"})
+        _google_registered = True
+    return oauth.google
+
+
+class LoginBody(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=200)
+
+
+def _user_out(u: User | CurrentUser, csrf: str) -> dict:
+    return {"id": u.id, "username": u.username, "email": u.email, "name": u.name or u.username or u.email,
+            "csrf": csrf}
+
+
+def _start_session(response: Response, user: User) -> str:
+    token, csrf = create_session_token(user.id, user.token_version)
+    set_session_cookie(response, token)
+    return csrf
+
+
+@router.get("/providers")
+def providers() -> dict:
+    """Public: which sign-in options the login page should show."""
+    return {"password": True, "google": settings().google_enabled}
+
+
+@router.post("/login")
+def login(body: LoginBody, request: Request, response: Response) -> dict:
+    if "application/json" not in request.headers.get("content-type", ""):
+        # HTML forms can't send JSON cross-site without a CORS preflight: blocks login CSRF.
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
+    ip = request.client.host if request.client else "unknown"
+    account_key, ip_key = f"acct:{ip}:{body.username.lower()}", f"ip:{ip}"
+    wait = max(rl.login_limiter.retry_after(account_key, rl.PER_ACCOUNT, rl.WINDOW),
+               rl.login_limiter.retry_after(ip_key, rl.PER_IP, rl.WINDOW))
+    if wait:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            f"Too many failed attempts. Try again in {wait // 60 + 1} min.",
+                            headers={"Retry-After": str(wait)})
+
+    with db.session() as s:
+        user = s.scalars(select(User).where(func.lower(User.username) == body.username.lower())).first()
+        if user is None:
+            burn_time()  # same timing as a wrong password
+        ok = bool(user and user.is_active and verify_password(body.password, user.password_hash))
+        if not ok:
+            rl.login_limiter.hit(account_key)
+            rl.login_limiter.hit(ip_key)
+            log.warning("failed login for %r from %s", body.username, ip)
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
+        user.last_login_at = datetime.now(timezone.utc)
+        rl.login_limiter.reset(account_key)
+        csrf = _start_session(response, user)
+        log.info("login: %s from %s", user.username, ip)
+        return _user_out(user, csrf)
+
+
+@router.post("/logout")
+def logout(response: Response, user: CurrentUser = Depends(require_csrf)) -> dict:
+    with db.session() as s:
+        row = s.get(User, user.id)
+        if row:
+            row.token_version += 1  # invalidates every session issued so far
+    clear_session_cookie(response)
+    return {"ok": True}
+
+
+@router.get("/me")
+def me(user: CurrentUser = Depends(current_user)) -> dict:
+    return _user_out(user, user.csrf)
+
+
+# --------------------------------------------------------------------------- #
+# Google
+# --------------------------------------------------------------------------- #
+def _login_redirect(error: str) -> RedirectResponse:
+    return RedirectResponse(f"{settings().public_url}/login?error={quote(error)}", status_code=303)
+
+
+@router.get("/google/login")
+async def google_login(request: Request):
+    redirect_uri = f"{settings().public_url}/api/auth/google/callback"
+    return await _google().authorize_redirect(request, redirect_uri)
+
+
+@router.get("/google/callback")
+async def google_callback(request: Request):
+    try:
+        token = await _google().authorize_access_token(request)
+    except OAuthError as e:
+        log.warning("google oauth error: %s", e.error)
+        return _login_redirect("Google sign-in was cancelled or failed. Please try again.")
+    info = token.get("userinfo") or {}
+    email = (info.get("email") or "").lower()
+    if not email or not info.get("email_verified"):
+        return _login_redirect("Your Google account has no verified email.")
+    if email not in settings().allowed_google_emails:
+        log.warning("google login refused for %s (not in ALLOWED_GOOGLE_EMAILS)", email)
+        return _login_redirect(f"{email} is not allowed to sign in.")
+
+    response = RedirectResponse(f"{settings().public_url}/", status_code=303)
+    with db.session() as s:
+        user = s.scalars(select(User).where(func.lower(User.email) == email)).first()
+        if user is None:
+            user = User(email=email, name=info.get("name") or "")
+            s.add(user)
+            s.flush()
+        if not user.is_active:
+            return _login_redirect("This account is disabled.")
+        user.last_login_at = datetime.now(timezone.utc)
+        _start_session(response, user)
+    log.info("login via google: %s", email)
+    return response

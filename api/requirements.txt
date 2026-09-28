@@ -1,0 +1,10 @@
+# Admin API (on top of the pipeline's ../requirements.txt)
+-r ../requirements.txt
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pyjwt>=2.8
+bcrypt>=4.1
+authlib>=1.3
+itsdangerous>=2.1      # signed session cookie for the OAuth state (Authlib)
+httpx>=0.27            # Authlib's async OAuth client
+pytest>=8              # tests

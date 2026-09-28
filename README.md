@@ -29,6 +29,50 @@ CLOUDINARY_URL=cloudinary://<key>:<secret>@<cloud_name>
 GITHUB_TOKEN=            # optional, raises GitHub API rate limit
 ```
 
+## Admin dashboard
+
+FastAPI in `api/` (it reuses `src/`) and React + Vite + TypeScript + Tailwind + shadcn/ui in `web/`.
+
+**Run it locally.** Either use Docker for everything:
+```bash
+docker compose up --build            # http://localhost:5173
+```
+Or run it without Docker for the app, with Postgres still from Docker:
+```bash
+docker compose up -d db
+export DATABASE_URL=postgresql+psycopg://codexone:codexone@localhost:5433/codexone
+(cd api && alembic upgrade head)
+uvicorn api.app.main:app --reload --port 8000     # API
+npm --prefix web install && npm --prefix web run dev   # web on :5173 (proxies /api to :8000)
+python -m pytest api/tests -q                         # API tests (SQLite, no Postgres needed)
+```
+
+**Sign-in.** There are two ways to sign in:
+- **Username + password**: bcrypt-hashed. The admin account is created (or its password updated) from
+  `ADMIN_USERNAME` / `ADMIN_PASSWORD` every time the API starts.
+- **Sign in with Google**: set `GOOGLE_WEB_CLIENT_ID` / `GOOGLE_WEB_CLIENT_SECRET` (a *Web application* OAuth
+  client) and `ALLOWED_GOOGLE_EMAILS` (comma-separated). Only those emails, and only verified ones, can sign in.
+  In the client's **Authorized redirect URIs**, register `<PUBLIC_URL>/api/auth/google/callback` for each
+  environment, e.g. `http://localhost:5173/api/auth/google/callback`.
+
+How sessions are protected:
+- The session is a JWT in an httpOnly cookie: Secure and `__Host-` prefixed in production, SameSite=Lax.
+- CSRF: non-GET requests need the `X-CSRF-Token` header. The token is bound to the session and returned
+  by `/api/auth/me`.
+- Login is rate-limited to 5 failures per IP+username and 20 per IP, per 15 minutes.
+- Logout invalidates every session for that user.
+
+| Env var | Purpose |
+| --- | --- |
+| `JWT_SECRET` | session signing key, 32+ chars (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) |
+| `SESSION_SECRET` | signs the short-lived OAuth state cookie |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | password admin |
+| `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_WEB_CLIENT_SECRET`, `ALLOWED_GOOGLE_EMAILS` | Google sign-in |
+| `PUBLIC_URL` | browser-facing URL (OAuth redirects), default `http://localhost:5173` |
+| `COOKIE_SECURE` | `false` only for local http; default `true` |
+| `WEB_ORIGIN` | only if the web app is on a different origin than the API (enables CORS and SameSite=None) |
+| `SESSION_HOURS` | session length, default 12 |
+
 ## Database (Postgres)
 
 State (the approval queue, publishing history, brand config, Telegram offset) lives in Postgres when

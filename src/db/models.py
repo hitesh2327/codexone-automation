@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, BigInteger, Date, DateTime, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -80,3 +80,19 @@ class Setting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict | list | int | str | None] = mapped_column(JSONType)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class User(Base):
+    """Dashboard login. Password users have username + password_hash; Google users have email."""
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str | None] = mapped_column(String(64), unique=True)
+    email: Mapped[str | None] = mapped_column(String(254), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(100))
+    name: Mapped[str] = mapped_column(String(128), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumped on logout; tokens carry it, so logging out invalidates every issued session.
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
