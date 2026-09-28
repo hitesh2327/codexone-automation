@@ -27,6 +27,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMedia
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TelegramError, TimedOut
 
+from src import db
 from src import queue_store as q
 from src.config import DATA_DIR, ROOT, get_env, load_brand
 from src.gen_content import Content
@@ -190,6 +191,8 @@ def notify(text: str, reply_to: int | None = None, dry_run: bool = False) -> Non
 # Polling for decisions
 # --------------------------------------------------------------------------- #
 def _load_offset() -> int | None:
+    if db.enabled():
+        return (db.get_setting("tg_offset") or {}).get("offset")
     try:
         return json.loads(OFFSET_FILE.read_text(encoding="utf-8"))["offset"]
     except (FileNotFoundError, KeyError, json.JSONDecodeError):
@@ -197,6 +200,9 @@ def _load_offset() -> int | None:
 
 
 def _save_offset(offset: int) -> None:
+    if db.enabled():
+        db.set_setting("tg_offset", {"offset": offset})
+        return
     OFFSET_FILE.write_text(json.dumps({"offset": offset}), encoding="utf-8")
 
 

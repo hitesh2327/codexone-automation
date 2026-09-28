@@ -1,0 +1,21 @@
+# Local development. Phase 1: Postgres only; the api and web services are added in later phases.
+#   docker compose up -d db
+#   DATABASE_URL=postgresql+psycopg://codexone:codexone@localhost:5433/codexone
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: codexone
+      POSTGRES_PASSWORD: codexone
+      POSTGRES_DB: codexone
+    ports:
+      - "5433:5432"   # 5433 on the host so it never clashes with a locally installed Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codexone -d codexone"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:

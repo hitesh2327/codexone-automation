@@ -18,7 +18,7 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
-from src.config import DATA_DIR, POSTED_FILE, load_brand
+from src.config import DATA_DIR, load_brand
 from src.llm import generate_json
 from src.logger import get_logger
 
@@ -50,10 +50,8 @@ def pick_category(weights: dict[str, int], seed: str, avoid: str | None) -> str:
 
 
 def _posted() -> list[dict]:
-    try:
-        return json.loads(POSTED_FILE.read_text(encoding="utf-8") or "[]")
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    from src.queue_store import posted_entries
+    return posted_entries()
 
 
 def last_category() -> str | None:

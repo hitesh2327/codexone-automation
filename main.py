@@ -39,7 +39,9 @@ def cmd_generate(args) -> int:
 
     # Two schedulers can fire for the same slot (cron-job.org + GitHub's backup cron): only the
     # first one generates. A trigger arriving long after the slot is skipped as stale.
-    if any(i.publish_at == publish_at.isoformat() for i in q.load()) and not args.force:
+    # Compare instants, not strings: the DB returns the same slot as UTC ("13:30+00:00").
+    if any(i.publish_at and datetime.fromisoformat(i.publish_at) == publish_at for i in q.load()) \
+            and not args.force:
         log.info("slot %s already has a post queued; nothing to do", f"{publish_at:%d %b %H:%M}")
         return 0
     late = datetime.now(approve_bot.IST) - publish_at

@@ -47,7 +47,16 @@ def get_env(name: str, required: bool = True, default: str | None = None) -> str
 
 @lru_cache(maxsize=1)
 def load_brand() -> dict:
-    """Load brand/config.yaml once."""
+    """Brand settings, loaded once per process.
+
+    From the `settings` table (key "brand") when DATABASE_URL is set and the brand has been
+    migrated there; otherwise from brand/config.yaml.
+    """
+    from src import db  # lazy: src.db imports this module
+    if db.enabled():
+        brand = db.get_setting("brand")
+        if brand:
+            return brand
     with BRAND_FILE.open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 

@@ -44,6 +44,7 @@ env:
   TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
   IG_USER_ID: ${{ secrets.IG_USER_ID }}
   IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}   # set -> Postgres; unset -> data/*.json
   TZ: Asia/Kolkata
 
 jobs:
@@ -63,6 +64,11 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Apply database migrations
+        if: env.DATABASE_URL != ''
+        working-directory: api
+        run: alembic upgrade head
+
       - name: Generate post and send Telegram previews
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # higher GitHub search API limit in fetch_topics
@@ -81,7 +87,7 @@ jobs:
           python main.py generate $ARGS
 
       - name: Save queue state
-        if: always() && inputs.dry_run != true
+        if: always() && inputs.dry_run != true && env.DATABASE_URL == ''   # file mode only
         run: |
           git config user.name  "codexone-bot"
           git config user.email "codexone-bot@users.noreply.github.com"

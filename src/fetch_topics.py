@@ -24,7 +24,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from src.config import DATA_DIR, POSTED_FILE, ensure_dirs, get_env, load_brand
+from src.config import DATA_DIR, ensure_dirs, get_env, load_brand
 from src.logger import get_logger
 
 log = get_logger("fetch_topics")
@@ -316,13 +316,9 @@ def normalize_title(title: str) -> str:
 
 
 def load_posted() -> tuple[set[str], set[str]]:
-    if not POSTED_FILE.exists():
-        return set(), set()
-    try:
-        items = json.loads(POSTED_FILE.read_text(encoding="utf-8") or "[]")
-    except json.JSONDecodeError:
-        log.error("%s is not valid JSON; ignoring it for dedupe", POSTED_FILE)
-        return set(), set()
+    """URLs and titles already published (DB or data/posted.json), for dedupe."""
+    from src.queue_store import posted_entries
+    items = posted_entries()
     urls = {normalize_url(i["url"]) for i in items if i.get("url")}
     titles = {normalize_title(i["title"]) for i in items if i.get("title")}
     return urls, titles

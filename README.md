@@ -29,6 +29,34 @@ CLOUDINARY_URL=cloudinary://<key>:<secret>@<cloud_name>
 GITHUB_TOKEN=            # optional, raises GitHub API rate limit
 ```
 
+## Database (Postgres)
+
+State (the approval queue, publishing history, brand config, Telegram offset) lives in Postgres when
+`DATABASE_URL` is set. Without it, the pipeline uses the JSON files in `data/` and `brand/config.yaml`.
+GitHub Actions switches automatically when the `DATABASE_URL` secret exists: it runs migrations and
+stops committing `data/*.json`.
+
+Local:
+```bash
+docker compose up -d db
+export DATABASE_URL=postgresql+psycopg://codexone:codexone@localhost:5433/codexone
+cd api && alembic upgrade head && cd ..
+python scripts/migrate_json_to_db.py --dry-run    # preview
+python scripts/migrate_json_to_db.py              # import JSON state (safe to re-run)
+```
+
+- **Schema**: `src/db/models.py` (shared by the pipeline and the admin API). Tables: `posts` (queue items),
+  `posted_topics` (history and dedupe), `settings` (`brand`, `tg_offset`).
+- **Changing the schema**: edit the models, then run `cd api && alembic revision --autogenerate -m "..."` and
+  `alembic upgrade head`.
+- **Switching production over**:
+  1. Create the hosted database.
+  2. Run the migrations and the migration script against it, using the latest `data/*.json` from `main`.
+  3. Add the `DATABASE_URL` secret.
+
+  After that, the database is the source of truth. The migration script never overwrites a brand config
+  that already exists in the database (`--overwrite-brand` to force).
+
 ## Run
 
 ```bash
@@ -158,6 +186,7 @@ A successful trigger returns **HTTP 204** and a new `workflow_dispatch` run appe
 | `CLOUDINARY_URL` | `cloudinary://<key>:<secret>@<cloud>` |
 | `TG_BOT_TOKEN` | Telegram bot token |
 | `TG_CHAT_ID` | your chat id (only presses from this chat count) |
+| `DATABASE_URL` | hosted Postgres URL (optional; enables DB mode, see Database) |
 | `GH_PAT` | fine-grained PAT for this repo with **Secrets: read/write** (used by the token refresh) |
 
 ## Modules
