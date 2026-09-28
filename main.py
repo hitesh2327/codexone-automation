@@ -126,7 +126,8 @@ def cmd_regenerate(args) -> int:
         try:
             content = gen_content.generate(topic, feedback)
             slug = gen_content.slugify(old.topic)
-            post_dir = gen_content.post_dir(old.date, old.topic) / f"v{version}"
+            # per kind: carousel and reel regenerate separately and must not share content.json
+            post_dir = gen_content.post_dir(old.date, old.topic) / f"v{version}-{old.kind}"
             post_dir.mkdir(parents=True, exist_ok=True)
             (post_dir / "content.json").write_text(content.model_dump_json(indent=2), encoding="utf-8")
             if old.kind == "carousel":

@@ -156,6 +156,14 @@ Flag any mismatch with the exact correct state for that step.
 {content.model_dump_json(indent=2)}"""
 
 
+def normalize(c: Content) -> Content:
+    """Fix a frequent model slip: code returned as one line with literal backslash-n escapes."""
+    for s in c.carousel:
+        if s.code and "\n" not in s.code and "\\n" in s.code:
+            s.code = s.code.replace("\\n", "\n").replace('\\"', '"').replace("\\t", "    ")
+    return c
+
+
 def validate_shape(c: Content, brand: dict) -> list[str]:
     """Cheap structural checks the model sometimes gets wrong."""
     problems = []
@@ -232,6 +240,7 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
     content = generate_json(_write_prompt(topic, brand, feedback), Content, system=SYSTEM)
     attempts = 3
     for attempt in range(1, attempts + 1):
+        content = normalize(content)
         problems = validate_shape(content, brand)
         if not problems:  # only spend a review call on structurally valid drafts
             review = generate_json(_review_prompt(content), Review, temperature=0.1)
