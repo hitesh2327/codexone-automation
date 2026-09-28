@@ -142,7 +142,24 @@ def yt_value(name: str) -> None:
     print(f"OK: {name} present, well-formed{', matches local' if expected else ''} (length {len(v)})")
 
 
-CHECKS = {"yt_client_id": lambda: yt_value("YT_CLIENT_ID"),
+def database() -> None:
+    from sqlalchemy import text
+    from src import db
+    if not db.enabled():
+        fail("DATABASE_URL is missing")
+    heads = {f.stem.split("_")[1] for f in (Path(__file__).resolve().parent.parent / "api" / "migrations" / "versions").glob("*.py")}
+    try:
+        with db.engine().connect() as c:
+            current = c.execute(text("select version_num from alembic_version")).scalar()
+            posts = c.execute(text("select count(*) from posts")).scalar()
+    except Exception as e:  # noqa: BLE001
+        fail(f"cannot use the database: {type(e).__name__}: {str(e).splitlines()[0][:150]}")
+    if current not in heads:
+        fail(f"schema revision {current} not found in api/migrations (run alembic upgrade head)")
+    print(f"OK: database reachable, schema at {current}, {posts} posts")
+
+
+CHECKS = {"database": database, "yt_client_id": lambda: yt_value("YT_CLIENT_ID"),
           "yt_client_secret": lambda: yt_value("YT_CLIENT_SECRET"),
           "yt_refresh_token": lambda: yt_value("YT_REFRESH_TOKEN"),
           "youtube": youtube, "telegram": telegram, "gemini": gemini, "cloudinary": cloudinary_check,
