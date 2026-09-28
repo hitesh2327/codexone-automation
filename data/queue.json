@@ -21,6 +21,7 @@
     },
     "status": "replaced",
     "publish_at": null,
+    "voice": "",
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -37,6 +38,7 @@
     "decided_at": null,
     "published_at": null,
     "ig_media_id": null,
+    "platforms": {},
     "error": null,
     "attempts": 0
   },
@@ -56,6 +58,7 @@
     },
     "status": "replaced",
     "publish_at": null,
+    "voice": "",
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -66,37 +69,9 @@
     "decided_at": null,
     "published_at": null,
     "ig_media_id": null,
+    "platforms": {},
     "error": null,
     "attempts": 0
-  },
-  {
-    "id": "20260927-r-83dd8b",
-    "kind": "reel",
-    "date": "2026-09-27",
-    "topic": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
-    "category": "DSA",
-    "source_url": "",
-    "angle": "Learn how moving two pointers at different speeds detects loops in a linked list using O(1) extra memory.",
-    "post_dir": "output/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare",
-    "caption": "Detecting a cycle in a linked list is a classic technical interview question. While you could store visited nodes in a hash set, that costs O(n) auxiliary space. Floyd's Cycle Detection algorithm solves it in O(1) space using two pointers: a slow pointer moving one step and a fast pointer moving two steps. If a loop exists, the distance between them decreases by one node in each cycle iteration until they collide. Have you ever been asked this pattern in an interview?\n\n#dsa #coding #programming #softwareengineer #developer #techindia #leetcode #python #computerscience #datastructures #algorithms",
-    "media": {
-      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790465842/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel.mp4",
-      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790465843/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel_cover.jpg"
-    },
-    "status": "published",
-    "publish_at": null,
-    "version": 2,
-    "feedback": "",
-    "tg_message_ids": [
-      19
-    ],
-    "tg_control_id": 19,
-    "created_at": "2026-09-26T23:37:28+00:00",
-    "decided_at": "2026-09-26T23:55:32+00:00",
-    "published_at": "2026-09-26T23:59:15+00:00",
-    "ig_media_id": "18065576519527237",
-    "error": null,
-    "attempts": 2
   },
   {
     "id": "20260927-c-83dd8b",
@@ -120,6 +95,7 @@
     },
     "status": "published",
     "publish_at": null,
+    "voice": "",
     "version": 2,
     "feedback": "",
     "tg_message_ids": [
@@ -136,6 +112,7 @@
     "decided_at": "2026-09-27T00:01:29+00:00",
     "published_at": "2026-09-27T00:02:23+00:00",
     "ig_media_id": "18004120772792652",
+    "platforms": {},
     "error": null,
     "attempts": 1
   },
@@ -160,6 +137,7 @@
     },
     "status": "published",
     "publish_at": "2026-09-27T10:00:00+05:30",
+    "voice": "",
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -175,6 +153,7 @@
     "decided_at": "2026-09-27T14:44:11+00:00",
     "published_at": "2026-09-27T14:44:47+00:00",
     "ig_media_id": "17918400273240314",
+    "platforms": {},
     "error": null,
     "attempts": 1
   },
@@ -194,6 +173,7 @@
     },
     "status": "published",
     "publish_at": "2026-09-27T10:00:00+05:30",
+    "voice": "",
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -204,6 +184,7 @@
     "decided_at": "2026-09-27T14:44:10+00:00",
     "published_at": "2026-09-27T14:45:26+00:00",
     "ig_media_id": "17886921702680823",
+    "platforms": {},
     "error": null,
     "attempts": 1
   },
@@ -229,6 +210,7 @@
     },
     "status": "pending",
     "publish_at": "2026-09-27T19:00:00+05:30",
+    "voice": "",
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -245,6 +227,7 @@
     "decided_at": null,
     "published_at": null,
     "ig_media_id": null,
+    "platforms": {},
     "error": null,
     "attempts": 0
   },
@@ -264,6 +247,7 @@
     },
     "status": "pending",
     "publish_at": "2026-09-27T19:00:00+05:30",
+    "voice": "",
     "version": 1,
     "feedback": "",
     "tg_message_ids": [
@@ -274,7 +258,52 @@
     "decided_at": null,
     "published_at": null,
     "ig_media_id": null,
+    "platforms": {},
     "error": null,
     "attempts": 0
+  },
+  {
+    "id": "20260927-r-83dd8b",
+    "kind": "reel",
+    "date": "2026-09-27",
+    "topic": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
+    "category": "DSA",
+    "source_url": "",
+    "angle": "Learn how moving two pointers at different speeds detects loops in a linked list using O(1) extra memory.",
+    "post_dir": "output/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare",
+    "caption": "Detecting a cycle in a linked list is a classic technical interview question. While you could store visited nodes in a hash set, that costs O(n) auxiliary space. Floyd's Cycle Detection algorithm solves it in O(1) space using two pointers: a slow pointer moving one step and a fast pointer moving two steps. If a loop exists, the distance between them decreases by one node in each cycle iteration until they collide. Have you ever been asked this pattern in an interview?\n\n#dsa #coding #programming #softwareengineer #developer #techindia #leetcode #python #computerscience #datastructures #algorithms",
+    "media": {
+      "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790465842/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel.mp4",
+      "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790465843/codexone/2026-09-27/floyd-s-cycle-detection-the-tortoise-and-hare/reel_cover.jpg"
+    },
+    "status": "published",
+    "publish_at": null,
+    "voice": "",
+    "version": 2,
+    "feedback": "",
+    "tg_message_ids": [
+      19
+    ],
+    "tg_control_id": 19,
+    "created_at": "2026-09-26T23:37:28+00:00",
+    "decided_at": "2026-09-26T23:55:32+00:00",
+    "published_at": "2026-09-26T23:59:15+00:00",
+    "ig_media_id": "18065576519527237",
+    "platforms": {
+      "ig": {
+        "status": "published",
+        "id": "18065576519527237"
+      },
+      "yt": {
+        "status": "published",
+        "id": "i6JveuVdqvU",
+        "url": "https://youtube.com/shorts/i6JveuVdqvU",
+        "privacy": "private",
+        "attempts": 1,
+        "at": "2026-09-28T05:30:32+00:00"
+      }
+    },
+    "error": null,
+    "attempts": 4
   }
 ]

@@ -101,7 +101,7 @@ def cmd_poll(args) -> int:
 
     approve_bot.poll(args.dry_run)
     expire_stale(args.dry_run)
-    publish.publish_due(args.dry_run)
+    publish.publish_due(args.dry_run, publish.platforms_arg(args.platform))
     return 0
 
 
@@ -182,8 +182,11 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--music", type=Path)
     g.set_defaults(fn=cmd_generate)
 
-    for name, fn, hlp in [("poll", cmd_poll, "apply approvals and publish due items"),
-                          ("regenerate", cmd_regenerate, "rebuild items marked Regenerate"),
+    pl = sub.add_parser("poll", help="apply approvals and publish due items (Instagram, then YouTube)")
+    pl.add_argument("--platform", choices=["ig", "yt", "all"], default="all",
+                    help="where approved posts go (default: all)")
+    pl.set_defaults(fn=cmd_poll)
+    for name, fn, hlp in [("regenerate", cmd_regenerate, "rebuild items marked Regenerate"),
                           ("needs-regen", cmd_needs_regen, "print whether regeneration is pending"),
                           ("refresh-token", cmd_refresh, "refresh the Instagram token"),
                           ("status", cmd_status, "print the approval queue")]:

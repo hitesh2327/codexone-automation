@@ -34,5 +34,27 @@
     "ig_media_id": "17886921702680823",
     "date": "2026-09-27",
     "published_at": "2026-09-27T14:45:26+00:00"
+  },
+  {
+    "id": "20260927-r-83dd8b",
+    "title": "Floyd's Cycle Detection: The Tortoise and Hare Pattern",
+    "url": "",
+    "category": "DSA",
+    "kind": "reel",
+    "ig_media_id": "18065576519527237",
+    "date": "2026-09-27",
+    "published_at": "2026-09-26T23:59:15+00:00",
+    "platforms": {
+      "ig": {
+        "status": "published",
+        "id": "18065576519527237"
+      },
+      "yt": {
+        "status": "published",
+        "id": "i6JveuVdqvU",
+        "url": "https://youtube.com/shorts/i6JveuVdqvU",
+        "at": "2026-09-28T05:30:32+00:00"
+      }
+    }
   }
 ]

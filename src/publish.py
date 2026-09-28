@@ -1,15 +1,20 @@
-"""Publish APPROVED queue items to Instagram (Instagram Login API, graph.instagram.com).
+"""Publish APPROVED queue items to Instagram and (reels) YouTube Shorts.
 
 Safety: only items whose status is "approved" (set by a Telegram button press) or
 "failed" (an approved item whose publish errored) can be published. There is no
 flag to bypass this.
 
-Flow:  create container(s) → poll status_code until FINISHED → media_publish.
+Instagram: create container(s) → poll status_code until FINISHED → media_publish.
+YouTube:   reels only, via src/publish_youtube.py (same MP4). Skipped if YT_* secrets are unset.
+
+Order is Instagram, then YouTube; a failure on one never blocks the other. Each
+platform's result is stored on the item and in data/posted.json, and a retry only
+redoes platforms that have not succeeded.
 
 Usage:
     python -m src.publish check                   # token/account/limit check (read-only)
-    python -m src.publish item <item_id> [--dry-run]
-    python -m src.publish due [--dry-run]         # approved items whose post time has passed
+    python -m src.publish item <item_id> [--platform ig|yt|all] [--dry-run]
+    python -m src.publish due [--platform ig|yt|all] [--dry-run]   # approved + slot time passed
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ from datetime import datetime
 
 import requests
 
+from src import publish_youtube as yt
 from src import queue_store as q
 from src.approve_bot import IST, item_publish_at, notify
 from src.config import get_env
@@ -151,91 +157,190 @@ def check() -> dict:
     return {"me": me, "limit": data}
 
 
-def publish_item(item: q.Item, dry_run: bool = False) -> q.Item:
-    if item.status not in ("approved", "failed"):
-        raise PermissionError(f"{item.id} is '{item.status}' -- only Telegram-approved items can be published")
-    if item.ig_media_id:
-        raise IGError(f"{item.id} already published as {item.ig_media_id}")
+PLATFORMS = ("ig", "yt")
+LABEL = {"ig": "Instagram", "yt": "YouTube"}
 
-    if dry_run:
-        check()
-        urls = item.media.get("carousel", []) if item.kind == "carousel" else [item.media.get("reel")]
-        for u in urls:
-            r = requests.head(u, timeout=20)
-            log.info("[dry-run] media %s → %s %s", u.rsplit("/", 1)[-1], r.status_code,
-                     r.headers.get("content-type"))
-            if not r.ok:
-                raise IGError(f"media URL not reachable: {u}")
-        log.info("[dry-run] would publish %s %s with %d-char caption:\n%s",
-                 item.kind, item.id, len(item.caption), item.caption)
-        return item
 
-    item.attempts += 1
-    try:
-        if item.kind == "carousel":
-            media_id = publish_carousel(item.media["carousel"], item.caption)
-        else:
-            media_id = publish_reel(item.media["reel"], item.caption)
-    except Exception as e:
-        item.status, item.error = "failed", str(e)
-        q.upsert(item)
-        log.error("publish %s failed (attempt %d/%d): %s", item.id, item.attempts, MAX_ATTEMPTS, e)
-        notify(f"⚠️ Publish failed for <b>{item.kind}</b> <code>{item.id}</code> "
-               f"(attempt {item.attempts}/{MAX_ATTEMPTS}):\n{e}", item.tg_control_id)
-        raise
-    item.status, item.ig_media_id, item.error = "published", media_id, None
-    item.published_at = q.now_iso()
-    q.upsert(item)
-    q.record_posted(item)
+def _targets(item: q.Item, platforms: tuple[str, ...]) -> list[str]:
+    """Carousels go to Instagram only; YouTube Shorts takes reels."""
+    return [p for p in platforms if p == "ig" or (p == "yt" and item.kind == "reel")]
+
+
+def _done(item: q.Item, p: str) -> bool:
+    return item.platforms.get(p, {}).get("status") in ("published", "skipped")
+
+
+def _retryable(item: q.Item, platforms: tuple[str, ...]) -> bool:
+    """A failed item is retried while some failed platform is still under MAX_ATTEMPTS."""
+    return any(item.platforms.get(p, {}).get("status") == "failed"
+               and item.platforms[p].get("attempts", 1) < MAX_ATTEMPTS
+               for p in _targets(item, platforms))
+
+
+def _publish_ig(item: q.Item) -> dict:
+    if item.kind == "carousel":
+        media_id = publish_carousel(item.media["carousel"], item.caption)
+    else:
+        media_id = publish_reel(item.media["reel"], item.caption)
+    item.ig_media_id = media_id
     permalink = ""
     try:
         permalink = _call("GET", media_id, fields="permalink").get("permalink", "")
     except IGError:
         pass
-    log.info("published %s → %s %s", item.id, media_id, permalink)
-    notify(f"🚀 Published {item.kind}: {permalink or media_id}", item.tg_control_id)
+    return {"status": "published", "id": media_id, "url": permalink}
+
+
+def _publish_yt(item: q.Item) -> dict:
+    if not yt.configured():
+        return {"status": "skipped", "error": "YT_CLIENT_ID/YT_CLIENT_SECRET/YT_REFRESH_TOKEN not set"}
+    vid, url = yt.publish_reel(item.media["reel"], item.caption)
+    return {"status": "published", "id": vid, "url": url, "privacy": yt.privacy()}
+
+
+def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -> q.Item:
+    # "published" is allowed so a platform that failed or was added later can be completed;
+    # pending/rejected/expired items can never be published.
+    if item.status not in ("approved", "failed", "published"):
+        raise PermissionError(f"{item.id} is '{item.status}' -- only Telegram-approved items can be published")
+    if item.ig_media_id and "ig" not in item.platforms:  # published before per-platform tracking
+        item.platforms["ig"] = {"status": "published", "id": item.ig_media_id}
+
+    targets = _targets(item, platforms)
+    todo = [p for p in targets if not _done(item, p)]
+    if not todo:
+        log.info("%s already published on %s", item.id, ", ".join(LABEL[p] for p in targets) or "nothing")
+        return item
+
+    if dry_run:
+        for p in todo:
+            if p == "ig":
+                check()
+                urls = item.media.get("carousel", []) if item.kind == "carousel" else [item.media.get("reel")]
+                for u in urls:
+                    r = requests.head(u, timeout=20)
+                    log.info("[dry-run] media %s → %s %s", u.rsplit("/", 1)[-1], r.status_code,
+                             r.headers.get("content-type"))
+                    if not r.ok:
+                        raise IGError(f"media URL not reachable: {u}")
+                log.info("[dry-run] would publish %s %s to Instagram with %d-char caption",
+                         item.kind, item.id, len(item.caption))
+            elif yt.configured():
+                yt.publish_reel(item.media["reel"], item.caption, dry_run=True)
+            else:
+                log.info("[dry-run] YouTube not configured (YT_* unset); would skip")
+        return item
+
+    item.attempts += 1
+    for p in todo:  # Instagram first, then YouTube; saved after each so nothing double-posts
+        tries = item.platforms.get(p, {}).get("attempts", 0) + 1
+        try:
+            rec = _publish_ig(item) if p == "ig" else _publish_yt(item)
+        except Exception as e:  # noqa: BLE001 -- one platform failing must not stop the other
+            rec = {"status": "failed", "error": str(e)[:300]}
+            log.error("%s: %s publish failed (attempt %d/%d): %s", item.id, LABEL[p], tries, MAX_ATTEMPTS, e)
+        rec["attempts"] = tries
+        rec["at"] = q.now_iso()
+        item.platforms[p] = rec
+        q.upsert(item)
+
+    failed = [p for p in targets if item.platforms.get(p, {}).get("status") == "failed"]
+    published = [p for p in targets if item.platforms.get(p, {}).get("status") == "published"]
+    item.status = "failed" if failed else "published"
+    item.error = "; ".join(f"{LABEL[p]}: {item.platforms[p]['error']}" for p in failed) or None
+    if published and not item.published_at:
+        item.published_at = q.now_iso()
+    q.upsert(item)
+    q.record_posted(item)
+
+    head = "🚀" if published else "⚠️"
+    lines = [f"{head} <b>{item.kind.capitalize()}</b> — {item.topic}"]
+    for p in targets:
+        r = item.platforms.get(p, {})
+        if r.get("status") == "published":
+            extra = f" ({r['privacy']})" if r.get("privacy") and r["privacy"] != "public" else ""
+            lines.append(f"✅ {LABEL[p]}{extra}: {r.get('url') or r.get('id')}")
+        elif r.get("status") == "skipped":
+            lines.append(f"⏭ {LABEL[p]}: skipped ({r.get('error')})")
+        else:
+            retry = " — will retry" if r.get("attempts", 1) < MAX_ATTEMPTS else " — giving up"
+            lines.append(f"❌ {LABEL[p]}: {r.get('error', 'failed')}{retry}")
+    notify("\n".join(lines), item.tg_control_id)
+    log.info("%s → %s", item.id, {p: item.platforms[p]["status"] for p in targets})
     return item
 
 
-def publish_due(dry_run: bool = False) -> list[q.Item]:
+def publish_due(dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -> list[q.Item]:
     """Publish approved items whose slot time (item.publish_at) has passed."""
     now = datetime.now(IST)
     done = []
     for item in q.load():
-        ready = item.status == "approved" or (item.status == "failed" and item.attempts < MAX_ATTEMPTS)
+        ready = item.status == "approved" or (item.status == "failed" and _retryable(item, platforms))
         if not ready:
             continue
         if now < item_publish_at(item):
             log.info("%s approved; waiting for its slot %s IST", item.id, f"{item_publish_at(item):%d %b %H:%M}")
             continue
         try:
-            done.append(publish_item(item, dry_run))
-        except Exception:
-            continue  # already logged + notified; other items still get a chance
+            done.append(publish_item(item, dry_run, platforms))
+        except Exception:  # noqa: BLE001
+            log.exception("publish %s crashed", item.id)
     return done
 
 
+def platforms_arg(value: str) -> tuple[str, ...]:
+    return PLATFORMS if value == "all" else (value,)
+
+
+def mark(item: q.Item, platform: str, media_id: str) -> q.Item:
+    """Record a post made outside the normal flow (e.g. an upload whose result was lost)."""
+    url = yt.shorts_url(media_id) if platform == "yt" else ""
+    item.platforms[platform] = {"status": "published", "id": media_id, "url": url,
+                                "attempts": item.platforms.get(platform, {}).get("attempts", 0),
+                                "at": q.now_iso(), "note": "marked manually"}
+    if platform == "ig":
+        item.ig_media_id = media_id
+    if not any(r.get("status") == "failed" for r in item.platforms.values()):
+        item.status, item.error = "published", None
+    q.upsert(item)
+    q.record_posted(item)
+    log.info("marked %s as published on %s: %s", item.id, LABEL[platform], url or media_id)
+    return item
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Publish approved items to Instagram")
+    ap = argparse.ArgumentParser(description="Publish approved items to Instagram / YouTube")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="read-only token/account/quota check")
     p1 = sub.add_parser("item", help="publish one approved item now (ignores post time)")
     p1.add_argument("item_id")
-    p1.add_argument("--dry-run", action="store_true")
     p2 = sub.add_parser("due", help="publish all approved items whose post time has passed")
-    p2.add_argument("--dry-run", action="store_true")
+    for sp in (p1, p2):
+        sp.add_argument("--platform", choices=["ig", "yt", "all"], default="all")
+        sp.add_argument("--dry-run", action="store_true")
+    p3 = sub.add_parser("mark", help="record an existing post (id) for an item without publishing")
+    p3.add_argument("item_id")
+    p3.add_argument("platform", choices=["ig", "yt"])
+    p3.add_argument("media_id", help="IG media id, or YouTube video id / Shorts URL")
     args = ap.parse_args(argv)
 
     if args.cmd == "check":
         check()
+    elif args.cmd == "mark":
+        item = q.get(args.item_id)
+        if not item:
+            log.error("no queue item %s", args.item_id)
+            return 1
+        mark(item, args.platform, args.media_id.rstrip("/").rsplit("/", 1)[-1].split("?")[0])
     elif args.cmd == "item":
         item = q.get(args.item_id)
         if not item:
             log.error("no queue item %s", args.item_id)
             return 1
-        publish_item(item, args.dry_run)
+        item = publish_item(item, args.dry_run, platforms_arg(args.platform))
+        return 1 if item.status == "failed" else 0
     else:
-        publish_due(args.dry_run)
+        publish_due(args.dry_run, platforms_arg(args.platform))
     return 0
 
 

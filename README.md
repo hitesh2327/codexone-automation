@@ -1,6 +1,7 @@
 # codexonebyhitesh content automation
 
-Daily pipeline: trending topics → reel + carousel → Telegram approval → Instagram.
+Daily pipeline: trending topics → reel + carousel → Telegram approval → Instagram,
+plus YouTube Shorts for every approved reel.
 See `CLAUDE.md` for the full design. Brand settings live in `brand/config.yaml`.
 
 ## Setup
@@ -69,6 +70,28 @@ Each slot gets one topic, which becomes one reel and one carousel. Each is appro
 `src/publish.py` refuses anything whose status isn't `approved` (or `failed` after an approval).
 Nothing is ever published without an Approve tap.
 
+## YouTube Shorts
+
+Every approved reel is also uploaded to YouTube Shorts: the same MP4, via the YouTube Data API v3.
+Instagram goes first, then YouTube. If one fails, the other still happens, each platform's status
+is logged in `data/posted.json`, and a retry only redoes the platform that failed. Telegram gets both links.
+
+- **Metadata**: the title is the caption's hook plus `#Shorts` (max 100 chars). The description is caption +
+  CTA + hashtags, tags come from the hashtags, the category is 28 (Science & Technology), and
+  `selfDeclaredMadeForKids=false`. Privacy comes from `YT_PRIVACY` (default `private`).
+- **Choose platforms**: `python main.py poll --platform ig|yt|all` (also on `python -m src.publish item|due`).
+- **One-time token**: put the Google OAuth *Desktop* client in `client_secret.json` (gitignored), then run
+  `python get_yt_token.py --write-env`. It opens a browser to sign in and writes
+  `YT_CLIENT_ID`, `YT_CLIENT_SECRET` and `YT_REFRESH_TOKEN` to `.env` (existing values are kept).
+- **Check**: `python -m src.publish_youtube check` and `python -m src.publish_youtube metadata <item_id>`.
+- **Record a post made elsewhere**: `python -m src.publish mark <item_id> yt <video-id-or-url>`.
+- **Google limits to know**:
+  - While the OAuth consent screen is in **Testing**, refresh tokens expire after **7 days**.
+    Set it to **In production** in Google Cloud Console.
+  - Videos uploaded by an **unverified** API project are locked to **private**, whatever `YT_PRIVACY` says,
+    until the project passes Google's YouTube API audit.
+  - Each upload costs 1,600 of the 10,000 daily quota units, so about 6 uploads a day.
+
 ## Animated walkthroughs
 
 For algorithm and data-structure topics, Gemini adds a `demo`: a small concrete input traced step by step.
@@ -129,6 +152,9 @@ A successful trigger returns **HTTP 204** and a new `workflow_dispatch` run appe
 | `GEMINI_API_KEY` | Google AI Studio key |
 | `IG_USER_ID` | numeric IG user id (`python -m src.publish check` prints it) |
 | `IG_ACCESS_TOKEN` | long-lived Instagram token |
+| `YT_CLIENT_ID` | Google OAuth Desktop client id (from `.env`) |
+| `YT_CLIENT_SECRET` | Google OAuth client secret (from `.env`) |
+| `YT_REFRESH_TOKEN` | from `get_yt_token.py` (in `.env`) |
 | `CLOUDINARY_URL` | `cloudinary://<key>:<secret>@<cloud>` |
 | `TG_BOT_TOKEN` | Telegram bot token |
 | `TG_CHAT_ID` | your chat id (only presses from this chat count) |
@@ -140,5 +166,6 @@ A successful trigger returns **HTTP 204** and a new `workflow_dispatch` run appe
 - `src/logger.py`: console logging plus `logs/run_<date>.log`
 - `src/llm.py`: Gemini structured-JSON calls with retries and fallback models (`GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS`)
 - `src/html_render.py`: Jinja2 templates, Pygments highlighting, and Playwright screenshots
-- `src/queue_store.py`: the approval queue and `posted.json`
+- `src/queue_store.py`: the approval queue and `posted.json` (per-platform status)
+- `src/publish_youtube.py`: YouTube Shorts upload (resumable, with retries) and its metadata
 - `templates/`: `title.html`, `content.html` (with code support), `cta.html`, `reel.html`

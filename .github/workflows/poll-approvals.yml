@@ -1,7 +1,8 @@
 name: Poll Telegram approvals + publish
 
 # No server: every 20 min around each posting slot, read Telegram button presses via
-# getUpdates, publish approved items once their slot time has passed, and regenerate
+# getUpdates, publish approved items (Instagram, then YouTube Shorts for reels) once
+# their slot time has passed, and regenerate
 # items when asked. Runs exit in seconds when nothing is waiting (saves Actions minutes).
 # Previews with no decision expire after 36h.
 # Primary trigger: cron-job.org every 15 min (see README); this schedule is a backup.
@@ -30,6 +31,10 @@ env:
   TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
   IG_USER_ID: ${{ secrets.IG_USER_ID }}
   IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+  YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+  YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+  YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+  YT_PRIVACY: ${{ vars.YT_PRIVACY || 'private' }}   # repo variable: private | unlisted | public
   TZ: Asia/Kolkata
 
 jobs:

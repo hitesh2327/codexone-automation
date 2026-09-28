@@ -2,7 +2,8 @@
 
 ## Goal
 
-Daily: find trending topics (AI, Dev, DSA, System Design, Interview, OS) → generate 1 reel + 1 carousel per topic → send to Telegram for approval → publish approved items to Instagram.
+Daily: find trending topics (AI, Dev, DSA, System Design, Interview, OS) → generate 1 reel + 1 carousel per topic → send to Telegram for approval → publish approved items to Instagram, and approved reels
+also to YouTube Shorts.
 
 ## Stack (free only)
 
@@ -28,7 +29,8 @@ src/render_post.py HTML/CSS templates → PNG slides (brand colors/fonts/logo/ha
 src/render_reel.py edge-tts voice + animated text slides + subtitles → MP4 (H.264/AAC, 1080x1920)
 src/upload.py Cloudinary upload → public URLs
 src/approve_bot.py Telegram preview with Approve / Reject / Regenerate buttons
-src/publish.py IG publish with retries
+src/publish.py IG publish with retries, then YouTube for reels (per-platform status, --platform ig|yt|all)
+src/publish_youtube.py YouTube Data API v3 Shorts upload (same MP4, resumable, YT_PRIVACY default private)
 src/refresh_token.py weekly token refresh
 main.py orchestrates the pipeline
 templates/ HTML slide templates
@@ -36,7 +38,7 @@ output/, logs/, data/
 
 ## Rules
 
-- NEVER publish without Telegram approval.
+- NEVER publish without Telegram approval (applies to Instagram AND YouTube).
 - Content must be technically accurate; no clickbait lies.
 - Log every run; handle API errors with retries + clear messages.
 - Build and test one module at a time; add a --dry-run flag everywhere.

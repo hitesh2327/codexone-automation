@@ -1,7 +1,7 @@
 """Verify one CI secret group against its real service. Never prints secret values.
 
 Usage (one check per call so each shows as its own pass/fail step in Actions):
-    python scripts/check_secrets.py telegram|gemini|cloudinary|instagram|gh_pat
+    python scripts/check_secrets.py telegram|gemini|cloudinary|instagram|youtube|gh_pat
 
 Optional non-secret expectations (compare CI secrets to what works locally):
     EXPECTED_BOT_ID   Telegram bot id the token must belong to
@@ -99,7 +99,16 @@ def gh_pat() -> None:
     print("OK: GH_PAT can manage this repo's Actions secrets (token refresh will work)")
 
 
-CHECKS = {"telegram": telegram, "gemini": gemini, "cloudinary": cloudinary_check,
+def youtube() -> None:
+    from src.publish_youtube import YTError, credentials
+    try:
+        credentials()
+    except YTError as e:
+        fail(str(e)[:200])
+    print("OK: YouTube refresh token works (upload scope)")
+
+
+CHECKS = {"youtube": youtube, "telegram": telegram, "gemini": gemini, "cloudinary": cloudinary_check,
           "instagram": instagram, "gh_pat": gh_pat}
 
 if __name__ == "__main__":

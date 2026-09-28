@@ -9,3 +9,7 @@ logs/*
 data/topics_*.json
 data/ranked_*.json
 client_secret.json
+# Google OAuth (YouTube) -- local only
+client_secret.json
+client_secret*.json
+get_yt_token.py

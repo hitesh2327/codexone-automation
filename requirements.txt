@@ -10,3 +10,6 @@ cloudinary>=1.40
 python-telegram-bot>=21.0
 jinja2>=3.1
 pygments>=2.17
+google-api-python-client>=2.100
+google-auth>=2.20
+google-auth-oauthlib>=1.2  # get_yt_token.py (local only)

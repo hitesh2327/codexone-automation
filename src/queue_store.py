@@ -50,6 +50,8 @@ class Item(BaseModel):
     decided_at: str | None = None
     published_at: str | None = None
     ig_media_id: str | None = None
+    # Per-platform results: {"ig"|"yt": {"status": published|failed|skipped, "id", "url", "error", "at"}}
+    platforms: dict = Field(default_factory=dict)
     error: str | None = None
     attempts: int = 0
 
@@ -82,9 +84,13 @@ def get(item_id: str) -> Item | None:
 
 
 def record_posted(item: Item) -> None:
-    """Append to data/posted.json so fetch_topics never suggests this topic again."""
+    """Upsert this item in data/posted.json (per-platform status), so fetch_topics
+    never suggests the topic again and every platform's outcome is on record."""
     posted = json.loads(POSTED_FILE.read_text(encoding="utf-8") or "[]") if POSTED_FILE.exists() else []
-    posted.append({"title": item.topic, "url": item.source_url, "category": item.category,
-                   "kind": item.kind, "ig_media_id": item.ig_media_id, "date": item.date,
-                   "published_at": item.published_at})
+    entry = {"id": item.id, "title": item.topic, "url": item.source_url, "category": item.category,
+             "kind": item.kind, "ig_media_id": item.ig_media_id, "date": item.date,
+             "published_at": item.published_at,
+             "platforms": {p: {k: v for k, v in r.items() if k in ("status", "id", "url", "error", "at")}
+                           for p, r in item.platforms.items()}}
+    posted = [e for e in posted if e.get("id") != item.id] + [entry]
     POSTED_FILE.write_text(json.dumps(posted, indent=2, ensure_ascii=False), encoding="utf-8")
