@@ -208,11 +208,11 @@
         "https://res.cloudinary.com/oteyzym4/image/upload/v1790529300/codexone/2026-09-27/understanding-prompt-injection-in-ai/slide_06.jpg"
       ]
     },
-    "status": "pending",
+    "status": "regenerate",
     "publish_at": "2026-09-27T19:00:00+05:30",
     "voice": "",
     "version": 1,
-    "feedback": "",
+    "feedback": "The pronunciation of \"codexonebyhitesh\" is \"Code Xone By Hitesh\" \nIn the third slide show the example prompt properly ut is not shown currently in the image",
     "tg_message_ids": [
       41,
       42,
@@ -224,7 +224,7 @@
     ],
     "tg_control_id": 47,
     "created_at": "2026-09-27T17:15:02+00:00",
-    "decided_at": null,
+    "decided_at": "2026-09-28T05:45:25+00:00",
     "published_at": null,
     "ig_media_id": null,
     "platforms": {},
@@ -245,17 +245,17 @@
       "reel": "https://res.cloudinary.com/oteyzym4/video/upload/v1790529300/codexone/2026-09-27/understanding-prompt-injection-in-ai/reel.mp4",
       "cover": "https://res.cloudinary.com/oteyzym4/image/upload/v1790529301/codexone/2026-09-27/understanding-prompt-injection-in-ai/reel_cover.jpg"
     },
-    "status": "pending",
+    "status": "regenerate",
     "publish_at": "2026-09-27T19:00:00+05:30",
     "voice": "",
     "version": 1,
-    "feedback": "",
+    "feedback": "Change the voice to Andrew",
     "tg_message_ids": [
       48
     ],
     "tg_control_id": 48,
     "created_at": "2026-09-27T17:15:02+00:00",
-    "decided_at": null,
+    "decided_at": "2026-09-28T05:45:24+00:00",
     "published_at": null,
     "ig_media_id": null,
     "platforms": {},
