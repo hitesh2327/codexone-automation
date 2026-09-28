@@ -101,6 +101,27 @@ Poll runs with nothing waiting exit within seconds (`scripts/has_work.py`), whic
 Each slot's topic avoids anything queued or posted recently, so the two daily posts never repeat.
 To post at different times, change `post_times_ist` and the two crons in `daily-generate.yml` together.
 
+### On-time scheduling with cron-job.org
+
+GitHub's own `schedule:` triggers can run hours late. [cron-job.org](https://cron-job.org) (free) starts the
+workflows at exact times through GitHub's `workflow_dispatch` API instead. The GitHub schedules stay on as a
+backup. Double triggers are harmless: a slot that already has a post, or that passed more than 2h ago, is skipped.
+
+1. **GitHub token for cron-job.org**: go to github.com → Settings → Developer settings → Fine-grained tokens →
+   Generate. Repository access: only `codexone-automation`. Permissions: **Actions: Read and write**.
+2. **cron-job.org**: set your account time zone (Settings) to **Asia/Kolkata**, then create 3 jobs. All of them are
+   `POST` requests with these headers:
+   `Accept: application/vnd.github+json`, `Authorization: Bearer <token>`,
+   `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`.
+
+| Job | URL (`https://api.github.com/repos/hitesh2327/codexone-automation/actions/workflows/…`) | Schedule (IST) | Body |
+| --- | --- | --- | --- |
+| Generate 10:00 post | `…/daily-generate.yml/dispatches` | daily 08:00 | `{"ref":"main","inputs":{"slot":"10:00"}}` |
+| Generate 19:00 post | `…/daily-generate.yml/dispatches` | daily 18:00 | `{"ref":"main","inputs":{"slot":"19:00"}}` |
+| Poll approvals | `…/poll-approvals.yml/dispatches` | every 15 min, hours 7–13 and 17–23 | `{"ref":"main"}` |
+
+A successful trigger returns **HTTP 204** and a new `workflow_dispatch` run appears under Actions.
+
 ### Secrets
 
 | Secret | Value |

@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from src import queue_store as q
@@ -26,18 +26,32 @@ from src.logger import get_logger
 log = get_logger("main")
 
 
+LATE_LIMIT_HOURS = 2  # don't generate for a slot that passed longer ago than this
+
+
 def cmd_generate(args) -> int:
     from src import approve_bot, fetch_topics, gen_content, rank_topics, render_post, render_reel, upload
 
     day = args.date
+    # Which posting slot is this run for? Explicit --slot (CI passes it per trigger), else the next one.
+    publish_at = (approve_bot.slot_at(day, args.slot) if args.slot else approve_bot.next_slot())
+    log.info("slot: %s IST", f"{publish_at:%a %d %b %H:%M}")
+
+    # Two schedulers can fire for the same slot (cron-job.org + GitHub's backup cron): only the
+    # first one generates. A trigger arriving long after the slot is skipped as stale.
+    if any(i.publish_at == publish_at.isoformat() for i in q.load()) and not args.force:
+        log.info("slot %s already has a post queued; nothing to do", f"{publish_at:%d %b %H:%M}")
+        return 0
+    late = datetime.now(approve_bot.IST) - publish_at
+    if late > timedelta(hours=LATE_LIMIT_HOURS) and not args.force:
+        log.warning("slot %s passed %.1fh ago (limit %dh); skipping stale run",
+                    f"{publish_at:%d %b %H:%M}", late.total_seconds() / 3600, LATE_LIMIT_HOURS)
+        return 0
+
     fetch_topics.main(["--show", "0"] + (["--dry-run"] if args.dry_run else []))
     if args.dry_run and not (Path("data") / f"topics_{day}.json").exists():
         log.info("[dry-run] no saved topics for %s; stopping after fetch", day)
         return 0
-
-    # Which posting slot is this run for? Explicit --slot (CI passes it per cron), else the next one.
-    publish_at = (approve_bot.slot_at(day, args.slot) if args.slot else approve_bot.next_slot())
-    log.info("slot: %s IST", f"{publish_at:%a %d %b %H:%M}")
 
     topic = rank_topics.rank(day, args.category, seed=f"{day}-{publish_at:%H%M}")
     log.info("topic: [%s] %s", topic.category, topic.title)
@@ -162,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--date", default=date.today().isoformat())
     g.add_argument("--category", help="force a category (AI, SystemDesign, DSA, Interview, OS, Dev)")
     g.add_argument("--slot", help="posting slot HH:MM IST this post is for (default: next slot)")
+    g.add_argument("--force", action="store_true",
+                   help="generate even if the slot already has a post or has long passed")
     g.add_argument("--skip-reel", action="store_true")
     g.add_argument("--music", type=Path)
     g.set_defaults(fn=cmd_generate)

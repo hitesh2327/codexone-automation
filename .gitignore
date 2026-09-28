@@ -8,3 +8,4 @@ logs/*
 !logs/.gitkeep
 data/topics_*.json
 data/ranked_*.json
+client_secret.json

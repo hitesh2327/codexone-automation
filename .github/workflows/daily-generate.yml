@@ -3,6 +3,10 @@ name: Generate posts (twice daily)
 # Two posting slots per day (brand/config.yaml post_times_ist). Each run creates one
 # reel + one carousel for its slot and sends Telegram previews. Nothing is published
 # here -- poll-approvals.yml publishes only what you approve, at the slot time.
+#
+# Primary trigger: cron-job.org calls workflow_dispatch at exact times (see README).
+# The schedule below is only a backup -- GitHub often runs it hours late. A slot that
+# already has a post, or passed more than 2h ago, is skipped, so double triggers are safe.
 on:
   schedule:
     - cron: "30 2 * * *"    # 08:00 IST → posts at 10:00 IST
@@ -19,6 +23,10 @@ on:
         required: false
       dry_run:
         description: "Dry run (nothing sent or saved)"
+        type: boolean
+        default: false
+      force:
+        description: "Generate even if the slot already has a post or passed long ago"
         type: boolean
         default: false
 
@@ -69,6 +77,7 @@ jobs:
           if [ -n "$SLOT" ] && [ "$SLOT" != "auto" ]; then ARGS="$ARGS --slot $SLOT"; fi
           if [ -n "${{ inputs.category }}" ]; then ARGS="$ARGS --category ${{ inputs.category }}"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
           python main.py generate $ARGS
 
       - name: Save queue state

@@ -4,6 +4,7 @@ name: Poll Telegram approvals + publish
 # getUpdates, publish approved items once their slot time has passed, and regenerate
 # items when asked. Runs exit in seconds when nothing is waiting (saves Actions minutes).
 # Previews with no decision expire after 36h.
+# Primary trigger: cron-job.org every 15 min (see README); this schedule is a backup.
 on:
   schedule:
     - cron: "*/20 2-7 * * *"    # 07:30–13:10 IST (10:00 slot)
