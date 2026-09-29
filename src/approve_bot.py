@@ -130,7 +130,10 @@ def _control_text(item: q.Item, max_caption: int = 3500) -> str:
     kind = "🖼 CAROUSEL" if item.kind == "carousel" else "🎬 REEL"
     ver = f" · v{item.version}" if item.version > 1 else ""
     cap = item.caption if len(item.caption) <= max_caption else item.caption[:max_caption].rstrip() + "…"
-    when = f"🕒 Posts {item_publish_at(item):%a %d %b, %H:%M} IST after approval\n"
+    at = item_publish_at(item)
+    when = (f"🕒 Posts as soon as you approve (the {at:%H:%M} IST slot has passed)\n"
+            if datetime.now(IST) > at else
+            f"🕒 Posts {at:%a %d %b, %H:%M} IST after approval\n")
     if item.voice:  # e.g. en-US-AndrewMultilingualNeural -> Andrew
         name = item.voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
         when += f"🎙 Voice: {name}\n"

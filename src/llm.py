@@ -15,7 +15,10 @@ log = get_logger("llm")
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_MODEL = "gemini-flash-latest"
-DEFAULT_FALLBACKS = "gemini-3.5-flash,gemini-flash-lite-latest"
+# A long chain matters: the free tier returns 503 "overloaded" in waves, and a whole daily
+# run is lost if every model is busy at once. Unknown names are skipped on their 404.
+DEFAULT_FALLBACKS = ("gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.7-flash,"
+                     "gemini-3.5-flash-lite,gemini-3.6-flash")
 _client: genai.Client | None = None
 
 
@@ -64,7 +67,9 @@ def generate_json(prompt: str, schema: type[T], *, system: str = "",
                 if e.code == 404:
                     log.warning("Gemini model %s not found; skipping", model)
                     break
-                wait = 5 * attempt
+                if attempt == retries_per_model:
+                    break  # don't sleep before moving to the next model
+                wait = min(8 * 2 ** (attempt - 1), 45)
                 log.warning("Gemini %s on %s (attempt %d/%d); retrying in %ds",
                             e.code, model, attempt, retries_per_model, wait)
                 time.sleep(wait)

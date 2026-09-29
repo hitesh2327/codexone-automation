@@ -26,7 +26,20 @@ from src.logger import get_logger
 log = get_logger("main")
 
 
-LATE_LIMIT_HOURS = 2  # don't generate for a slot that passed longer ago than this
+# GitHub's cron regularly fires 4-6h late, so a late trigger must still produce a post: it
+# generates for its (already past) slot and publishes as soon as it is approved. Only a truly
+# ancient trigger -- e.g. a manual re-run of an old slot -- is skipped.
+LATE_LIMIT_HOURS = 12
+
+
+def slot_state(publish_at: datetime, now: datetime, slot_taken: bool) -> str:
+    """Should this run generate? "taken" | "stale" | "late" | "ok" (see LATE_LIMIT_HOURS)."""
+    if slot_taken:
+        return "taken"
+    late = now - publish_at
+    if late > timedelta(hours=LATE_LIMIT_HOURS):
+        return "stale"
+    return "late" if late > timedelta(minutes=30) else "ok"
 
 
 def cmd_generate(args) -> int:
@@ -40,15 +53,21 @@ def cmd_generate(args) -> int:
     # Two schedulers can fire for the same slot (cron-job.org + GitHub's backup cron): only the
     # first one generates. A trigger arriving long after the slot is skipped as stale.
     # Compare instants, not strings: the DB returns the same slot as UTC ("13:30+00:00").
-    if any(i.publish_at and datetime.fromisoformat(i.publish_at) == publish_at for i in q.load()) \
-            and not args.force:
+    taken = any(i.publish_at and datetime.fromisoformat(i.publish_at) == publish_at for i in q.load())
+    now = datetime.now(approve_bot.IST)
+    state = "ok" if args.force else slot_state(publish_at, now, taken)
+    hours_late = (now - publish_at).total_seconds() / 3600
+    if state == "taken":
         log.info("slot %s already has a post queued; nothing to do", f"{publish_at:%d %b %H:%M}")
         return 0
-    late = datetime.now(approve_bot.IST) - publish_at
-    if late > timedelta(hours=LATE_LIMIT_HOURS) and not args.force:
+    if state == "stale":
         log.warning("slot %s passed %.1fh ago (limit %dh); skipping stale run",
-                    f"{publish_at:%d %b %H:%M}", late.total_seconds() / 3600, LATE_LIMIT_HOURS)
+                    f"{publish_at:%d %b %H:%M}", hours_late, LATE_LIMIT_HOURS)
         return 0
+    if state == "late":
+        log.warning("slot %s passed %.1fh ago (the scheduler fired late); generating anyway -- "
+                    "this post publishes as soon as it is approved",
+                    f"{publish_at:%d %b %H:%M}", hours_late)
 
     fetch_topics.main(["--show", "0"] + (["--dry-run"] if args.dry_run else []))
     if args.dry_run and not (Path("data") / f"topics_{day}.json").exists():
@@ -205,11 +224,17 @@ def main(argv: list[str] | None = None) -> int:
     log.info("=== %s%s ===", args.cmd, " (dry-run)" if args.dry_run else "")
     try:
         return args.fn(args)
-    except Exception:
+    except Exception as e:
         log.exception("%s failed", args.cmd)
         try:
+            import html as _html
+
             from src.approve_bot import notify
-            notify(f"⚠️ <b>{args.cmd}</b> failed — check the logs.", dry_run=args.dry_run)
+            run = os.getenv("GITHUB_RUN_ID")
+            repo = os.getenv("GITHUB_REPOSITORY", "hitesh2327/codexone-automation")
+            where = f"\n{'https://github.com/%s/actions/runs/%s' % (repo, run)}" if run else ""
+            notify(f"⚠️ <b>{args.cmd}</b> failed: {_html.escape(f'{type(e).__name__}: {e}'[:400])}{where}",
+                   dry_run=args.dry_run)
         except Exception:
             pass
         return 1
