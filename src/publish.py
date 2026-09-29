@@ -231,6 +231,13 @@ def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...]
                 log.info("[dry-run] YouTube not configured (YT_* unset); would skip")
         return item
 
+    # A scheduled poll and a manual/dashboard publish can overlap, and Instagram accepts the
+    # same post twice. Whoever claims the item publishes it; the other backs off.
+    if item.status != "publishing" and not q.claim_for_publish(item.id):
+        log.warning("%s is already being published by another run; skipping", item.id)
+        return q.get(item.id) or item
+    item.status = "publishing"
+
     item.attempts += 1
     for p in todo:  # Instagram first, then YouTube; saved after each so nothing double-posts
         tries = item.platforms.get(p, {}).get("attempts", 0) + 1

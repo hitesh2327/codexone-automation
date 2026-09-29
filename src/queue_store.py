@@ -5,7 +5,7 @@ the JSON files data/queue.json and data/posted.json. Callers use the same functi
 either way.
 
 One item per publishable post (carousel and reel are approved independently).
-Status flow:  pending → approved → published
+Status flow:  pending → approved → publishing → published
                       → rejected
                       → regenerate → (new pending item; old one becomes "replaced")
               approved → failed (publish error; retried on the next poll)
@@ -25,8 +25,8 @@ from src.config import DATA_DIR, POSTED_FILE
 
 QUEUE_FILE = DATA_DIR / "queue.json"
 IST = timezone(timedelta(hours=5, minutes=30))
-Status = Literal["pending", "approved", "rejected", "regenerate", "replaced", "published", "failed",
-                 "expired"]
+Status = Literal["pending", "approved", "publishing", "rejected", "regenerate", "replaced",
+                 "published", "failed", "expired"]
 Kind = Literal["carousel", "reel"]
 
 
@@ -196,3 +196,51 @@ def posted_entries() -> list[dict]:
         return json.loads(POSTED_FILE.read_text(encoding="utf-8") or "[]")
     except json.JSONDecodeError:
         return []
+
+
+# --------------------------------------------------------------------------- #
+# Concurrency: only one publisher may publish an item
+# --------------------------------------------------------------------------- #
+CLAIMABLE = ("approved", "failed")
+
+
+def claim_for_publish(item_id: str) -> bool:
+    """Atomically take ownership of an item for publishing.
+
+    Two publishers can run at once (a scheduled poll and a manual/dashboard publish), and
+    Instagram happily accepts the same post twice. This flips approved|failed -> publishing
+    in a single UPDATE; only the caller that changes a row may publish. A crash leaves the
+    item in "publishing", which expire_stale() recovers.
+    """
+    if not db.enabled():
+        return True  # file mode: a single process, nothing to race with
+    from sqlalchemy import update
+    from src.db.models import Post
+    with db.session() as s:
+        result = s.execute(
+            update(Post)
+            .where(Post.id == item_id, Post.status.in_(CLAIMABLE))
+            .values(status="publishing")
+        )
+        return result.rowcount == 1
+
+
+def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
+    """Release items left in "publishing" by a crashed publisher, so they can be retried.
+
+    Uses the row's own updated_at (set when it was claimed), so a publish that is genuinely
+    still running is never taken away from it.
+    """
+    if not db.enabled():
+        return []
+    from datetime import timedelta
+    from sqlalchemy import select, update
+    from src.db.models import Post
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    with db.session() as s:
+        stuck = list(s.scalars(select(Post.id).where(Post.status == "publishing",
+                                                     Post.updated_at < cutoff)))
+        if stuck and not dry_run:
+            s.execute(update(Post).where(Post.id.in_(stuck))
+                      .values(status="failed", error="Publishing was interrupted; it will be retried."))
+        return stuck

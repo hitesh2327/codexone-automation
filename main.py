@@ -99,6 +99,7 @@ def cmd_generate(args) -> int:
 
 
 EXPIRE_HOURS = 36  # Telegram only keeps unread updates for 24h, so older previews are stale
+STUCK_PUBLISHING_MINUTES = 30  # longest a real publish should take (IG video processing included)
 
 
 def expire_stale(dry_run: bool) -> None:
@@ -106,6 +107,9 @@ def expire_stale(dry_run: bool) -> None:
     from src import approve_bot
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=EXPIRE_HOURS)
+    # A publisher that claimed an item and then died leaves it in "publishing"; release it.
+    for item_id in q.release_stuck_publishing(STUCK_PUBLISHING_MINUTES, dry_run):
+        log.warning("%s was stuck in publishing; released for retry", item_id)
     for item in q.load():
         if item.status == "pending" and datetime.fromisoformat(item.created_at) < cutoff:
             log.info("expiring %s (no decision in %dh)", item.id, EXPIRE_HOURS)
