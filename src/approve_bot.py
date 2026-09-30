@@ -19,10 +19,12 @@ import asyncio
 import html
 import json
 import sys
+import io
 import time
 from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
+import requests
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TelegramError, TimedOut
@@ -145,20 +147,51 @@ def _control_text(item: q.Item, max_caption: int = 3500) -> str:
             f"<code>{item.id}</code>")
 
 
+def _download(url: str) -> io.BytesIO:
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    buf = io.BytesIO(r.content)
+    buf.name = url.rsplit("/", 1)[-1].split("?")[0] or "media"
+    return buf
+
+
+async def _with_upload_fallback(send, url: str):
+    """Send media by URL; if Telegram can't fetch it (webpage_curl_failed, >20MB, slow host),
+    download it ourselves and upload the bytes instead."""
+    try:
+        return await send(url)
+    except BadRequest as e:
+        log.warning("Telegram could not fetch %s (%s); uploading the file instead", url, e)
+        data = await asyncio.to_thread(_download, url)
+        return await send(data)
+
+
 async def _send_preview(item: q.Item) -> q.Item:
     chat = _chat_id()
     async with _bot() as bot:
         ids: list[int] = []
         if item.kind == "carousel":
-            album = [InputMediaPhoto(u) for u in item.media["carousel"][:10]]
-            msgs = await bot.send_media_group(chat, album)
+            urls = item.media["carousel"][:10]
+
+            async def send_album(media):
+                return await bot.send_media_group(chat, [InputMediaPhoto(m) for m in media])
+
+            try:
+                msgs = await send_album(urls)
+            except BadRequest as e:
+                log.warning("Telegram could not fetch the carousel URLs (%s); uploading files instead", e)
+                files = [await asyncio.to_thread(_download, u) for u in urls]
+                msgs = await send_album(files)
             ids += [m.message_id for m in msgs]
             ctrl = await bot.send_message(chat, _control_text(item), parse_mode=ParseMode.HTML,
                                           reply_markup=keyboard(item.id))
         else:
-            ctrl = await bot.send_video(chat, item.media["reel"], supports_streaming=True,
-                                        caption=_control_text(item, max_caption=600), parse_mode=ParseMode.HTML,
-                                        reply_markup=keyboard(item.id))
+            async def send_reel(video):
+                return await bot.send_video(chat, video, supports_streaming=True,
+                                            caption=_control_text(item, max_caption=600),
+                                            parse_mode=ParseMode.HTML, reply_markup=keyboard(item.id))
+
+            ctrl = await _with_upload_fallback(send_reel, item.media["reel"])
         ids.append(ctrl.message_id)
         item.tg_message_ids, item.tg_control_id = ids, ctrl.message_id
     return item
