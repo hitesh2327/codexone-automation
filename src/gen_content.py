@@ -177,10 +177,10 @@ def validate_shape(c: Content, brand: dict) -> list[str]:
     if len(c.reel.points) != 3:
         problems.append(f"reel must have exactly 3 points, got {len(c.reel.points)}")
     for i, s in enumerate(c.carousel, 1):
-        long_lines = [(n, l) for n, l in enumerate(s.code.splitlines(), 1) if len(l) > CODE_LINE_MAX]
-        if long_lines:
-            detail = "; ".join(f"line {n} has {len(l)} chars: {l.strip()[:70]!r}" for n, l in long_lines[:4])
-            problems.append(f"slide {i}: code lines must be at most {CODE_LINE_MAX} chars "
+        over = [(n, l) for n, l in enumerate(s.code.splitlines(), 1) if len(l) > CODE_LINE_HARD_MAX]
+        if over:
+            detail = "; ".join(f"line {n} has {len(l)} chars: {l.strip()[:70]!r}" for n, l in over[:4])
+            problems.append(f"slide {i}: code lines must be at most {CODE_LINE_HARD_MAX} chars "
                             f"(split long calls/strings across lines) -- {detail}")
         if s.code and len(s.code.splitlines()) > 14:
             problems.append(f"slide {i}: code too long (max 12 lines)")
@@ -190,7 +190,23 @@ def validate_shape(c: Content, brand: dict) -> list[str]:
     return problems
 
 
-CODE_LINE_MAX = 56  # the renderer shrinks code to fit this width at >= 23px
+# The renderer shrinks code until the longest line fits (down to 18px), so a slightly long
+# line still looks fine. CODE_LINE_MAX is what we ask Gemini for; only past CODE_LINE_HARD_MAX
+# does the text get too small to read, and only then is it worth failing a draft over.
+CODE_LINE_MAX = 56
+CODE_LINE_HARD_MAX = 72
+
+
+def cosmetic_problems(c: Content) -> list[str]:
+    """Worth a rewrite, but never worth losing the day's post over."""
+    out = []
+    for i, s in enumerate(c.carousel, 1):
+        long_lines = [(n, l) for n, l in enumerate(s.code.splitlines(), 1)
+                      if CODE_LINE_MAX < len(l) <= CODE_LINE_HARD_MAX]
+        if long_lines:
+            detail = "; ".join(f"line {n} has {len(l)} chars" for n, l in long_lines[:4])
+            out.append(f"slide {i}: keep code lines under {CODE_LINE_MAX} chars -- {detail}")
+    return out
 
 MAX_VALUES = {"array": 10, "string": 10, "linked_list": 7, "stack": 6}
 
@@ -241,16 +257,22 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
     attempts = 3
     for attempt in range(1, attempts + 1):
         content = normalize(content)
-        problems = validate_shape(content, brand)
-        if not problems:  # only spend a review call on structurally valid drafts
+        blocking = validate_shape(content, brand)
+        if not blocking:  # only spend a review call on structurally valid drafts
             review = generate_json(_review_prompt(content), Review, temperature=0.1)
-            problems = [] if review.ok else review.issues
+            blocking = [] if review.ok else review.issues
+        cosmetic = cosmetic_problems(content)
+        problems = blocking + cosmetic
         if not problems:
             log.info("content passed review")
             break
         log.warning("review found %d issue(s): %s", len(problems), "; ".join(problems))
         if attempt == attempts:
-            raise RuntimeError("content still failing review after rewrites: " + "; ".join(problems))
+            if blocking:
+                raise RuntimeError("content still failing review after rewrites: " + "; ".join(blocking))
+            # Accurate content with a cosmetic nit: ship it rather than lose the day's post.
+            log.warning("shipping despite cosmetic issue(s): %s", "; ".join(cosmetic))
+            break
         # Revise the previous draft (keeps what was right) instead of starting over.
         fb = ("\n".join(f"- {p}" for p in problems) + (f"\n- {feedback}" if feedback else "")
               + "\n\nPrevious draft to revise:\n" + content.model_dump_json())
