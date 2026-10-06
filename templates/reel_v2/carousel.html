@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=block" rel="stylesheet">
+<link href="common.css" rel="stylesheet">
+<style>
+  body { background: #000; }
+  .slide { width: 1080px; height: 1350px; overflow: hidden; padding: 64px 70px; display: flex; flex-direction: column; }
+  .slide > .chip { align-self: flex-start; }
+  /* the diagram takes whatever height is left and scales to fit it */
+  .dia { flex: 1; min-height: 0; margin: 26px 0 0; position: relative; }
+  .dia svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .slide > * { position: relative; }
+  .topbar { margin-bottom: 38px; }
+  .brand { font-size: 28px; } .logo { width: 50px; height: 50px; font-size: 20px; }
+  .count { font: 700 28px 'JetBrains Mono'; padding: 6px 20px; border-radius: 30px; border: 2px solid var(--line); background: var(--panel); }
+  h1 { font: 800 70px/1.05 Poppins; letter-spacing: -1px; margin: 22px 0 14px; }
+  h1 em, .lead em { font-style: normal; }
+  h1 em { color: var(--em, #FFB800); }
+  .lead { font: 500 33px/1.4 Inter; color: #C9D1D9; }
+  .lead em { color: var(--amber); font-weight: 700; }
+  .stats3 { margin-top: 24px; } .stats3.two { grid-template-columns: 1fr 1fr 1fr; }
+  .term { margin-top: 20px; height: 76px; display: flex; align-items: center; font-size: 28px; }
+  .cover h1 { font-size: 132px; line-height: 1; letter-spacing: -4px; margin-top: 30px; white-space: nowrap; }
+  .cover .sub { font: 700 72px Poppins; margin: 0 0 22px; }
+  .cover .dia { margin-bottom: 90px; }
+  .cover .go { position: absolute; right: 70px; bottom: 56px; font: 700 26px 'JetBrains Mono'; color: var(--bg); background: var(--cyan);
+    padding: 14px 28px; border-radius: 14px; letter-spacing: 2px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 26px; }
+  .card { border: 2px solid var(--line); background: var(--panel); border-radius: 20px; padding: 22px 26px; }
+  .card h3 { font: 700 25px 'JetBrains Mono'; letter-spacing: 3px; margin-bottom: 12px; }
+  .card ul { list-style: none; } .card li { font: 500 25px/1.38 Inter; color: #C9D1D9; padding-left: 26px; position: relative; margin-bottom: 6px; }
+  .card li::before { content: "›"; position: absolute; left: 4px; color: var(--muted); font-weight: 700; }
+  .card pre { font: 500 22px/1.5 'JetBrains Mono'; color: #E6EDF3; white-space: pre; }
+  table { width: 100%; border-collapse: collapse; font: 500 24px 'JetBrains Mono'; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 19px; letter-spacing: 2px; padding: 6px 8px 10px; }
+  td { padding: 11px 8px; border-top: 2px solid var(--line); color: #C9D1D9; }
+  tr:last-child td { color: #7CF0A6; font-weight: 700; }
+  .cta { margin-top: 24px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-radius: 18px; padding: 20px 26px;
+    background: linear-gradient(90deg, rgba(59,130,246,.18), rgba(34,197,94,.18)); border: 2px solid rgba(124,240,166,.35); }
+  .cta .t { font: 700 30px Poppins; } .cta .f { white-space: nowrap; font: 700 26px 'JetBrains Mono'; color: var(--bg); background: var(--cyan); padding: 10px 20px; border-radius: 12px; }
+</style>
+</head>
+<body>
+<div id="deck"></div>
+<script src="diagram.js"></script>
+<script src="common.js"></script>
+<script>
+const T = ReelDiagram.TONE, HI = ReelDiagram.HI;
+
+// Carousel slides from the scene spec: cover, one per on_carousel beat, cheat sheet.
+function build(spec, handle, category) {
+  const beats = spec.beats.map((b, i) => [b, i]).filter(([b]) => b.on_carousel);
+  const total = beats.length + 2;
+  const D = ReelDiagram.makeDiagram(spec, 940, 660);
+  const at = i => D.draw(ReelDiagram.viewAt(spec, spec.beats.map((_, k) => k <= i ? -1 : 1e9), 2.2), 2.2);
+  const top = n => `<div class="topbar"><div class="brand"><div class="logo">&lt;/&gt;</div>${esc(handle)}</div><div class="count">${n}/${total}</div></div>`;
+  const slides = [];
+  // cover: the diagram at its "solved" moment = last story beat before the payoff
+  const solved = spec.beats.length - 2;
+  slides.push(`<section class="slide cover">${top(1)}
+    <span class="chip" style="color:${T.cyan}">${esc((category || 'System Design').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase())}</span>
+    <h1>${titleHtml(spec.title)}</h1><div class="sub">${esc(spec.subtitle)}</div>
+    <div class="lead">${emph(spec.cover_lead)}</div>
+    <div class="dia">${at(solved)}</div>
+    <div class="go">SWIPE TO LEARN →</div></section>`);
+  beats.forEach(([b, i], k) => {
+    slides.push(`<section class="slide" style="--em:${HI[b.tone]}">${top(k + 2)}
+      <span class="chip" style="color:${HI[b.tone]}">${esc(b.heading)}</span>
+      <h1>${emph(b.slide_title)}</h1><div class="lead">${emph(b.slide_text)}</div>
+      <div class="dia">${at(i)}</div>
+      ${b.term ? `<div class="term"><span class="p">$ </span>${esc(b.term)}</div>`
+               : `<div class="stats3">${b.counters.map(c => statHtml(c.label, c.value, c.tone)).join('')}</div>`}
+    </section>`);
+  });
+  const c = spec.cheat;
+  slides.push(`<section class="slide">${top(total)}
+    <span class="chip" style="color:${T.cyan}">CHEAT SHEET · SAVE THIS</span>
+    <h1 style="font-size:62px;margin-bottom:0">${titleHtml(spec.title)} <span style="font-size:.8em">in one page</span></h1>
+    <div class="grid2">
+      <div class="card"><h3 style="color:${HI.green}">✓ USE WHEN</h3><ul>${c.use_when.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+      <div class="card"><h3 style="color:${T.amber}">⚠ TRADE-OFFS</h3><ul>${c.tradeoffs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+    </div>
+    <div class="card" style="margin-top:20px"><h3 style="color:${T.cyan}">⚡ ${esc(c.code_title)}</h3><pre>${esc(c.code)}</pre></div>
+    <div class="card" style="margin-top:20px"><table>
+      <tr>${c.compare.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr>
+      ${c.compare.rows.map(r => `<tr>${r.map(x => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}</table></div>
+    <div class="cta"><div class="t">Save it for your next interview</div><div class="f">Follow ${esc(handle)}</div></div>
+  </section>`);
+  document.getElementById('deck').innerHTML = slides.join('');
+  return slides.length;
+}
+</script>
+</body>
+</html>

@@ -25,7 +25,10 @@ posts_per_day: 2
 # (see .github/workflows/daily-generate.yml); approved items publish at their slot.
 post_times_ist: ["10:00", "19:00"]
 reel:
-  { size: "1080x1920", duration_sec: "30-60", structure: "hook, 3 points, CTA" }
+  { size: "1080x1920", duration_sec: "20-30", structure: "hook, 3 points, CTA",  # hard max 30s
+    # Categories rendered by the animated-diagram engine (src/reel_v2); others keep the
+    # classic text + demo reel. Remove a category here to switch it back.
+    v2_categories: ["SystemDesign", "AI", "OS", "Dev"] }
 carousel: { size: "1080x1350", slides: "5-7" }
 cta: "Follow @codexonebyhitesh for daily dev content"
 hashtags:

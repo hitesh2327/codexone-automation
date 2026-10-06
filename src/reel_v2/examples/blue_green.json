@@ -1,0 +1,773 @@
+{
+ "topic": "Blue-Green Deployment",
+ "title": [
+  {
+   "text": "Blue",
+   "tone": "blue"
+  },
+  {
+   "text": "-",
+   "tone": "white"
+  },
+  {
+   "text": "Green",
+   "tone": "green"
+  }
+ ],
+ "subtitle": "Deployment",
+ "cover_lead": "How big apps ship new code with *zero downtime* and roll back in *seconds*.",
+ "groups": [
+  {
+   "id": "blue",
+   "label": "BLUE",
+   "sub": "v1.0",
+   "tone": "blue"
+  },
+  {
+   "id": "green",
+   "label": "GREEN",
+   "sub": "v2.0",
+   "tone": "green"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "users",
+   "label": "USERS",
+   "icon": "users",
+   "row": 0,
+   "group": ""
+  },
+  {
+   "id": "router",
+   "label": "ROUTER",
+   "icon": "router",
+   "row": 1,
+   "group": ""
+  },
+  {
+   "id": "b1",
+   "label": "srv-1",
+   "icon": "server",
+   "row": 2,
+   "group": "blue"
+  },
+  {
+   "id": "b2",
+   "label": "srv-2",
+   "icon": "server",
+   "row": 2,
+   "group": "blue"
+  },
+  {
+   "id": "b3",
+   "label": "srv-3",
+   "icon": "server",
+   "row": 2,
+   "group": "blue"
+  },
+  {
+   "id": "g1",
+   "label": "srv-1",
+   "icon": "server",
+   "row": 2,
+   "group": "green"
+  },
+  {
+   "id": "g2",
+   "label": "srv-2",
+   "icon": "server",
+   "row": 2,
+   "group": "green"
+  },
+  {
+   "id": "g3",
+   "label": "srv-3",
+   "icon": "server",
+   "row": 2,
+   "group": "green"
+  }
+ ],
+ "edges": [
+  {
+   "src": "users",
+   "dst": "router"
+  },
+  {
+   "src": "router",
+   "dst": "b1"
+  },
+  {
+   "src": "router",
+   "dst": "b2"
+  },
+  {
+   "src": "router",
+   "dst": "b3"
+  },
+  {
+   "src": "router",
+   "dst": "g1"
+  },
+  {
+   "src": "router",
+   "dst": "g2"
+  },
+  {
+   "src": "router",
+   "dst": "g3"
+  }
+ ],
+ "initial": [
+  {
+   "node": "users",
+   "state": "live",
+   "note": "1.2k req/s"
+  },
+  {
+   "node": "router",
+   "state": "live",
+   "note": ""
+  },
+  {
+   "node": "b1",
+   "state": "live",
+   "note": ""
+  },
+  {
+   "node": "b2",
+   "state": "live",
+   "note": ""
+  },
+  {
+   "node": "b3",
+   "state": "live",
+   "note": ""
+  },
+  {
+   "node": "g1",
+   "state": "empty",
+   "note": ""
+  },
+  {
+   "node": "g2",
+   "state": "empty",
+   "note": ""
+  },
+  {
+   "node": "g3",
+   "state": "empty",
+   "note": ""
+  }
+ ],
+ "beats": [
+  {
+   "narration": "How do apps ship new code without going down? Blue-green deployment.",
+   "trigger": "ship",
+   "heading": "ZERO-DOWNTIME DEPLOYS",
+   "tone": "cyan",
+   "caption": "Ship v2 *without* taking the app down",
+   "term": "watch traffic --app shop",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b1",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b2",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b3",
+     "tone": "blue",
+     "bad": false
+    }
+   ],
+   "states": [],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "BLUE v1",
+     "tone": "blue"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "48,200",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": false,
+   "slide_title": "",
+   "slide_text": ""
+  },
+  {
+   "narration": "Blue is live, running version one.",
+   "trigger": "live",
+   "heading": "● LIVE ON BLUE",
+   "tone": "blue",
+   "caption": "Blue = *live*. Every request lands here",
+   "term": "router status   → blue (v1.0)",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b1",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b2",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b3",
+     "tone": "blue",
+     "bad": false
+    }
+   ],
+   "states": [],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "BLUE v1",
+     "tone": "blue"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "49,850",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": true,
+   "slide_title": "*Blue* is live. Green waits.",
+   "slide_text": "Blue runs v1 and takes *100% of traffic*. Green will be an identical copy: same servers, same config."
+  },
+  {
+   "narration": "Next to it, you build Green with version two.",
+   "trigger": "build",
+   "heading": "DEPLOY v2 → GREEN",
+   "tone": "amber",
+   "caption": "Green = an *identical copy* running v2",
+   "term": "deploy v2.0 --env green",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b1",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b2",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b3",
+     "tone": "blue",
+     "bad": false
+    }
+   ],
+   "states": [
+    {
+     "node": "g1",
+     "state": "boot",
+     "note": "boot"
+    },
+    {
+     "node": "g2",
+     "state": "boot",
+     "note": "boot"
+    },
+    {
+     "node": "g3",
+     "state": "boot",
+     "note": "boot"
+    }
+   ],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "BLUE v1",
+     "tone": "blue"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "51,300",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": false,
+   "slide_title": "",
+   "slide_text": ""
+  },
+  {
+   "narration": "Test Green while users never touch it.",
+   "trigger": "Test",
+   "heading": "TEST GREEN",
+   "tone": "amber",
+   "caption": "Test Green. Users *never touch it*",
+   "term": "smoke-test green   ✓ 42 passed",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b1",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b2",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b3",
+     "tone": "blue",
+     "bad": false
+    }
+   ],
+   "states": [
+    {
+     "node": "g1",
+     "state": "testing",
+     "note": "✓ 200"
+    },
+    {
+     "node": "g2",
+     "state": "testing",
+     "note": "✓ 200"
+    },
+    {
+     "node": "g3",
+     "state": "testing",
+     "note": "✓ 200"
+    }
+   ],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "BLUE v1",
+     "tone": "blue"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "52,900",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": true,
+   "slide_title": "Ship v2 to *Green*. Test it.",
+   "slide_text": "Deploy v2 to Green and run your tests against it. Real users *never touch it*."
+  },
+  {
+   "narration": "Then flip the router. All traffic moves instantly.",
+   "trigger": "flip",
+   "heading": "FLIP THE SWITCH",
+   "tone": "green",
+   "caption": "*One switch* → all traffic on Green",
+   "term": "router switch → green",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "green",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "g1",
+     "tone": "green",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "g2",
+     "tone": "green",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "g3",
+     "tone": "green",
+     "bad": false
+    }
+   ],
+   "states": [
+    {
+     "node": "g1",
+     "state": "live",
+     "note": ""
+    },
+    {
+     "node": "g2",
+     "state": "live",
+     "note": ""
+    },
+    {
+     "node": "g3",
+     "state": "live",
+     "note": ""
+    },
+    {
+     "node": "b1",
+     "state": "idle",
+     "note": ""
+    },
+    {
+     "node": "b2",
+     "state": "idle",
+     "note": ""
+    },
+    {
+     "node": "b3",
+     "state": "idle",
+     "note": ""
+    }
+   ],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "GREEN v2",
+     "tone": "green"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "54,400",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": true,
+   "slide_title": "One switch. All traffic → *Green*.",
+   "slide_text": "The router points to Green. Requests move *instantly*, with no restart and *0s downtime*."
+  },
+  {
+   "narration": "Found a bug?",
+   "trigger": "bug",
+   "heading": "BUG IN v2!",
+   "tone": "red",
+   "caption": "v2 has a *bug*",
+   "term": "tail -f green.log   # 500s",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "green",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "g1",
+     "tone": "green",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "g2",
+     "tone": "green",
+     "bad": true
+    },
+    {
+     "src": "router",
+     "dst": "g3",
+     "tone": "green",
+     "bad": false
+    }
+   ],
+   "states": [
+    {
+     "node": "g2",
+     "state": "error",
+     "note": "HTTP 500"
+    }
+   ],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "GREEN v2",
+     "tone": "green"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "55,100",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": false,
+   "slide_title": "",
+   "slide_text": ""
+  },
+  {
+   "narration": "Flip back. Blue never stopped.",
+   "trigger": "Flip",
+   "heading": "ROLL BACK",
+   "tone": "blue",
+   "caption": "Flip back. *Blue never stopped*",
+   "term": "router switch → blue   # rollback",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b1",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b2",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b3",
+     "tone": "blue",
+     "bad": false
+    }
+   ],
+   "states": [
+    {
+     "node": "b1",
+     "state": "live",
+     "note": ""
+    },
+    {
+     "node": "b2",
+     "state": "live",
+     "note": ""
+    },
+    {
+     "node": "b3",
+     "state": "live",
+     "note": ""
+    },
+    {
+     "node": "g1",
+     "state": "ok",
+     "note": ""
+    },
+    {
+     "node": "g3",
+     "state": "ok",
+     "note": ""
+    }
+   ],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "BLUE v1",
+     "tone": "blue"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "56,700",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": true,
+   "slide_title": "Flip back. *Blue* never stopped.",
+   "slide_text": "v1 is still running on Blue, so rollback is the *same one switch*. Fix Green, try again."
+  },
+  {
+   "narration": "Zero downtime, instant rollback. Follow codexonebyhitesh.",
+   "trigger": "Zero",
+   "heading": "DOWNTIME: 0s",
+   "tone": "green",
+   "caption": "Zero downtime · *instant* rollback",
+   "term": "uptime   100%",
+   "flows": [
+    {
+     "src": "users",
+     "dst": "router",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b1",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b2",
+     "tone": "blue",
+     "bad": false
+    },
+    {
+     "src": "router",
+     "dst": "b3",
+     "tone": "blue",
+     "bad": false
+    }
+   ],
+   "states": [],
+   "counters": [
+    {
+     "label": "LIVE",
+     "value": "BLUE v1",
+     "tone": "blue"
+    },
+    {
+     "label": "REQUESTS",
+     "value": "57,900",
+     "tone": "white"
+    },
+    {
+     "label": "DOWNTIME",
+     "value": "0.0s",
+     "tone": "green"
+    }
+   ],
+   "on_carousel": false,
+   "slide_title": "",
+   "slide_text": ""
+  }
+ ],
+ "payoff": [
+  {
+   "text": "Zero downtime.",
+   "tone": "green"
+  },
+  {
+   "text": "Instant rollback.",
+   "tone": "blue"
+  }
+ ],
+ "payoff_sub": "1 switch · 0s down · rollback in 1s",
+ "cheat": {
+  "use_when": [
+   "Downtime is not acceptable",
+   "You need instant rollback",
+   "You can test prod-like first"
+  ],
+  "tradeoffs": [
+   "2× infra while both run",
+   "DB changes must suit v1 and v2",
+   "Drain in-flight sessions"
+  ],
+  "code_title": "THE SWITCH IN KUBERNETES",
+  "code": "kubectl patch service shop \\\n  -p '{\"spec\":{\"selector\":\n        {\"version\":\"green\"}}}'",
+  "compare": {
+   "headers": [
+    "STRATEGY",
+    "DOWNTIME",
+    "ROLLBACK",
+    "COST"
+   ],
+   "rows": [
+    [
+     "Recreate",
+     "yes",
+     "redeploy",
+     "1×"
+    ],
+    [
+     "Rolling",
+     "none",
+     "slow",
+     "~1×"
+    ],
+    [
+     "Canary",
+     "none",
+     "fast",
+     "~1×"
+    ],
+    [
+     "Blue-Green",
+     "none",
+     "instant",
+     "2×"
+    ]
+   ]
+  }
+ },
+ "caption": "How do big apps ship new code without going down? Blue-green deployment.\n\nRun two identical environments. Blue serves users on v1 while you deploy and test v2 on Green. When it passes, flip the router: every request moves to Green in one switch, with zero downtime. If something breaks, flip back. Blue never stopped, so rollback takes seconds.\n\nThe catch: you pay for double infrastructure while both run, and database changes must work for both versions.\n\nWould you use blue-green or canary for your next release?",
+ "hashtags": [
+  "#systemdesign",
+  "#devops",
+  "#kubernetes",
+  "#deployment",
+  "#bluegreen",
+  "#softwareengineer",
+  "#coding",
+  "#programming",
+  "#developer",
+  "#cloud",
+  "#techindia"
+ ]
+}

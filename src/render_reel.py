@@ -362,6 +362,18 @@ def _demo_layers(page, content: Content, scene: Scene, work: Path, is_last: bool
 
 def render_reel(content: Content, out_dir: Path, music: Path | None = None,
                 dry_run: bool = False, voice: str | None = None) -> Path | None:
+    from src.reel_v2 import pipeline as v2
+    if (spec := v2.scene_of(content, out_dir)) is not None:
+        if dry_run:
+            for b in spec.beats:
+                log.info("[dry-run] v2 %-22s | %s", b.heading, b.narration)
+            return None
+        from src.reel_v2.render import render_reel as render_v2
+        v2.save_scene(spec, out_dir)
+        try:
+            return render_v2(spec, out_dir, voice or pick_voice())
+        except Exception:  # content.reel mirrors the same beats as a classic text reel
+            log.exception("v2 reel render failed; rendering the classic reel instead")
     brand = load_brand()
     voice = voice or pick_voice()
     log.info("voice: %s", voice)
