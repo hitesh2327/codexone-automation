@@ -25,11 +25,13 @@ from datetime import datetime
 
 import requests
 
+from src import activity
 from src import publish_youtube as yt
 from src import queue_store as q
 from src.approve_bot import IST, item_publish_at, notify
 from src.config import get_env
 from src.logger import get_logger
+from src.redact import redact, redact_exc
 
 log = get_logger("publish")
 
@@ -46,7 +48,14 @@ def _base() -> str:
 
 
 def _call(method: str, path: str, retries: int = 4, **params) -> dict:
-    """Call the IG API with retries on network errors, 5xx and transient IG error codes."""
+    """Call the IG API with retries on network errors, 5xx and transient IG error codes.
+
+    The token travels as the documented `access_token` parameter: in the form body for POST, and in the
+    query string for GET (Meta documents only the query form for GET /me, container status and
+    refresh_access_token). A GET URL therefore contains the token, so a network error's text (which
+    `requests` builds from the URL) is never kept raw: it is scrubbed before it can reach a log line,
+    an IGError, the post's `error` field, the activity log or Telegram.
+    """
     params["access_token"] = get_env("IG_ACCESS_TOKEN")
     url = f"{_base()}/{path.lstrip('/')}"
     for attempt in range(1, retries + 1):
@@ -54,7 +63,7 @@ def _call(method: str, path: str, retries: int = 4, **params) -> dict:
             r = requests.request(method, url, params=params if method == "GET" else None,
                                  data=params if method != "GET" else None, timeout=60)
         except requests.RequestException as e:
-            err, transient = f"network error: {e}", True
+            err, transient = f"network error: {redact_exc(e, 300)}", True
         else:
             if r.ok:
                 return r.json()
@@ -64,7 +73,7 @@ def _call(method: str, path: str, retries: int = 4, **params) -> dict:
                 e = {}
             code = e.get("code")
             sub = e.get("error_subcode")
-            msg = e.get("error_user_msg") or e.get("message") or r.text[:300]
+            msg = redact(e.get("error_user_msg") or e.get("message") or r.text[:300])
             err = f"HTTP {r.status_code}, IG error {code}/{sub}: {msg}"
             transient = r.status_code >= 500 or e.get("is_transient") or code in TRANSIENT_CODES \
                 or sub in TRANSIENT_CODES
@@ -162,8 +171,8 @@ LABEL = {"ig": "Instagram", "yt": "YouTube"}
 
 
 def _targets(item: q.Item, platforms: tuple[str, ...]) -> list[str]:
-    """Carousels go to Instagram only; YouTube Shorts takes reels."""
-    return [p for p in platforms if p == "ig" or (p == "yt" and item.kind == "reel")]
+    """The requested platforms that this item is set to go to (item.targets; carousels are IG-only)."""
+    return [p for p in platforms if p in item.effective_targets]
 
 
 def _done(item: q.Item, p: str) -> bool:
@@ -194,14 +203,33 @@ def _publish_ig(item: q.Item) -> dict:
 def _publish_yt(item: q.Item) -> dict:
     if not yt.configured():
         return {"status": "skipped", "error": "YT_CLIENT_ID/YT_CLIENT_SECRET/YT_REFRESH_TOKEN not set"}
-    vid, url = yt.publish_reel(item.media["reel"], item.caption)
+    vid, url = yt.publish_reel(item.media["reel"], item.caption, title=item.yt_title,
+                               description=item.yt_description)
     return {"status": "published", "id": vid, "url": url, "privacy": yt.privacy()}
+
+
+def _log_platform(item: q.Item, p: str, rec: dict, tries: int) -> None:
+    st = rec.get("status")
+    if st == "published":
+        activity.record("post.published", f"Published {item.kind} “{item.topic}” to {LABEL[p]}",
+                        source="publisher", post_id=item.id,
+                        detail={"platform": p, "url": rec.get("url"), "media_id": rec.get("id")})
+    elif st == "skipped":
+        activity.record("publish.skipped", f"Skipped {LABEL[p]} for {item.kind} “{item.topic}”: {rec.get('error')}",
+                        level="warning", source="publisher", post_id=item.id, detail={"platform": p})
+    else:
+        giving_up = tries >= MAX_ATTEMPTS
+        activity.record("publish.failed",
+                        f"{LABEL[p]} publish failed for {item.kind} “{item.topic}” "
+                        f"(attempt {tries}/{MAX_ATTEMPTS}{', giving up' if giving_up else ''})",
+                        level="error", source="publisher", post_id=item.id,
+                        detail={"platform": p, "error": rec.get("error"), "attempt": tries})
 
 
 def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -> q.Item:
     # "published" is allowed so a platform that failed or was added later can be completed;
     # pending/rejected/expired items can never be published.
-    if item.status not in ("approved", "failed", "published"):
+    if item.status not in ("approved", "publishing", "failed", "published"):
         raise PermissionError(f"{item.id} is '{item.status}' -- only Telegram-approved items can be published")
     if item.ig_media_id and "ig" not in item.platforms:  # published before per-platform tracking
         item.platforms["ig"] = {"status": "published", "id": item.ig_media_id}
@@ -226,7 +254,8 @@ def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...]
                 log.info("[dry-run] would publish %s %s to Instagram with %d-char caption",
                          item.kind, item.id, len(item.caption))
             elif yt.configured():
-                yt.publish_reel(item.media["reel"], item.caption, dry_run=True)
+                yt.publish_reel(item.media["reel"], item.caption, dry_run=True, title=item.yt_title,
+                                description=item.yt_description)
             else:
                 log.info("[dry-run] YouTube not configured (YT_* unset); would skip")
         return item
@@ -248,6 +277,7 @@ def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...]
             log.error("%s: %s publish failed (attempt %d/%d): %s", item.id, LABEL[p], tries, MAX_ATTEMPTS, e)
         rec["attempts"] = tries
         rec["at"] = q.now_iso()
+        _log_platform(item, p, rec, tries)
         item.platforms[p] = rec
         q.upsert(item)
 

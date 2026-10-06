@@ -10,6 +10,8 @@ Status flow:  pending → approved → publishing → published
                       → regenerate → (new pending item; old one becomes "replaced")
               approved → failed (publish error; retried on the next poll)
               pending  → expired (no decision within EXPIRE_HOURS)
+              expired  → approved (revived from the dashboard: schedule or approve it again)
+              approved → publishing (dashboard "publish now" in progress) → published | failed
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ QUEUE_FILE = DATA_DIR / "queue.json"
 IST = timezone(timedelta(hours=5, minutes=30))
 Status = Literal["pending", "approved", "publishing", "rejected", "regenerate", "replaced",
                  "published", "failed", "expired"]
+PLATFORMS = ("ig", "yt")
+DEFAULT_TARGETS = {"reel": ["ig", "yt"], "carousel": ["ig"]}
 Kind = Literal["carousel", "reel"]
 
 
@@ -60,6 +64,28 @@ class Item(BaseModel):
     platforms: dict = Field(default_factory=dict)
     error: str | None = None
     attempts: int = 0
+    group_id: str = ""                     # "<date>/<slug>": a topic's carousel + reel + regenerations
+    targets: list[str] | None = None       # platforms to publish to; None = DEFAULT_TARGETS[kind]
+    yt_title: str | None = None            # YouTube overrides (else built from the caption)
+    yt_description: str | None = None
+
+    def model_post_init(self, _ctx) -> None:
+        if not self.group_id:
+            self.group_id = group_of(self.post_dir, self.date)
+
+    @property
+    def effective_targets(self) -> list[str]:
+        allowed = DEFAULT_TARGETS[self.kind]
+        return [p for p in (self.targets if self.targets is not None else allowed) if p in allowed]
+
+
+def group_of(post_dir: str, day: str = "") -> str:
+    """output/<date>/<slug>[/v2-reel] -> "<date>/<slug>"."""
+    parts = [p for p in post_dir.replace("\\", "/").split("/") if p]
+    if "output" in parts and len(parts) > parts.index("output") + 2:
+        i = parts.index("output")
+        return f"{parts[i + 1]}/{parts[i + 2]}"
+    return f"{day}/{parts[-1] if parts else 'post'}"
 
 
 def make_id(date: str, kind: str, slug: str, version: int = 1) -> str:
@@ -244,3 +270,30 @@ def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
             s.execute(update(Post).where(Post.id.in_(stuck))
                       .values(status="failed", error="Publishing was interrupted; it will be retried."))
         return stuck
+
+
+# --------------------------------------------------------------------------- #
+# Decisions (shared by the Telegram bot and the dashboard, so they can't diverge)
+# --------------------------------------------------------------------------- #
+DECISIONS = {"approve": "approved", "reject": "rejected", "regen": "regenerate"}
+DECIDABLE = {"approve": {"pending", "approved", "expired"},   # approving again = reschedule; expired = revive
+             "reject": {"pending", "approved"},
+             "regen": {"pending", "approved", "failed", "expired"}}
+EDITABLE = {"pending", "approved", "failed", "expired"}
+
+
+class DecisionError(ValueError):
+    pass
+
+
+def apply_decision(item: Item, action: str, *, feedback: str = "") -> Item:
+    """Pure state change for approve / reject / regen. Raises DecisionError if not allowed now."""
+    if action not in DECISIONS:
+        raise DecisionError(f"unknown action {action!r}")
+    if item.status not in DECIDABLE[action]:
+        raise DecisionError(f"{item.kind} is already {item.status}")
+    item.status = DECISIONS[action]  # type: ignore[assignment]
+    item.decided_at = now_iso()
+    if feedback.strip():
+        item.feedback = (item.feedback + "\n" + feedback.strip()).strip()
+    return item

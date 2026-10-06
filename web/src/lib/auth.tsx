@@ -3,13 +3,20 @@ import { Navigate, useLocation } from "react-router-dom";
 
 import { api, ApiError, setCsrfToken } from "./api";
 
-export type User = { id: number; username: string | null; email: string | null; name: string; csrf: string };
+export type User = {
+  id: number; username: string | null; email: string | null; name: string; csrf: string;
+  has_password?: boolean; avatar_v?: number | null;
+};
 
 type AuthState = {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Merge fresh details (name, picture version...) into the signed-in user, e.g. after a profile edit. */
+  patchUser: (p: Partial<User>) => void;
+  /** Use a new CSRF token (the server issues one when the password changes and the session is renewed). */
+  setCsrf: (token: string) => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -43,7 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     accept(null);
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
+  const patchUser = useCallback((p: Partial<User>) => setUser((u) => (u ? { ...u, ...p } : u)), []);
+  const setCsrf = useCallback((token: string) => {
+    setCsrfToken(token);
+    setUser((u) => (u ? { ...u, csrf: token } : u));
+  }, []);
+
+  return <AuthContext.Provider value={{ user, loading, login, logout, patchUser, setCsrf }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

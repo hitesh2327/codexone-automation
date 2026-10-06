@@ -13,3 +13,8 @@ client_secret.json
 client_secret.json
 client_secret*.json
 get_yt_token.py
+
+# local demo emails (OTP codes) written by the console mail driver
+data/outbox/
+# generated prototype media
+prototypes/*/out/

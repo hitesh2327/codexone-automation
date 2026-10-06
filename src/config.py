@@ -31,16 +31,54 @@ class MissingSecretError(RuntimeError):
     pass
 
 
-def get_env(name: str, required: bool = True, default: str | None = None) -> str | None:
-    """Return an env var, raising a clear error if a required one is missing."""
+def _from_env(name: str) -> str | None:
     for key in _ALIASES.get(name, (name,)):
         value = os.getenv(key)
-        if value:
+        if value and value.strip():
             return value.strip()
+    return None
+
+
+def _from_store(name: str) -> str | None:
+    """A value saved on the dashboard's Config page (src/config_store.py). Only for configurable names
+    (src/config_schema.py), never bootstrap ones like DATABASE_URL; never raises (file mode, no table,
+    database down, no master key: all simply mean "not in the store")."""
+    from src.config_schema import STORE_NAMES
+    if name not in STORE_NAMES:
+        return None
+    try:
+        from src import config_store
+        return config_store.lookup(name)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def resolve(name: str) -> tuple[str | None, str | None]:
+    """(value, source) with source "env" | "store" | None.
+
+    Precedence while existing deployments migrate: the environment wins (GitHub secrets, SSM, .env keep
+    working exactly as before), then the Config store. CONFIG_PRECEDENCE=store flips it once the store
+    is trusted (spec 3.4 / 3.8; flip back to roll back).
+    """
+    store_first = (os.getenv("CONFIG_PRECEDENCE") or "env").strip().lower() == "store"
+    order = (("store", _from_store), ("env", _from_env)) if store_first else (("env", _from_env), ("store", _from_store))
+    for source, read in order:
+        value = read(name)
+        if value:
+            return value, source
+    return None, None
+
+
+def get_env(name: str, required: bool = True, default: str | None = None) -> str | None:
+    """Return a setting (environment, then the Config store; see resolve), raising a clear error if a
+    required one is missing."""
+    value, _ = resolve(name)
+    if value:
+        return value
     if required and default is None:
         raise MissingSecretError(
-            f"Missing required environment variable '{name}'. "
-            f"Add it to .env (local) or GitHub Secrets (CI)."
+            f"Missing required setting '{name}'. Set it on the dashboard's Config page, "
+            f"or add it to .env (local) or GitHub Secrets (CI)."
         )
     return default
 

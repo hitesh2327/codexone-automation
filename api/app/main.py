@@ -19,18 +19,29 @@ from sqlalchemy import func, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.app.deps import protected
-from api.app.routes import auth, public
+from api.app.routes import auth, config, dashboard, generate, logs, posts, profile, public, recovery
 from api.app.security import hash_password, verify_password
 from api.app.settings import settings
-from src import db
+from src import db, redact
+from src.config import get_env
 from src.db.models import User
 
 log = logging.getLogger("codexone.api")
 WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
 
+def _force_env_password() -> bool:
+    return (get_env("ADMIN_PASSWORD_FORCE", required=False, default="false") or "").strip().lower() in ("1", "true", "yes")
+
+
 def sync_admin() -> None:
-    """Create the password admin from ADMIN_USERNAME/ADMIN_PASSWORD, or update its password."""
+    """Create the password admin from ADMIN_USERNAME/ADMIN_PASSWORD.
+
+    The env password only seeds the account (first run, or an account that has no password yet). After
+    that the password is the user's own: it is changed from the profile page or the emailed-code reset,
+    and a restart never overwrites it. To force the env password back (locked out), start once with
+    ADMIN_PASSWORD_FORCE=true.
+    """
     s = settings()
     if not (s.admin_username and s.admin_password):
         log.warning("ADMIN_USERNAME/ADMIN_PASSWORD not set: no password admin")
@@ -40,10 +51,10 @@ def sync_admin() -> None:
         if user is None:
             ses.add(User(username=s.admin_username, password_hash=hash_password(s.admin_password), name="Admin"))
             log.info("admin %r created", s.admin_username)
-        elif not verify_password(s.admin_password, user.password_hash):
+        elif not user.password_hash or (_force_env_password() and not verify_password(s.admin_password, user.password_hash)):
             user.password_hash = hash_password(s.admin_password)
             user.token_version += 1  # password changed: sign out existing sessions
-            log.info("admin %r password updated from env", s.admin_username)
+            log.info("admin %r password set from env", s.admin_username)
 
 
 @asynccontextmanager
@@ -55,6 +66,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     s = settings()
+    redact.install()  # scrub secrets from every log line, including the host's root handlers (Lambda, uvicorn)
     app = FastAPI(title="codexone admin", lifespan=lifespan,
                   docs_url="/api/docs" if s.debug else None, redoc_url=None, openapi_url="/api/openapi.json" if s.debug else None)
 
@@ -80,6 +92,7 @@ def create_app() -> FastAPI:
 
     app.include_router(public.router)
     app.include_router(auth.router)
+    app.include_router(recovery.router)  # public: forgot / reset password
 
     # Everything else under /api: signed in + CSRF on writes. Later phases add routers here.
     api = APIRouter(prefix="/api", dependencies=protected)
@@ -88,6 +101,12 @@ def create_app() -> FastAPI:
     def ping() -> dict:
         return {"ok": True}
 
+    api.include_router(dashboard.router)
+    api.include_router(posts.router)
+    api.include_router(generate.router)
+    api.include_router(logs.router)
+    api.include_router(profile.router)
+    api.include_router(config.router)
     app.include_router(api)
 
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

@@ -3,9 +3,12 @@
 Usage (one check per call so each shows as its own pass/fail step in Actions):
     python scripts/check_secrets.py telegram|gemini|cloudinary|instagram|youtube|gh_pat
 
-Optional non-secret expectations (compare CI secrets to what works locally):
-    EXPECTED_BOT_ID   Telegram bot id the token must belong to
-    EXPECTED_IG_ID    numeric Instagram user id
+Optional non-secret expectations (compare CI secrets to what works locally). check-secrets.yml reads
+them from repository *variables* (Settings > Secrets and variables > Actions > Variables), so nothing
+deployment-specific is baked into the workflow; unset = that comparison is skipped:
+    EXPECTED_BOT_ID            Telegram bot id the token must belong to
+    EXPECTED_IG_ID             numeric Instagram user id
+    EXPECTED_FP_<NAME>         first 8 hex chars of sha256(value) of a working local value
 """
 from __future__ import annotations
 
@@ -88,13 +91,15 @@ def instagram() -> None:
 
 
 def gh_pat() -> None:
-    repo = os.environ.get("GITHUB_REPOSITORY", "hitesh2327/codexone-automation")
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()  # set by GitHub Actions; no owner default
+    if not repo:
+        fail("GITHUB_REPOSITORY is not set (owner/name of this repository)")
     r = requests.get(f"https://api.github.com/repos/{repo}/actions/secrets/public-key",
                      headers={"Authorization": f"Bearer {get_env('GH_PAT')}",
                               "Accept": "application/vnd.github+json"}, timeout=30)
     if r.status_code in (401, 403, 404):
         fail(f"GH_PAT cannot access this repo's Actions secrets (HTTP {r.status_code}); "
-             "needs repository access to codexone-automation with 'Secrets: Read and write'")
+             f"needs repository access to {repo} with 'Secrets: Read and write'")
     r.raise_for_status()
     print("OK: GH_PAT can manage this repo's Actions secrets (token refresh will work)")
 

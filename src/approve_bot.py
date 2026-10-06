@@ -29,16 +29,22 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMedia
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TelegramError, TimedOut
 
-from src import db
+from src import activity, db
 from src import queue_store as q
 from src.config import DATA_DIR, ROOT, get_env, load_brand
 from src.gen_content import Content
 from src.logger import get_logger
+from src.redact import redact
 
 log = get_logger("approve_bot")
 OFFSET_FILE = DATA_DIR / "tg_offset.json"
 IST = timezone(timedelta(hours=5, minutes=30))
 ACTIONS = {"approve": "✅ Approve", "reject": "❌ Reject", "regen": "🔄 Regenerate"}
+
+
+def sync_enabled() -> bool:
+    """TELEGRAM_SYNC=false turns off every Telegram call (local dashboard development)."""
+    return (get_env("TELEGRAM_SYNC", required=False, default="true") or "true").lower() not in ("0", "false", "no")
 
 
 def _chat_id() -> int:
@@ -214,13 +220,59 @@ async def _notify(text: str, reply_to: int | None = None) -> None:
 
 
 def notify(text: str, reply_to: int | None = None, dry_run: bool = False) -> None:
-    if dry_run:
-        log.info("[dry-run] would notify: %s", text)
+    text = redact(text)  # callers forward exception text, which can carry a token-bearing URL
+    if dry_run or not sync_enabled():
+        log.info("[%s] would notify: %s", "dry-run" if dry_run else "telegram sync off", text)
         return
     try:
         asyncio.run(_notify(text, reply_to))
     except TelegramError as e:
         log.error("Telegram notify failed: %s", e)
+
+
+# --------------------------------------------------------------------------- #
+# Keeping Telegram in sync with decisions made in the dashboard
+# --------------------------------------------------------------------------- #
+async def _mark_decided(item: q.Item, note: str) -> None:
+    async with _bot() as bot:
+        await _safe(bot.edit_message_reply_markup(_chat_id(), item.tg_control_id, reply_markup=None))
+        await _safe(bot.send_message(_chat_id(), note, reply_to_message_id=item.tg_control_id))
+
+
+def mark_decided(item: q.Item, note: str) -> None:
+    """Remove the preview's buttons and reply with what happened (e.g. approved in the dashboard)."""
+    if not item.tg_control_id or not sync_enabled():
+        return
+    try:
+        asyncio.run(_mark_decided(item, note))
+    except TelegramError as e:
+        log.warning("Telegram sync failed for %s: %s", item.id, e)
+
+
+async def _refresh_preview(item: q.Item) -> None:
+    async with _bot() as bot:
+        markup = keyboard(item.id) if item.status == "pending" else None
+        if item.kind == "carousel":
+            await _safe(bot.edit_message_text(_control_text(item), _chat_id(), item.tg_control_id,
+                                              parse_mode=ParseMode.HTML, reply_markup=markup))
+        else:
+            await _safe(bot.edit_message_caption(_chat_id(), item.tg_control_id,
+                                                 caption=_control_text(item, max_caption=600),
+                                                 parse_mode=ParseMode.HTML, reply_markup=markup))
+
+
+def refresh_preview(item: q.Item) -> None:
+    """Re-render the preview's text after an edit (caption, schedule...), keeping the buttons."""
+    if not item.tg_control_id or not sync_enabled():
+        return
+    try:
+        asyncio.run(_refresh_preview(item))
+    except TelegramError as e:
+        log.warning("Telegram preview refresh failed for %s: %s", item.id, e)
+
+
+def decision_note(action: str, item: q.Item, source: str = "") -> str:
+    return _decision_note(action, item) + (f" ({source})" if source else "")
 
 
 # --------------------------------------------------------------------------- #
@@ -255,6 +307,7 @@ def _decision_note(action: str, item: q.Item) -> str:
 async def _poll(dry_run: bool) -> list[tuple[str, str]]:
     chat = _chat_id()
     applied: list[tuple[str, str]] = []
+    changed: dict[str, q.Item] = {}
     items = {i.id: i for i in q.load()}
     by_msg = {mid: i for i in items.values() for mid in i.tg_message_ids}
     offset = _load_offset()
@@ -271,14 +324,17 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
                 item = items.get(item_id)
                 if not item or action not in ACTIONS:
                     continue
-                if item.status != "pending":
+                if item.status != "pending":  # e.g. already decided in the dashboard
                     await _safe(bot.answer_callback_query(cq.id, f"Already {item.status}."))
                     continue
-                item.status = {"approve": "approved", "reject": "rejected", "regen": "regenerate"}[action]
-                item.decided_at = q.now_iso()
+                q.apply_decision(item, action)
+                changed[item.id] = item
                 applied.append((item.id, item.status))
                 log.info("%s → %s", item.id, item.status)
                 if not dry_run:
+                    activity.record("post." + {"approve": "approved", "reject": "rejected", "regen": "regenerate"}[action],
+                                    f"{ACTIONS[action][2:]} chosen in Telegram for {item.kind} “{item.topic}”",
+                                    source="telegram", actor="telegram", post_id=item.id)
                     await _safe(bot.answer_callback_query(cq.id, item.status.capitalize()))
                     await _safe(bot.edit_message_reply_markup(chat, cq.message.message_id, reply_markup=None))
                     await _safe(bot.send_message(chat, _decision_note(action, item),
@@ -288,8 +344,12 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
                 item = by_msg.get(msg.reply_to_message.message_id)
                 if item and item.status == "pending":
                     item.feedback = (item.feedback + "\n" + msg.text).strip()
+                    changed[item.id] = item
                     applied.append((item.id, "feedback"))
                     log.info("%s feedback: %s", item.id, msg.text)
+                    if not dry_run:
+                        activity.record("post.feedback", f"Feedback added in Telegram for {item.kind} “{item.topic}”",
+                                        source="telegram", actor="telegram", post_id=item.id)
                     if not dry_run:
                         await _safe(bot.send_message(chat, "📝 Noted. Tap 🔄 Regenerate to apply it.",
                                                      reply_to_message_id=msg.message_id))
@@ -299,8 +359,8 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
         return applied
     if offset is not None:
         _save_offset(offset)
-    if applied:
-        q.save(list(items.values()))
+    if changed:  # only what this poll changed: never overwrite concurrent dashboard edits
+        q.save(list(changed.values()))
     return applied
 
 
@@ -313,6 +373,9 @@ async def _safe(coro) -> None:
 
 
 def poll(dry_run: bool = False, retries: int = 3) -> list[tuple[str, str]]:
+    if not sync_enabled():
+        log.info("TELEGRAM_SYNC is off: not reading Telegram")
+        return []
     for attempt in range(1, retries + 1):
         try:
             applied = asyncio.run(_poll(dry_run))

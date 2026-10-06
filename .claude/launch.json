@@ -4,14 +4,78 @@
     {
       "name": "api",
       "runtimeExecutable": ".venv/Scripts/python",
-      "runtimeArgs": ["-m", "uvicorn", "api.app.main:app", "--port", "8000", "--reload", "--reload-dir", "api", "--reload-dir", "src"],
-      "env": { "DATABASE_URL": "postgresql+psycopg://codexone:codexone@localhost:5433/codexone" },
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "api.app.main:app",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "api",
+        "--reload-dir",
+        "src"
+      ],
+      "env": {
+        "PUBLISH_ENABLED": "false",
+        "TELEGRAM_SYNC": "false",
+        "GITHUB_DISPATCH_TOKEN": ""
+      },
       "port": 8000
     },
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "api-local",
+      "runtimeExecutable": ".venv/Scripts/python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "api.app.main:app",
+        "--port",
+        "8001",
+        "--reload",
+        "--reload-dir",
+        "api",
+        "--reload-dir",
+        "src",
+        "--reload-exclude",
+        "api/tests/*",
+        "--reload-exclude",
+        "*/__pycache__/*"
+      ],
+      "env": {
+        "DATABASE_URL": "postgresql+psycopg://codexone:codexone@localhost:5433/codexone",
+        "COOKIE_SECURE": "false",
+        "PUBLIC_URL": "http://localhost:5173",
+        "PUBLISH_ENABLED": "false",
+        "TELEGRAM_SYNC": "false",
+        "GITHUB_DISPATCH_TOKEN": "",
+        "MAIL_DRIVER": "console"
+      },
+      "port": 8001
+    },
+    {
+      "name": "web-local",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev"
+      ],
+      "env": {
+        "API_PROXY_TARGET": "http://localhost:8001"
+      },
       "port": 5173
     }
   ]

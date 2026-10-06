@@ -42,3 +42,10 @@ login_limiter = RateLimiter()
 WINDOW = 15 * 60
 PER_ACCOUNT = 5      # failed attempts per (IP, username) per window
 PER_IP = 20          # failed attempts per IP per window (password spraying)
+
+
+# Emailed codes: asking for them and guessing them are limited separately from sign-in.
+otp_limiter = RateLimiter()
+OTP_SEND_PER_ADDRESS = 4     # code requests per account/address per window
+OTP_SEND_PER_IP = 12
+OTP_TRY_PER_ACCOUNT = 12     # code submissions per account per window (each code also dies after 5 wrong tries)

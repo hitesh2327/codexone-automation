@@ -9,14 +9,14 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from api.app import ratelimit as rl
 from api.app.deps import CurrentUser, current_user, require_csrf
 from api.app.security import (burn_time, clear_session_cookie, create_session_token, set_session_cookie,
                               verify_password)
 from api.app.settings import settings
-from src import db
+from src import activity, db
 from src.db.models import User
 
 log = logging.getLogger("codexone.api.auth")
@@ -44,12 +44,21 @@ class LoginBody(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
-def _user_out(u: User | CurrentUser, csrf: str) -> dict:
+def avatar_version(u: User) -> int | None:
+    """Changes whenever the picture does; the page adds it to the image URL to bust its cache."""
+    if not (u.avatar and u.avatar_updated_at):
+        return None
+    ts = u.avatar_updated_at
+    return int((ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).timestamp())
+
+
+def _user_out(u: User, csrf: str) -> dict:
     return {"id": u.id, "username": u.username, "email": u.email, "name": u.name or u.username or u.email,
-            "csrf": csrf}
+            "csrf": csrf, "has_password": bool(u.password_hash),
+            "avatar_v": avatar_version(u)}
 
 
-def _start_session(response: Response, user: User) -> str:
+def start_session(response: Response, user: User) -> str:
     token, csrf = create_session_token(user.id, user.token_version)
     set_session_cookie(response, token)
     return csrf
@@ -76,7 +85,9 @@ def login(body: LoginBody, request: Request, response: Response) -> dict:
                             headers={"Retry-After": str(wait)})
 
     with db.session() as s:
-        user = s.scalars(select(User).where(func.lower(User.username) == body.username.lower())).first()
+        ident = body.username.strip().lower()
+        user = s.scalars(select(User).where(or_(func.lower(User.username) == ident,
+                                                func.lower(User.email) == ident))).first()
         if user is None:
             burn_time()  # same timing as a wrong password
         ok = bool(user and user.is_active and verify_password(body.password, user.password_hash))
@@ -84,11 +95,15 @@ def login(body: LoginBody, request: Request, response: Response) -> dict:
             rl.login_limiter.hit(account_key)
             rl.login_limiter.hit(ip_key)
             log.warning("failed login for %r from %s", body.username, ip)
+            # Only a real account name is kept (a mistyped password in the username box must not reach the log).
+            activity.record("login.failed", "Failed sign-in" + ("" if user else " (no such account)"), level="warning",
+                            source="auth", actor=(user.username or user.email) if user else "unknown")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
         user.last_login_at = datetime.now(timezone.utc)
         rl.login_limiter.reset(account_key)
-        csrf = _start_session(response, user)
-        log.info("login: %s from %s", user.username, ip)
+        csrf = start_session(response, user)
+        log.info("login: %s from %s", user.username or user.email, ip)
+        activity.record("login.success", "Signed in with password", source="auth", actor=user.username or user.email)
         return _user_out(user, csrf)
 
 
@@ -98,13 +113,16 @@ def logout(response: Response, user: CurrentUser = Depends(require_csrf)) -> dic
         row = s.get(User, user.id)
         if row:
             row.token_version += 1  # invalidates every session issued so far
+    activity.record("logout", "Signed out", source="auth", actor=user.username or user.email)
     clear_session_cookie(response)
     return {"ok": True}
 
 
 @router.get("/me")
 def me(user: CurrentUser = Depends(current_user)) -> dict:
-    return _user_out(user, user.csrf)
+    with db.session() as s:
+        row = s.get(User, user.id)
+        return _user_out(row, user.csrf)
 
 
 # --------------------------------------------------------------------------- #
@@ -133,6 +151,8 @@ async def google_callback(request: Request):
         return _login_redirect("Your Google account has no verified email.")
     if email not in settings().allowed_google_emails:
         log.warning("google login refused for %s (not in ALLOWED_GOOGLE_EMAILS)", email)
+        activity.record("login.failed", "Google sign-in refused: email is not on the allowlist", level="warning",
+                        source="auth", actor=email)
         return _login_redirect(f"{email} is not allowed to sign in.")
 
     response = RedirectResponse(f"{settings().public_url}/", status_code=303)
@@ -145,6 +165,7 @@ async def google_callback(request: Request):
         if not user.is_active:
             return _login_redirect("This account is disabled.")
         user.last_login_at = datetime.now(timezone.utc)
-        _start_session(response, user)
+        start_session(response, user)
     log.info("login via google: %s", email)
+    activity.record("login.success", "Signed in with Google", source="auth", actor=email)
     return response

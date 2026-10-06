@@ -1,4 +1,5 @@
 name: Generate posts (twice daily)
+run-name: ${{ format('Generate {0}', inputs.request_id || github.event_name) }}   # the dashboard finds its run by this
 
 # Two posting slots per day (brand/config.yaml post_times_ist). Each run creates one
 # reel + one carousel for its slot and sends Telegram previews. Nothing is published
@@ -6,7 +7,12 @@ name: Generate posts (twice daily)
 #
 # Primary trigger: cron-job.org calls workflow_dispatch at exact times (see README).
 # The schedule below is only a backup -- GitHub often runs it hours late. A slot that
-# already has a post, or passed more than 2h ago, is skipped, so double triggers are safe.
+# already has a post, or passed more than 12h ago (LATE_LIMIT_HOURS in main.py), is skipped, so
+# double triggers are safe.
+#
+# The dashboard's Generate page also dispatches this workflow (slot / category / topic / source_url /
+# request_id). Those values are user-typed: read them ONLY through env: below, never inline
+# ${{ inputs.* }} in a run: block (tests/test_workflows.py enforces this).
 on:
   schedule:
     - cron: "30 2 * * *"    # 08:00 IST → posts at 10:00 IST
@@ -14,12 +20,20 @@ on:
   workflow_dispatch:
     inputs:
       slot:
-        description: "Posting slot (IST)"
-        type: choice
-        options: ["auto", "10:00", "19:00"]
+        description: "Posting slot HH:MM IST (one of post_times_ist) or auto"
+        type: string
         default: "auto"
       category:
         description: "Force a category (AI, SystemDesign, DSA, Interview, OS, Dev) — optional"
+        required: false
+      topic:
+        description: "Write about this topic instead of a trending one (needs category) — optional"
+        required: false
+      source_url:
+        description: "https link to cite for the topic (not read) — optional"
+        required: false
+      request_id:
+        description: "Dashboard request id (set by the dashboard; leave empty by hand)"
         required: false
       dry_run:
         description: "Dry run (nothing sent or saved)"
@@ -29,9 +43,18 @@ on:
         description: "Generate even if the slot already has a post or passed long ago"
         type: boolean
         default: false
+      allow_duplicate:
+        description: "Let a custom topic repeat a recently covered one"
+        type: boolean
+        default: false
 
+# Its own group: GitHub keeps one running + one pending run per group and silently cancels an older
+# pending run, so sharing queue-state with poll (dispatched on every Regenerate / Publish now) could
+# drop a queued Generate. Generate runs still queue behind each other. The database (Postgres, used in
+# production) is the real lock for queue state; only file mode (no DATABASE_URL) relies on the serial
+# queue-state group, and there Save queue state below rebases before it pushes.
 concurrency:
-  group: queue-state        # shared with poll + refresh so state commits never race
+  group: generate-posts
   cancel-in-progress: false
 
 permissions:
@@ -72,19 +95,44 @@ jobs:
       - name: Generate post and send Telegram previews
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # higher GitHub search API limit in fetch_topics
+          # User-typed values: only ever read as $VARS below (never inlined into the script).
+          SCHEDULE: ${{ github.event.schedule }}
+          IN_SLOT: ${{ inputs.slot }}
+          IN_CATEGORY: ${{ inputs.category }}
+          IN_TOPIC: ${{ inputs.topic }}
+          IN_SOURCE_URL: ${{ inputs.source_url }}
+          IN_REQUEST_ID: ${{ inputs.request_id }}
+          IN_DRY_RUN: ${{ inputs.dry_run }}
+          IN_FORCE: ${{ inputs.force }}
+          IN_ALLOW_DUPLICATE: ${{ inputs.allow_duplicate }}
         run: |
           # Map the cron that fired to its slot (keep in sync with post_times_ist).
-          case "${{ github.event.schedule }}" in
+          case "$SCHEDULE" in
             "30 2 * * *")  SLOT="10:00" ;;
             "30 12 * * *") SLOT="19:00" ;;
-            *)             SLOT="${{ inputs.slot }}" ;;
+            *)             SLOT="$IN_SLOT" ;;
           esac
-          ARGS=""
-          if [ -n "$SLOT" ] && [ "$SLOT" != "auto" ]; then ARGS="$ARGS --slot $SLOT"; fi
-          if [ -n "${{ inputs.category }}" ]; then ARGS="$ARGS --category ${{ inputs.category }}"; fi
-          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
-          python main.py generate $ARGS
+          ARGS=()
+          if [ -n "$SLOT" ] && [ "$SLOT" != "auto" ]; then ARGS+=(--slot "$SLOT"); fi
+          if [ -n "$IN_CATEGORY" ]; then ARGS+=(--category "$IN_CATEGORY"); fi
+          if [ -n "$IN_TOPIC" ]; then ARGS+=(--topic "$IN_TOPIC"); fi
+          if [ -n "$IN_SOURCE_URL" ]; then ARGS+=(--source-url "$IN_SOURCE_URL"); fi
+          if [ -n "$IN_REQUEST_ID" ]; then ARGS+=(--request-id "$IN_REQUEST_ID"); fi
+          if [ "$IN_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+          if [ "$IN_FORCE" = "true" ]; then ARGS+=(--force); fi
+          if [ "$IN_ALLOW_DUPLICATE" = "true" ]; then ARGS+=(--allow-duplicate); fi
+          python main.py generate "${ARGS[@]}"
+
+      - name: Close the dashboard job if the run died before reporting
+        if: (failure() || cancelled()) && inputs.dry_run != true && env.DATABASE_URL != ''
+        continue-on-error: true
+        env:
+          IN_REQUEST_ID: ${{ inputs.request_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          ARGS=(--outcome "$JOB_STATUS")
+          if [ -n "$IN_REQUEST_ID" ]; then ARGS+=(--request-id "$IN_REQUEST_ID"); fi
+          python main.py job-end "${ARGS[@]}"
 
       - name: Save queue state
         if: always() && inputs.dry_run != true && env.DATABASE_URL == ''   # file mode only

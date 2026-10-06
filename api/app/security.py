@@ -40,6 +40,30 @@ def verify_password(password: str, hashed: str | None) -> bool:
         return False
 
 
+_COMMON = {"password", "password1", "password123", "1234567890", "12345678910", "qwertyuiop", "qwerty12345",
+           "letmein123", "iloveyou123", "admin12345", "welcome123", "abc1234567", "changeme123"}
+
+
+def password_problems(password: str, *identity: str | None) -> list[str]:
+    """Why this password isn't acceptable (empty list = fine). `identity`: username/email/name to keep out of it."""
+    out: list[str] = []
+    if len(password) < 10:
+        out.append("use at least 10 characters")
+    if len(password.encode()) > BCRYPT_MAX_BYTES:
+        out.append(f"keep it under {BCRYPT_MAX_BYTES} bytes")
+    if len(set(password)) < 5:
+        out.append("use a wider mix of characters")
+    if password.lower() in _COMMON:
+        out.append("that password is too common")
+    low = password.lower()
+    for ident in identity:
+        piece = (ident or "").split("@")[0].strip().lower()
+        if len(piece) >= 4 and piece in low:
+            out.append("don't include your name or username")
+            break
+    return out
+
+
 # A real hash to compare against when the user doesn't exist, so response time doesn't
 # reveal whether a username is valid.
 _DUMMY_HASH = bcrypt.hashpw(b"not-a-real-password", bcrypt.gensalt(rounds=12)).decode()

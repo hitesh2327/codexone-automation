@@ -1,0 +1,240 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=block" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0D1117; --cyan: #00E5FF; --amber: #FFB800; --text: #FFFFFF;
+    --blue: #3B82F6; --blue-hi: #7DB3FF; --green: #22C55E; --green-hi: #7CF0A6; --red: #FF4D5E;
+    --muted: #8B949E; --line: rgba(255,255,255,.10); --panel: rgba(255,255,255,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+  .slide { position: relative; width: 1080px; height: 1350px; overflow: hidden; padding: 64px 70px;
+    background:
+      radial-gradient(900px 700px at 100% 0%, rgba(0,229,255,.10), transparent 60%),
+      radial-gradient(800px 700px at 0% 85%, rgba(59,130,246,.09), transparent 60%),
+      var(--bg); }
+  .slide::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(255,255,255,.07) 1.5px, transparent 1.5px); background-size: 40px 40px;
+    mask-image: linear-gradient(180deg, #000 0%, transparent 85%); }
+  .slide > * { position: relative; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+  .brand { display: flex; align-items: center; gap: 14px; font: 600 28px Poppins; }
+  .logo { width: 50px; height: 50px; border-radius: 13px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--cyan), #6FD3B0); color: var(--bg); font: 700 20px 'JetBrains Mono'; }
+  .count { font: 700 28px 'JetBrains Mono'; padding: 6px 20px; border-radius: 30px; border: 2px solid var(--line); background: var(--panel); }
+
+  .chip { display: inline-block; font: 700 26px 'JetBrains Mono'; letter-spacing: 5px; padding: 8px 22px; border-radius: 10px;
+    border: 2px solid currentColor; background: color-mix(in srgb, currentColor 12%, transparent); }
+  h1 { font: 800 76px/1.04 Poppins; letter-spacing: -1px; margin: 22px 0 14px; }
+  h1 .b { color: var(--blue-hi); } h1 .g { color: var(--green-hi); } h1 .r { color: var(--red); } h1 .a { color: var(--amber); }
+  .lead { font: 500 34px/1.4 Inter; color: #C9D1D9; }
+  .lead b { color: #fff; } .lead em { font-style: normal; color: var(--amber); font-weight: 700; }
+
+  .diagram { margin: 34px 0 0; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 26px; }
+  .stat { border: 2px solid var(--line); background: var(--panel); border-radius: 18px; padding: 16px 24px; }
+  .stat .k { font: 600 20px 'JetBrains Mono'; letter-spacing: 2px; color: var(--muted); }
+  .stat .v { font: 700 44px 'JetBrains Mono'; margin-top: 6px; }
+  .term { margin-top: 22px; border-radius: 16px; background: #0A0D12; border: 2px solid var(--line); padding: 20px 26px;
+    font: 500 30px 'JetBrains Mono'; white-space: pre; }
+  .term .p { color: var(--green); } .term .c { color: var(--muted); }
+  .swipe { position: absolute; right: 70px; bottom: 56px; font: 700 26px 'JetBrains Mono'; color: var(--muted); letter-spacing: 2px; }
+
+  /* cover */
+  .cover h1 { font-size: 138px; line-height: 1; letter-spacing: -4px; margin-top: 34px; white-space: nowrap; }
+  .cover h1 .b { text-shadow: 0 0 60px rgba(59,130,246,.7); } .cover h1 .g { text-shadow: 0 0 60px rgba(34,197,94,.6); }
+  .cover .dep { font: 700 76px Poppins; margin: 0 0 22px; }
+  .cover .swipe { color: var(--bg); background: var(--cyan); padding: 14px 28px; border-radius: 14px; bottom: 56px; }
+
+  /* cheat sheet */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 26px; }
+  .card { border: 2px solid var(--line); background: var(--panel); border-radius: 20px; padding: 22px 26px; }
+  .card h3 { font: 700 26px 'JetBrains Mono'; letter-spacing: 3px; margin-bottom: 12px; }
+  .card ul { list-style: none; } .card li { font: 500 25px/1.38 Inter; color: #C9D1D9; padding-left: 26px; position: relative; margin-bottom: 6px; }
+  .card li::before { content: "›"; position: absolute; left: 4px; color: var(--muted); font-weight: 700; }
+  .card code { font: 500 22px/1.5 'JetBrains Mono'; white-space: pre; color: #E6EDF3; display: block; }
+  .card code .k { color: var(--cyan); } .card code .s { color: var(--green-hi); }
+  table { width: 100%; border-collapse: collapse; font: 500 24px 'JetBrains Mono'; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 20px; letter-spacing: 2px; padding: 6px 8px 10px; }
+  td { padding: 11px 8px; border-top: 2px solid var(--line); }
+  tr.me td { color: var(--green-hi); font-weight: 700; }
+  .ok { color: var(--green-hi); } .mid { color: var(--amber); } .bad { color: var(--red); }
+  .cta { margin-top: 24px; display: flex; justify-content: space-between; align-items: center; border-radius: 18px; padding: 20px 26px;
+    background: linear-gradient(90deg, rgba(59,130,246,.18), rgba(34,197,94,.18)); border: 2px solid rgba(124,240,166,.35); }
+  .cta .t { font: 700 30px Poppins; } .cta .f { white-space: nowrap; font: 700 26px 'JetBrains Mono'; color: var(--bg); background: var(--cyan); padding: 10px 20px; border-radius: 12px; }
+</style>
+</head>
+<body>
+<div id="deck"></div>
+<script>
+const C = { blue: '#3B82F6', blueHi: '#7DB3FF', green: '#22C55E', greenHi: '#7CF0A6', red: '#FF4D5E', amber: '#FFB800', muted: '#8B949E', line: 'rgba(255,255,255,.10)' };
+const TOTAL = 7;
+
+// Same diagram language as the reel. s: {live:'B'|'G', green:'empty'|'ok'|'tested'|'error', qa, single, h}
+function diagram(s) {
+  const W = 940, H = s.h || 620;
+  const R = { x: 470, y: 200 };
+  const envs = s.single ? [{ k: 'P', x: 245, w: 450 }] : [{ k: 'B', x: 0, w: 450 }, { k: 'G', x: 490, w: 450 }];
+  const ET = 360, tileX = e => [0, 1, 2].map(i => e.x + 24 + 61 + i * 140);
+  let out = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>
+    <filter id="gl" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  const curve = (x) => `M${R.x} ${R.y + 64} C${R.x} ${R.y + 130}, ${x} ${ET - 80}, ${x} ${ET}`;
+  const pt = (x, f) => { // cubic bezier point
+    const P = [[R.x, R.y + 64], [R.x, R.y + 130], [x, ET - 80], [x, ET]], u = 1 - f;
+    return [0, 1].map(d => u*u*u*P[0][d] + 3*u*u*f*P[1][d] + 3*u*f*f*P[2][d] + f*f*f*P[3][d]);
+  };
+  // wires + dots
+  let dots = '';
+  for (const e of envs) tileX(e).forEach((x, i) => {
+    const isLive = s.single || s.live === e.k;
+    const empty = e.k === 'G' && s.green === 'empty';
+    const col = s.single ? C.red : e.k === 'B' ? C.blue : C.green;
+    out += `<path d="${curve(x)}" fill="none" stroke="${isLive && !empty ? col : 'rgba(255,255,255,.12)'}" stroke-width="${isLive ? 5 : 3}" stroke-opacity="${isLive ? .75 : 1}" ${empty ? 'stroke-dasharray="6 12"' : ''}/>`;
+    if (isLive && !empty) [.22, .55, .85].forEach((f, j) => {
+      const [px, py] = pt(x, (f + i * .09) % 1);
+      dots += `<circle cx="${px}" cy="${py}" r="8" fill="${s.single ? C.red : e.k === 'B' ? C.blueHi : C.greenHi}"/>`;
+    });
+  });
+  if (s.qa) tileX(envs[1]).forEach((x, i) => {
+    out += `<path d="M846 236 C846 290, ${x} ${ET - 70}, ${x} ${ET}" fill="none" stroke="${C.amber}" stroke-width="3" stroke-dasharray="8 10" stroke-opacity=".6"/>`;
+    dots += `<circle cx="${846 + (x - 846) * .5}" cy="${(236 + ET) / 2 + 10}" r="6" fill="${C.amber}"/>`;
+  });
+  // users -> router
+  out += `<line x1="470" y1="96" x2="470" y2="136" stroke="rgba(255,255,255,.35)" stroke-width="5"/>`;
+  [104, 122].forEach(y => dots += `<circle cx="470" cy="${y}" r="7" fill="${s.single ? C.red : s.live === 'G' ? C.greenHi : C.blueHi}"/>`);
+  out += `<g filter="url(#gl)">${dots}</g>`;
+  // users pill
+  out += `<rect x="270" y="16" width="400" height="80" rx="20" fill="#161B22" stroke="${C.line}" stroke-width="2"/>
+    ${[0, 1, 2, 3].map(i => `<circle cx="${318 + i * 22}" cy="56" r="15" fill="#7A838D" stroke="#161B22" stroke-width="3"/>`).join('')}
+    <text x="410" y="66" font-family="JetBrains Mono" font-weight="700" font-size="28" fill="#fff" letter-spacing="3">USERS</text>
+    <text x="528" y="65" font-family="JetBrains Mono" font-size="20" fill="${C.muted}">1.2k req/s</text>`;
+  // router / or app
+  if (!s.single) {
+    const rc = s.live === 'G' ? C.greenHi : C.blueHi, ang = s.live === 'G' ? 38 : -38;
+    out += `<circle cx="${R.x}" cy="${R.y}" r="64" fill="#161B22" stroke="${rc}" stroke-width="3" filter="url(#gl)"/>
+      <circle cx="${R.x}" cy="${R.y}" r="64" fill="#161B22" stroke="${rc}" stroke-width="3"/>
+      <line x1="${R.x}" y1="${R.y}" x2="${R.x}" y2="${R.y - 40}" stroke="${rc}" stroke-width="5" stroke-linecap="round" transform="rotate(${ang} ${R.x} ${R.y})"/>
+      <circle cx="${R.x}" cy="${R.y}" r="12" fill="#E6EDF3"/>
+      <text x="${R.x - 88}" y="${R.y + 8}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${C.muted}" letter-spacing="4">ROUTER</text>`;
+  } else {
+    out += `<rect x="370" y="150" width="200" height="100" rx="20" fill="#161B22" stroke="${C.red}" stroke-width="3"/>
+      <text x="470" y="194" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="#fff">APP</text>
+      <text x="470" y="226" text-anchor="middle" font-family="JetBrains Mono" font-size="20" fill="${C.red}">restarting…</text>
+      <g font-family="JetBrains Mono" font-weight="700" font-size="24">
+        <rect x="80" y="150" width="190" height="56" rx="12" fill="rgba(255,77,94,.15)" stroke="${C.red}" stroke-width="2"/><text x="175" y="186" text-anchor="middle" fill="${C.red}">503 ERROR</text>
+        <rect x="670" y="196" width="190" height="56" rx="12" fill="rgba(255,77,94,.15)" stroke="${C.red}" stroke-width="2"/><text x="765" y="232" text-anchor="middle" fill="${C.red}">TIMEOUT</text></g>`;
+  }
+  // environments
+  for (const e of envs) {
+    const isLive = s.single || s.live === e.k;
+    const col = s.single ? C.red : e.k === 'B' ? C.blue : C.green, hi = s.single ? C.red : e.k === 'B' ? C.blueHi : C.greenHi;
+    const empty = e.k === 'G' && s.green === 'empty';
+    const name = s.single ? 'PRODUCTION' : e.k === 'B' ? 'BLUE' : 'GREEN', ver = s.single ? 'v1 → v2' : e.k === 'B' ? 'v1.0' : empty ? '' : 'v2.0';
+    let badge = isLive ? '● LIVE' : 'STANDBY', bc = isLive ? hi : C.muted;
+    if (s.single) { badge = 'DOWN'; bc = C.red; }
+    else if (e.k === 'G' && !isLive) { if (empty) badge = 'EMPTY'; else if (s.green === 'tested') { badge = 'TESTING'; bc = C.amber; } }
+    out += `<g opacity="${empty ? .5 : 1}"><rect x="${e.x}" y="${ET}" width="${e.w}" height="250" rx="24" fill="rgba(22,27,34,.9)" stroke="${isLive ? col : C.line}" stroke-width="2.5"/>
+      <text x="${e.x + 24}" y="${ET + 46}" font-family="Poppins" font-weight="800" font-size="28" fill="${hi}">${name} <tspan font-family="JetBrains Mono" font-weight="500" font-size="20" fill="${C.muted}">${ver}</tspan></text>
+      <rect x="${e.x + e.w - 24 - badge.length * 13 - 26}" y="${ET + 20}" width="${badge.length * 13 + 26}" height="34" rx="17" fill="none" stroke="${bc}" stroke-width="2"/>
+      <text x="${e.x + e.w - 24 - (badge.length * 13 + 26) / 2}" y="${ET + 43}" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="18" fill="${bc}" letter-spacing="1">${badge}</text>`;
+    tileX(e).forEach((x, i) => {
+      let st = e.k === 'G' ? s.green : s.single ? (i === 1 ? 'error' : 'boot') : 'ok';
+      if (e.k === 'G' && st === 'error' && i !== 1) st = 'ok';
+      const tx = x - 61, ty = ET + 72, tc = st === 'error' ? C.red : st === 'boot' ? C.amber : isLive ? col : 'rgba(255,255,255,.16)';
+      out += `<rect x="${tx}" y="${ty}" width="122" height="160" rx="16" fill="rgba(255,255,255,.03)" stroke="${tc}" stroke-width="2" ${st === 'empty' ? 'stroke-dasharray="6 8"' : ''}/>`;
+      if (st === 'empty') return;
+      const ic = isLive ? hi : '#6E7681';
+      if (st === 'error') out += `<circle cx="${x}" cy="${ty + 52}" r="27" fill="rgba(255,77,94,.15)" stroke="${C.red}" stroke-width="4"/><path d="M${x - 10} ${ty + 42} L${x + 10} ${ty + 62} M${x + 10} ${ty + 42} L${x - 10} ${ty + 62}" stroke="${C.red}" stroke-width="6" stroke-linecap="round"/>`;
+      else if (st === 'boot') out += `<circle cx="${x}" cy="${ty + 52}" r="24" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="6"/><circle cx="${x}" cy="${ty + 52}" r="24" fill="none" stroke="${C.amber}" stroke-width="6" stroke-dasharray="40 200" stroke-linecap="round" transform="rotate(${i * 120} ${x} ${ty + 52})"/>`;
+      else out += `<g fill="none" stroke="${ic}" stroke-width="4"><rect x="${x - 24}" y="${ty + 26}" width="48" height="20" rx="5"/><rect x="${x - 24}" y="${ty + 54}" width="48" height="20" rx="5"/></g><circle cx="${x - 14}" cy="${ty + 36}" r="3.5" fill="${ic}"/><circle cx="${x - 14}" cy="${ty + 64}" r="3.5" fill="${ic}"/>`;
+      out += `<text x="${x}" y="${ty + 108}" text-anchor="middle" font-family="JetBrains Mono" font-weight="600" font-size="18" fill="${C.muted}">srv-${i + 1}</text>`;
+      const lbl = st === 'error' ? ['HTTP 500', C.red] : st === 'boot' ? ['restart', C.amber] : st === 'tested' ? ['✓ 200', C.greenHi] : isLive ? [['62%', '48%', '71%'][i], hi] : ['idle', C.muted];
+      out += `<text x="${x}" y="${ty + 140}" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="18" fill="${lbl[1]}">${lbl[0]}</text>`;
+    });
+    out += `</g>`;
+  }
+  if (s.qa) out += `<rect x="766" y="164" width="160" height="72" rx="18" fill="#161B22" stroke="rgba(255,184,0,.6)" stroke-width="2"/>
+    <text x="846" y="210" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${C.amber}">⚙ QA</text>`;
+  return out + '</svg>';
+}
+
+const topBar = (n) => `<div class="top"><div class="brand"><div class="logo">&lt;/&gt;</div>@codexonebyhitesh</div><div class="count">${n}/${TOTAL}</div></div>`;
+const stats = (a, b) => `<div class="stats"><div class="stat"><div class="k">${a[0]}</div><div class="v" style="color:${a[2]}">${a[1]}</div></div><div class="stat"><div class="k">${b[0]}</div><div class="v" style="color:${b[2]}">${b[1]}</div></div></div>`;
+const term = (cmd, comment = '') => `<div class="term"><span class="p">$ </span>${cmd}${comment ? `  <span class="c">${comment}</span>` : ''}</div>`;
+const swipe = `<div class="swipe">SWIPE →</div>`;
+
+const slides = [
+  // 1 cover
+  `<section class="slide cover">${topBar(1)}
+    <span class="chip" style="color:${C.cyan || '#00E5FF'}">SYSTEM DESIGN</span>
+    <h1><span class="b">Blue</span>-<span class="g">Green</span></h1>
+    <div class="dep">Deployment</div>
+    <div class="lead">How big apps ship new code with <em>zero downtime</em> and roll back in <em>seconds</em>.</div>
+    <div class="diagram" style="transform:scale(.74);transform-origin:top center;margin:26px 0 0 0;width:940px">${diagram({ live: 'G', green: 'ok', h: 620 })}</div>
+    <div class="swipe">SWIPE TO LEARN →</div></section>`,
+  // 2 problem
+  `<section class="slide">${topBar(2)}
+    <span class="chip" style="color:${C.red}">THE PROBLEM</span>
+    <h1>Classic deploy = <span class="r">downtime</span></h1>
+    <div class="lead">Stop v1, install v2, restart. Everyone using the app in that window gets <em>errors</em>.</div>
+    <div class="diagram">${diagram({ single: true })}</div>
+    ${stats(['DOWNTIME', '~5 min', C.red], ['USERS SEE', '503s', C.red])}</section>`,
+  // 3 setup
+  `<section class="slide">${topBar(3)}
+    <span class="chip" style="color:${C.blueHi}">STEP 1 · TWO ENVIRONMENTS</span>
+    <h1><span class="b">Blue</span> is live. <span class="g">Green</span> waits.</h1>
+    <div class="lead"><b>Blue</b> runs v1 and takes 100% of traffic. <b>Green</b> is an <em>identical copy</em>: same servers, same config.</div>
+    <div class="diagram">${diagram({ live: 'B', green: 'empty' })}</div>
+    ${stats(['LIVE', 'BLUE v1', C.blueHi], ['GREEN', 'EMPTY', C.muted])}</section>`,
+  // 4 deploy + test
+  `<section class="slide">${topBar(4)}
+    <span class="chip" style="color:${C.amber}">STEP 2 · DEPLOY &amp; TEST</span>
+    <h1>Ship v2 to <span class="g">Green</span>. Test it.</h1>
+    <div class="lead">Deploy v2 to Green and run your tests against it. Real users <em>never touch it</em>.</div>
+    <div class="diagram">${diagram({ live: 'B', green: 'tested', qa: true })}</div>
+    ${term('smoke-test green', '✓ 42 passed')}</section>`,
+  // 5 switch
+  `<section class="slide">${topBar(5)}
+    <span class="chip" style="color:${C.greenHi}">STEP 3 · FLIP THE SWITCH</span>
+    <h1>One switch. All traffic → <span class="g">Green</span>.</h1>
+    <div class="lead">The router points to Green. Requests move <em>instantly</em>, with no restart.</div>
+    <div class="diagram">${diagram({ live: 'G', green: 'ok' })}</div>
+    ${stats(['LIVE', 'GREEN v2', C.greenHi], ['DOWNTIME', '0.0s', C.greenHi])}</section>`,
+  // 6 rollback
+  `<section class="slide">${topBar(6)}
+    <span class="chip" style="color:${C.red}">STEP 4 · BUG? ROLL BACK</span>
+    <h1>Flip back. <span class="b">Blue</span> never stopped.</h1>
+    <div class="lead">v1 is still running on Blue, so rollback is the <em>same one switch</em>. Fix Green, try again.</div>
+    <div class="diagram">${diagram({ live: 'B', green: 'error' })}</div>
+    ${term('router switch → blue', '# rollback in ~1s')}</section>`,
+  // 7 cheat sheet
+  `<section class="slide">${topBar(7)}
+    <span class="chip" style="color:${C.cyan || '#00E5FF'}">CHEAT SHEET · SAVE THIS</span>
+    <h1 style="font-size:64px;margin-bottom:0"><span class="b">Blue</span>-<span class="g">Green</span> in one page</h1>
+    <div class="grid2">
+      <div class="card"><h3 class="ok">✓ USE WHEN</h3><ul>
+        <li>Downtime is not acceptable</li><li>You need instant rollback</li><li>You can test prod-like before release</li></ul></div>
+      <div class="card"><h3 class="mid">⚠ TRADE-OFFS</h3><ul>
+        <li>2× infra while both run</li><li>DB changes must work for v1 <b>and</b> v2</li><li>Drain in-flight sessions</li></ul></div>
+    </div>
+    <div class="card" style="margin-top:20px"><h3 style="color:#00E5FF">⚡ THE SWITCH IN KUBERNETES</h3>
+<code><span class="k">kubectl</span> patch service shop \\
+  -p <span class="s">'{"spec":{"selector":{"version":"green"}}}'</span></code></div>
+    <div class="card" style="margin-top:20px"><table>
+      <tr><th>STRATEGY</th><th>DOWNTIME</th><th>ROLLBACK</th><th>COST</th></tr>
+      <tr><td>Recreate</td><td class="bad">yes</td><td class="bad">redeploy</td><td class="ok">1×</td></tr>
+      <tr><td>Rolling</td><td class="ok">none</td><td class="mid">slow</td><td class="ok">~1×</td></tr>
+      <tr><td>Canary</td><td class="ok">none</td><td class="ok">fast</td><td class="ok">~1×</td></tr>
+      <tr class="me"><td>Blue-Green</td><td>none</td><td>instant</td><td class="mid">2×</td></tr></table></div>
+    <div class="cta"><div class="t">Save it for your next interview</div><div class="f">Follow @codexonebyhitesh</div></div>
+  </section>`,
+];
+document.getElementById('deck').innerHTML = slides.join('');
+</script>
+</body>
+</html>

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-ACTIVE_SQL = ("select count(*) from posts where status in ('pending','approved','regenerate') "
+ACTIVE_SQL = ("select count(*) from posts where status in ('pending','approved','publishing','regenerate') "
               "or (status = 'failed' and attempts < 3)")
 
 
@@ -30,7 +30,7 @@ def active_from_db(url: str) -> int | None:
 def active_from_file() -> int:
     queue = Path(__file__).resolve().parent.parent / "data" / "queue.json"
     items = json.loads(queue.read_text(encoding="utf-8") or "[]") if queue.exists() else []
-    return sum(1 for i in items if i["status"] in ("pending", "approved", "regenerate")
+    return sum(1 for i in items if i["status"] in ("pending", "approved", "publishing", "regenerate")
                or (i["status"] == "failed" and i.get("attempts", 0) < 3))
 
 

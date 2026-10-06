@@ -1,0 +1,20 @@
+# AWS Lambda image for the admin API. Build from the repo root:
+#   docker build -f api/Dockerfile.lambda -t codexone-api .
+FROM public.ecr.aws/lambda/python:3.11
+
+ENV PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
+COPY api/requirements-lambda.txt ./requirements-lambda.txt
+RUN pip install -r requirements-lambda.txt
+
+COPY src ./src
+COPY api/__init__.py ./api/__init__.py
+COPY api/app ./api/app
+COPY api/lambda_handler.py ./api/lambda_handler.py
+# Migration files only (not run here): lets the Config page compare the database to the expected schema.
+COPY api/migrations/versions ./api/migrations/versions
+COPY brand ./brand
+
+# Writable scratch space on Lambda is /tmp only (lambda_handler creates the folders at start-up).
+RUN ln -s /tmp/logs logs && ln -s /tmp/data data && ln -s /tmp/output output
+
+CMD ["api.lambda_handler.handler"]

@@ -11,3 +11,5 @@ data/ranked_*.json
 web/node_modules
 web/dist
 **/__pycache__
+api/tests
+tests

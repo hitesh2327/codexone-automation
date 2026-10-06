@@ -4,8 +4,21 @@
 @import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
+/* Touch = narrow viewport or coarse pointer: controls grow to a 40px hit target there. */
+@custom-variant touch (@media (max-width: 767px), (pointer: coarse));
 
 @theme inline {
+    --color-ok: var(--ok);
+    --color-wait: var(--wait);
+    --color-go: var(--go);
+    --color-ai: var(--ai);
+    --color-rule: var(--rule);
+    --color-bad: var(--bad);
+    --color-ok-solid: var(--ok-solid);
+    --color-signal: var(--brand-accent);
+    --color-raised: var(--raised);
+    --color-sunken: var(--sunken);
+    --color-selected: var(--selected);
     --font-heading: var(--font-brand-heading), var(--font-brand-body), sans-serif;
     --font-sans: var(--font-brand-body), 'Inter Variable', system-ui, sans-serif;
     --font-mono: var(--font-brand-code), ui-monospace, monospace;
@@ -76,14 +89,15 @@
     --accent-foreground: var(--brand-text);
     --destructive: #F85149;
     --border: color-mix(in srgb, var(--brand-text) 12%, var(--brand-bg));
-    --input: color-mix(in srgb, var(--brand-text) 16%, var(--brand-bg));
+    --input: color-mix(in srgb, var(--brand-text) 34%, var(--brand-bg)); /* 3.1:1 on bg: field/checkbox boundaries meet WCAG 1.4.11 */
     --ring: var(--brand-primary);
     --chart-1: var(--brand-primary);
     --chart-2: var(--brand-accent);
     --chart-3: #7EE787;
     --chart-4: #D2A8FF;
     --chart-5: #FF9E64;
-    --radius: 0.75rem;
+    /* Shape: controls 8px, surfaces 10-14px, media 18px+ (see design-system.md "Shape"). */
+    --radius: 0.625rem;
     --sidebar: color-mix(in srgb, var(--brand-text) 3%, var(--brand-bg));
     --sidebar-foreground: var(--brand-text);
     --sidebar-primary: var(--brand-primary);
@@ -92,6 +106,22 @@
     --sidebar-accent-foreground: var(--brand-text);
     --sidebar-border: color-mix(in srgb, var(--brand-text) 10%, var(--brand-bg));
     --sidebar-ring: var(--brand-primary);
+    /* Status roles (see docs/design/design-system.md). Text-safe on --brand-bg at >= 4.5:1. */
+    --wait: var(--brand-accent);   /* needs a human: waiting for approval, warnings */
+    --go: var(--brand-primary);    /* in motion: approved, scheduled, publishing, info */
+    --ok: #56D364;                 /* done: live / published */
+    --ok-solid: #2EA043;           /* fills only; never text */
+    --bad: var(--destructive);     /* failed, errors, destructive actions */
+    --ai: #D2A8FF;                 /* machine work: regenerating */
+    --rule: color-mix(in srgb, var(--brand-text) 22%, var(--brand-bg)); /* hairline that must be seen (ledger rules, dividers) */
+    --raised: color-mix(in srgb, var(--brand-text) 5%, var(--brand-bg));   /* one step up: hovered rows, open panels */
+    --sunken: color-mix(in srgb, #000 28%, var(--brand-bg));                /* one step down: wells, media beds, code */
+    --selected: color-mix(in srgb, var(--brand-primary) 8%, var(--brand-bg)); /* the open/selected row; every status colour stays >= 4.5:1 on it */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --dur-fast: 120ms;   /* hover, press, colour */
+    --dur-base: 200ms;   /* reveal, toggle, small moves */
+    --dur-slow: 320ms;   /* panels, sheets, page-level entrances */
     color-scheme: dark;
 }
 
@@ -107,5 +137,122 @@
     }
   html {
     @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     }
+  h1, h2, h3 {
+    text-wrap: balance;
+    }
+  /* One focus language: a crisp 2px brand ring, offset so it never fights borders. Components that draw
+     their own ring (inputs) opt out with outline-none. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    }
+  ::selection {
+    background: color-mix(in srgb, var(--brand-primary) 32%, transparent);
+    color: var(--brand-text);
+    }
+  /* Quiet, thin scrollbars that match the hairlines. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule) transparent;
+    }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+    }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--brand-text) 40%, var(--brand-bg)); background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  input[type="date"], input[type="datetime-local"] { color-scheme: dark; }
+}
+
+/* ---- Design vocabulary (docs/design/design-system.md) ---- */
+@utility label-mono {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+@utility numeral {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+/* the short amber rule that signs a page, panel or dialog */
+@utility amber-rule {
+  display: block;
+  height: 3px;
+  width: 2.5rem;
+  background: var(--brand-accent);
+}
+/* dotted leader between a label and its value in a ledger row */
+@utility leader {
+  flex: 1 1 1rem;
+  min-width: 1rem;
+  align-self: end;
+  margin-bottom: 0.3em;
+  border-bottom: 1px dotted var(--rule);
+}
+/* the one shared focus treatment for custom controls (buttons draw it via the global :focus-visible rule) */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* loading placeholder: a slow light sweep, not a pulse (stops under reduced motion) */
+@utility skeleton-sweep {
+  background-color: var(--muted);
+  background-image: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--brand-text) 6%, transparent) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: sweep 1.6s linear infinite;
+}
+
+/* Toasts (sonner): a dark slip with a coloured left edge that names the outcome. */
+[data-sonner-toaster] [data-sonner-toast] {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--rule) !important;
+  border-left: 3px solid var(--rule) !important;
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.7) !important;
+  font-family: var(--font-sans);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] { border-left-color: var(--ok) !important; }
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] { border-left-color: var(--bad) !important; }
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] { border-left-color: var(--wait) !important; }
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] { border-left-color: var(--go) !important; }
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] { color: var(--ok); }
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] { color: var(--bad); }
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] { color: var(--wait); }
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] { color: var(--go); }
+
+@keyframes sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes beacon {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Motion is decoration, never information: honour the OS setting everywhere (spinners keep turning, since
+   they signal "working"). */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin), *:not(.animate-spin)::before, *:not(.animate-spin)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

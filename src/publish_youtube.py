@@ -105,11 +105,20 @@ def make_title(body: str) -> str:
     return hook + suffix
 
 
-def build_metadata(caption: str) -> dict:
+def fit_title(title: str) -> str:
+    """A custom title, cleaned and cut to YouTube's 100 chars (adds #Shorts if there's room)."""
+    t = _clean(title)
+    if "#shorts" not in t.lower() and len(t) + 8 <= TITLE_MAX:
+        t += " #Shorts"
+    return t[:TITLE_MAX]
+
+
+def build_metadata(caption: str, title: str | None = None, description: str | None = None) -> dict:
+    """title/description: dashboard overrides; otherwise built from the caption."""
     body, hashtags = split_caption(caption)
     cta = load_brand().get("cta", "")
     tags_line = " ".join(hashtags + (["#Shorts"] if "#Shorts" not in hashtags else []))
-    description = "\n\n".join(p for p in (_clean(body), cta, tags_line) if p)[:4900]
+    built_description = "\n\n".join(p for p in (_clean(body), cta, tags_line) if p)[:4900]
     tags, used = [], 0
     for t in [h.lstrip("#") for h in hashtags] + ["Shorts"]:
         if t.lower() in (x.lower() for x in tags):
@@ -120,7 +129,8 @@ def build_metadata(caption: str) -> dict:
         tags.append(t)
         used += cost
     return {
-        "snippet": {"title": make_title(body), "description": description, "tags": tags,
+        "snippet": {"title": fit_title(title) if title else make_title(body),
+                    "description": _clean(description)[:4900] if description else built_description, "tags": tags,
                     "categoryId": CATEGORY_SCIENCE_TECH, "defaultLanguage": "en",
                     "defaultAudioLanguage": "en"},
         "status": {"privacyStatus": privacy(), "selfDeclaredMadeForKids": False, "embeddable": True},
@@ -192,9 +202,10 @@ def shorts_url(video_id: str) -> str:
     return f"https://youtube.com/shorts/{video_id}"
 
 
-def publish_reel(video: str, caption: str, dry_run: bool = False) -> tuple[str, str]:
+def publish_reel(video: str, caption: str, dry_run: bool = False, title: str | None = None,
+                 description: str | None = None) -> tuple[str, str]:
     """Upload a reel (local path or URL). Returns (video_id, shorts_url)."""
-    body = build_metadata(caption)
+    body = build_metadata(caption, title, description)
     if dry_run:
         credentials()
         if video.startswith("http"):

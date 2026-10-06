@@ -4,7 +4,24 @@ export type Brand = {
   handle: string;
   colors: { bg?: string; primary?: string; accent?: string; text?: string };
   fonts: { heading?: string; body?: string; code?: string };
+  /** The daily posting slots, "HH:MM" IST, sorted (brand/config.yaml post_times_ist). */
+  post_times_ist?: string[];
 };
+
+const NUMBER_WORDS = ["", "One", "Two", "Three", "Four", "Five", "Six"];
+
+/** "Two slots a day." from the configured slot count; a neutral line when it is unknown. */
+export function slotsHeadline(times: string[] | undefined): string {
+  const n = times?.length ?? 0;
+  if (!n) return "Every slot.";
+  return n < NUMBER_WORDS.length ? `${NUMBER_WORDS[n]} slot${n === 1 ? "" : "s"} a day.` : `${n} slots a day.`;
+}
+
+/** Name a slot by the part of the day it falls in (IST). */
+export function slotName(hhmm: string): string {
+  const h = Number(hhmm.slice(0, 2));
+  return h < 12 ? "Morning slot" : h < 17 ? "Afternoon slot" : "Evening slot";
+}
 
 const HEX = /^#[0-9a-f]{3,8}$/i;
 const FONT = /^[\w\s-]{1,40}$/;

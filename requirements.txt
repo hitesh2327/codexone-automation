@@ -16,3 +16,4 @@ google-auth-oauthlib>=1.2  # get_yt_token.py (local only)
 sqlalchemy>=2.0
 alembic>=1.13
 psycopg[binary]>=3.1
+cryptography>=42  # config store: AES-256-GCM (src/config_store.py)

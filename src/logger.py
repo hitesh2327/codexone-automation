@@ -5,6 +5,7 @@ import logging
 import sys
 from datetime import datetime
 
+from src import redact
 from src.config import LOGS_DIR
 
 _FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
@@ -32,5 +33,9 @@ def get_logger(name: str) -> logging.Logger:
 
         root.addHandler(console)
         root.addHandler(file_handler)
+        # Every line is scrubbed of secrets before it reaches the console or the file (src/redact.py),
+        # including third-party loggers that write to the root handlers (e.g. httpx logs request URLs,
+        # and Telegram puts the bot token in the URL path).
+        redact.install(root, logging.getLogger())
         _configured = True
     return logging.getLogger(f"codexone.{name}")

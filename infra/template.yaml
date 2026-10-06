@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: codexone dashboard - CloudFront (HTTPS) in front of S3 (React app) and a Lambda (FastAPI). Database stays on Neon.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: ECR image URI of the API (pushed by infra/deploy.sh)
+  OriginVerify:
+    Type: String
+    NoEcho: true
+    MinLength: 24
+    Description: Shared secret CloudFront adds to API requests; the Lambda rejects calls without it
+  SsmPrefix:
+    Type: String
+    Default: /codexone/
+    Description: Where the app's secrets live in SSM Parameter Store (SecureString)
+  PublishEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  TelegramSync:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ReservedConcurrency:
+    Type: Number
+    Default: -1
+    Description: Cap on simultaneous API calls (limits abuse cost). -1 = no cap; new accounts may not allow one
+
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, -1]]
+
+Resources:
+  # ----- API (Lambda) -------------------------------------------------------------------------
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
+      RetentionInDays: 14
+
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - {Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: "sts:AssumeRole"}
+      Policies:
+        - PolicyName: logs-and-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["logs:CreateLogStream", "logs:PutLogEvents"]
+                Resource: !Sub "${ApiLogs.Arn}:*"
+              - Effect: Allow
+                Action: ssm:GetParametersByPath
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}"
+              - Effect: Allow
+                Action: ssm:GetParametersByPath
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}*"
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ApiLogs
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-api
+      PackageType: Image
+      Code: {ImageUri: !Ref ImageUri}
+      Role: !GetAtt ApiRole.Arn
+      Timeout: 30
+      MemorySize: 1024
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref "AWS::NoValue"]
+      Environment:
+        Variables:
+          SSM_PREFIX: !Ref SsmPrefix
+          ORIGIN_VERIFY: !Ref OriginVerify
+          COOKIE_SECURE: "true"
+          PUBLISH_VIA: dispatch          # the API never publishes itself; it kicks the GitHub poll job
+          PUBLISH_ENABLED: !Ref PublishEnabled
+          TELEGRAM_SYNC: !Ref TelegramSync
+
+  ApiUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt ApiFunction.Arn
+      AuthType: NONE                      # protected by the X-Origin-Verify check, see api/lambda_handler.py
+
+  ApiUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  # ----- Web app (S3, private, served only through CloudFront) --------------------------------
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: "s3:GetObject"
+            Resource: !Sub "${WebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+  WebOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-web
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Client-side routes (/posts, /login) have no file in S3: serve index.html for any path without a
+  # file extension. A CloudFront *function* (not custom error pages) so /api/* 404s stay 404s.
+  SpaFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub ${AWS::StackName}-spa
+      AutoPublish: true
+      FunctionConfig: {Comment: SPA fallback, Runtime: cloudfront-js-2.0}
+      FunctionCode: |
+        function handler(event) {
+          var r = event.request;
+          if (r.uri.indexOf('.') === -1) { r.uri = '/index.html'; }
+          return r;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub ${AWS::StackName} dashboard
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200        # includes India; cheapest class that does
+        DefaultRootObject: index.html
+        Origins:
+          - Id: web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt WebOac.Id
+            S3OriginConfig: {OriginAccessIdentity: ""}
+          - Id: api
+            DomainName: !Select [2, !Split ["/", !GetAtt ApiUrl.FunctionUrl]]
+            CustomOriginConfig: {OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2]}
+            OriginCustomHeaders:
+              - {HeaderName: X-Origin-Verify, HeaderValue: !Ref OriginVerify}
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6      # CachingOptimized
+          FunctionAssociations:
+            - {EventType: viewer-request, FunctionARN: !GetAtt SpaFunction.FunctionMetadata.FunctionARN}
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad    # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader (cookies, query)
+
+Outputs:
+  SiteUrl:
+    Value: !Sub https://${Distribution.DomainName}
+  DistributionId:
+    Value: !Ref Distribution
+  BucketName:
+    Value: !Ref WebBucket
+  FunctionName:
+    Value: !Ref ApiFunction

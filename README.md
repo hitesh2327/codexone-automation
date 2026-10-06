@@ -209,7 +209,7 @@ backup. Double triggers are harmless: a slot that already has a post, or that pa
    `Accept: application/vnd.github+json`, `Authorization: Bearer <token>`,
    `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`.
 
-| Job | URL (`https://api.github.com/repos/hitesh2327/codexone-automation/actions/workflows/…`) | Schedule (IST) | Body |
+| Job | URL (`https://api.github.com/repos/<owner>/<repo>/actions/workflows/…`, your own repository) | Schedule (IST) | Body |
 | --- | --- | --- | --- |
 | Generate 10:00 post | `…/daily-generate.yml/dispatches` | daily 08:00 | `{"ref":"main","inputs":{"slot":"10:00"}}` |
 | Generate 19:00 post | `…/daily-generate.yml/dispatches` | daily 18:00 | `{"ref":"main","inputs":{"slot":"19:00"}}` |
