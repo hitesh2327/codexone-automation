@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=block" rel="stylesheet">
+<link href="common.css" rel="stylesheet">
+<style>
+  html, body { width: 1080px; height: 1920px; }
+  #progress { position: absolute; left: 0; top: 0; height: 8px; background: linear-gradient(90deg, var(--blue), var(--green)); }
+  #top { position: absolute; left: 70px; right: 70px; top: 92px; }
+  #timer { font: 700 36px 'JetBrains Mono'; padding: 6px 22px; border-radius: 40px; border: 2px solid var(--line); background: var(--panel); }
+  #title { position: absolute; left: 0; width: 1080px; top: 190px; text-align: center; }
+  #title .l1 { font: 800 100px/1 Poppins; letter-spacing: -2px; white-space: nowrap; }
+  #title .l2 { font: 600 50px Poppins; color: #E6EDF3; margin-top: 8px; }
+  #heading { position: absolute; left: 0; width: 1080px; top: 398px; text-align: center; }
+  #heading .chip { font-size: 38px; }
+  #dia { position: absolute; left: 70px; top: 500px; width: 940px; height: 760px; }
+  #stats { position: absolute; left: 70px; top: 1290px; width: 940px; }
+  #term { position: absolute; left: 70px; top: 1432px; width: 940px; height: 84px; display: flex; align-items: center; }
+  #caption { position: absolute; left: 90px; width: 900px; top: 1556px; text-align: center; font: 700 46px/1.2 Poppins; }
+  #caption em { font-style: normal; color: var(--amber); }
+  #payoff { position: absolute; left: 70px; top: 490px; width: 940px; height: 770px; border-radius: 34px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; gap: 14px;
+    background: rgba(13,17,23,.86); border: 2px solid rgba(124,240,166,.35); }
+  #payoff .big { font: 800 90px/1.04 Poppins; letter-spacing: -1px; }
+  #payoff .sub { font: 600 30px 'JetBrains Mono'; color: #C9D1D9; margin-top: 18px; }
+  #payoff .follow { margin-top: 30px; font: 700 30px 'JetBrains Mono'; color: var(--bg); background: var(--cyan); padding: 14px 30px; border-radius: 16px; }
+</style>
+</head>
+<body class="bg">
+<div id="progress"></div>
+<div id="top" class="topbar"><div class="brand"><div class="logo">&lt;/&gt;</div><span class="handle"></span></div><div id="timer"></div></div>
+<div id="title"><div class="l1"></div><div class="l2"></div></div>
+<div id="heading"><span class="chip"></span></div>
+<div id="dia"></div>
+<div id="stats" class="stats3"></div>
+<div id="term" class="term"></div>
+<div id="caption"></div>
+<div id="payoff"></div>
+<script src="diagram.js"></script>
+<script src="common.js"></script>
+<script>
+let TL, D;
+const ease = x => 1 - Math.pow(1 - Math.max(0, Math.min(1, x)), 3);
+
+// tl = {spec, handle, starts:[beat voice start], triggers:[...], total}
+function setTimeline(tl) {
+  TL = tl;
+  D = ReelDiagram.makeDiagram(tl.spec, 940, 760);
+  document.querySelector('.handle').textContent = tl.handle;
+  document.querySelector('#title .l1').innerHTML = titleHtml(tl.spec.title);
+  document.querySelector('#title .l2').textContent = tl.spec.subtitle;
+  const [a, b] = tl.spec.payoff;
+  document.querySelector('#payoff').innerHTML =
+    `<div class="big" style="color:${ReelDiagram.HI[a.tone]}">${esc(a.text)}</div>
+     <div class="big" style="color:${ReelDiagram.HI[b.tone]}">${esc(b.text)}</div>
+     <div class="sub">${esc(tl.spec.payoff_sub)}</div><div class="follow">Follow ${esc(tl.handle)}</div>`;
+}
+
+function renderAt(t) {
+  const spec = TL.spec, total = TL.total;
+  let bi = 0; TL.starts.forEach((s, i) => { if (t >= s) bi = i; });
+  const b = spec.beats[bi], bStart = TL.starts[bi];
+  const view = ReelDiagram.viewAt(spec, TL.triggers.map((x, i) => i === 0 ? -1 : x), t);
+
+  document.querySelector('#progress').style.width = (1080 * Math.min(1, t / total)) + 'px';
+  document.querySelector('#timer').textContent = '0:' + String(Math.max(0, Math.ceil(total - t))).padStart(2, '0');
+
+  const hp = ease((t - bStart) / .3), h = document.querySelector('#heading .chip');
+  h.textContent = b.heading; h.style.color = ReelDiagram.HI[b.tone];
+  h.style.opacity = hp; h.style.transform = `translateY(${(1 - hp) * 18}px) scale(${.96 + .04 * hp})`;
+
+  document.querySelector('#dia').innerHTML = D.draw(view, t);
+
+  // counters: values of the latest triggered beat; numbers tween for .6s
+  const cb = view.beat, cur = spec.beats[cb].counters, prev = cb > 0 ? spec.beats[cb - 1].counters : cur;
+  const k = ease((t - (cb > 0 ? TL.triggers[cb] : 0)) / .6);
+  document.querySelector('#stats').innerHTML = cur.map((c, i) =>
+    statHtml(c.label, tween(prev[i] ? prev[i].value : c.value, c.value, k), c.tone,
+             prev[i] && prev[i].value !== c.value && k < 1)).join('');
+
+  const term = document.querySelector('#term');
+  term.style.visibility = b.term ? 'visible' : 'hidden';
+  if (b.term) {
+    const typed = Math.floor(Math.max(0, (t - bStart - .1) * 32));
+    const blink = Math.floor(t * 2.5) % 2 === 0 || typed < b.term.length;
+    term.innerHTML = `<span class="p">$ </span>${esc(b.term.slice(0, typed))}${blink ? '<span class="cur"></span>' : ''}`;
+  }
+
+  const cp = ease((t - bStart - .05) / .3), cap = document.querySelector('#caption');
+  cap.innerHTML = emph(b.caption); cap.style.opacity = cp; cap.style.transform = `translateY(${(1 - cp) * 20}px)`;
+
+  const last = spec.beats.length - 1, pp = ease((t - TL.starts[last]) / .45), po = document.querySelector('#payoff');
+  po.style.opacity = pp; po.style.transform = `scale(${.9 + .1 * pp})`;
+}
+</script>
+</body>
+</html>

@@ -43,6 +43,18 @@ def slide_context(slide: Slide, index: int, total: int, demo: dict | None = None
 
 
 def render_carousel(content: Content, out_dir: Path, dry_run: bool = False) -> list[Path]:
+    from src.reel_v2 import pipeline as v2
+    if (spec := v2.scene_of(content, out_dir.parent)) is not None:
+        if dry_run:
+            log.info("[dry-run] v2 carousel: cover + %d beats + cheat sheet",
+                     sum(b.on_carousel for b in spec.beats))
+            return []
+        from src.reel_v2.render import render_carousel as render_v2
+        v2.save_scene(spec, out_dir.parent)
+        try:
+            return render_v2(spec, out_dir, content.category)
+        except Exception:  # the classic slides mirror the same story
+            log.exception("v2 carousel render failed; rendering the classic slides instead")
     slides = content.carousel
     if dry_run:
         for i, s in enumerate(slides, 1):

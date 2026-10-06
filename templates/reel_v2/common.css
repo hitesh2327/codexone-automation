@@ -1,0 +1,34 @@
+:root {
+  --bg: #0D1117; --cyan: #00E5FF; --amber: #FFB800; --text: #FFFFFF;
+  --blue: #3B82F6; --green: #22C55E; --red: #FF4D5E;
+  --muted: #8B949E; --line: rgba(255,255,255,.10); --panel: rgba(255,255,255,.04);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { overflow: hidden; }
+body { color: var(--text); font-family: Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+.bg, .slide {
+  position: relative;
+  background:
+    radial-gradient(900px 700px at 100% 0%, rgba(0,229,255,.10), transparent 60%),
+    radial-gradient(800px 700px at 0% 75%, rgba(59,130,246,.08), transparent 60%),
+    var(--bg);
+}
+.bg::before, .slide::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(255,255,255,.07) 1.5px, transparent 1.5px); background-size: 40px 40px;
+  mask-image: linear-gradient(180deg, transparent 0%, #000 15%, #000 75%, transparent 100%);
+}
+.topbar { display: flex; justify-content: space-between; align-items: center; }
+.brand { display: flex; align-items: center; gap: 16px; font: 600 30px Poppins; }
+.logo { width: 54px; height: 54px; border-radius: 14px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--cyan), #6FD3B0); color: var(--bg); font: 700 22px 'JetBrains Mono'; }
+.chip { display: inline-block; font: 700 26px 'JetBrains Mono'; letter-spacing: 6px; padding: 10px 28px; border-radius: 12px;
+  border: 2px solid currentColor; background: color-mix(in srgb, currentColor 12%, transparent); }
+.stats3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+.stat { border: 2px solid var(--line); background: var(--panel); border-radius: 18px; padding: 16px 22px; height: 118px; }
+.stat .k { font: 600 19px 'JetBrains Mono'; letter-spacing: 2px; color: var(--muted); }
+.stat .v { font: 700 40px 'JetBrains Mono'; margin-top: 8px; white-space: nowrap; }
+.term { border-radius: 16px; background: #0A0D12; border: 2px solid var(--line); padding: 0 26px;
+  font: 500 30px 'JetBrains Mono'; white-space: pre; overflow: hidden; }
+.term .p { color: var(--green); } .term .c { color: var(--muted); }
+.term .cur { display: inline-block; width: 15px; height: 32px; background: #E6EDF3; margin-left: 2px; vertical-align: -5px; }

@@ -18,7 +18,7 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from src.config import DATA_DIR, OUTPUT_DIR, load_brand
 from src.llm import generate_json
@@ -82,6 +82,9 @@ class Content(BaseModel):
     carousel: list[Slide] = Field(description="5-7 slides: first type=title, last type=cta, rest type=content or visual")
     caption: str = Field(description="Instagram caption without hashtags, 60-150 words, ends with a question")
     hashtags: list[str] = Field(description="10-15 hashtags, each starting with #")
+    # v2 scene spec (src/reel_v2) when this post uses the animated-diagram engine; not part of
+    # the Gemini schema or content.json (it is saved separately as scene.json).
+    _scene: object | None = PrivateAttr(default=None)
 
 
 class Review(BaseModel):
@@ -115,7 +118,7 @@ Source (for context only, may be empty): {topic.source_url}
 Language: {brand['language']}
 
 REEL ({reel['duration_sec']} seconds spoken, structure: {reel['structure']}):
-- Total narration 90-140 words (110-160 including the demo). Short sentences, easy to speak aloud.
+- Total narration 55-70 words (65-75 including the demo); the reel must NEVER exceed 30 seconds. Short sentences, easy to speak aloud.
 - Spell out symbols in NARRATION only (say "O of n" not "O(n)"); on-screen text uses normal notation like O(n).
 - CTA narration should invite the viewer to follow {brand['handle']}.
 
@@ -252,6 +255,16 @@ def validate_demo(c: Content) -> list[str]:
 
 
 def generate(topic: RankedTopic, feedback: str = "") -> Content:
+    from src.reel_v2 import pipeline as v2
+    if v2.uses_v2(topic.category):
+        try:
+            from src.reel_v2.spec import generate as generate_scene
+            spec = generate_scene(topic.title, topic.category, topic.angle, feedback)
+            log.info("v2 scene: %d beats, %d words", len(spec.beats),
+                     sum(len(b.narration.split()) for b in spec.beats))
+            return v2.to_content(spec, topic.title, topic.category)
+        except Exception:  # never lose the day's post to the new engine
+            log.exception("v2 scene generation failed; falling back to the classic format")
     brand = load_brand()
     content = generate_json(_write_prompt(topic, brand, feedback), Content, system=SYSTEM)
     attempts = 3
@@ -291,6 +304,9 @@ def save(content: Content, day: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     path = d / "content.json"
     path.write_text(content.model_dump_json(indent=2), encoding="utf-8")
+    if content._scene is not None:
+        from src.reel_v2.pipeline import save_scene
+        save_scene(content._scene, d)
     return path
 
 
