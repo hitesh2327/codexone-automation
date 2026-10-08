@@ -33,7 +33,7 @@ class Settings:
 
     @property
     def google_enabled(self) -> bool:
-        return bool(self.google_client_id and self.google_client_secret and self.allowed_google_emails)
+        return bool(self.google_client_id and self.google_client_secret)
 
 
 @lru_cache(maxsize=1)

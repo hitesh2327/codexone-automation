@@ -235,7 +235,7 @@ async def google_callback(request: Request):
     email = (info.get("email") or "").lower()
     if not email or not info.get("email_verified"):
         return _login_redirect("Your Google account has no verified email.")
-    if email not in settings().allowed_google_emails:
+    if settings().allowed_google_emails and "*" not in settings().allowed_google_emails and email not in settings().allowed_google_emails:
         log.warning("google login refused for %s (not in ALLOWED_GOOGLE_EMAILS)", email)
         activity.record("login.failed", "Google sign-in refused: email is not on the allowlist", level="warning",
                         source="auth", actor=email)
@@ -245,9 +245,16 @@ async def google_callback(request: Request):
     with db.session() as s:
         user = s.scalars(select(User).where(func.lower(User.email) == email)).first()
         if user is None:
-            user = User(email=email, name=info.get("name") or "", via_google=True)
+            user = User(
+                email=email,
+                name=info.get("name") or "",
+                via_google=True,
+                email_verified_at=datetime.now(timezone.utc),
+                config_completed=False,
+            )
             s.add(user)
             s.flush()
+            activity.record("signup.google", f"Created account for {email} via Google", source="auth", actor=email)
         if not user.is_active:
             return _login_redirect("This account is disabled.")
         user.last_login_at = datetime.now(timezone.utc)
