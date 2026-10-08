@@ -23,9 +23,10 @@ class CurrentUser:
 
 
 def access_allowed(user: User) -> bool:
-    """Accounts created by Google sign-in keep access (sessions AND a password they set later) only while their
-    email is on ALLOWED_GOOGLE_EMAILS: removing it from the list is how a dashboard user is removed (QA-M-06)."""
-    return not user.via_google or (user.email or "").lower() in settings().allowed_google_emails
+    """In multi-user SaaS mode, all active accounts are allowed. If allowed_google_emails is configured and not '*', it checks against the allowlist."""
+    if not user.via_google or not settings().allowed_google_emails or "*" in settings().allowed_google_emails:
+        return True
+    return (user.email or "").lower() in settings().allowed_google_emails
 
 
 def current_user(request: Request) -> CurrentUser:
