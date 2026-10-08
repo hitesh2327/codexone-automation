@@ -44,6 +44,17 @@ def _slots() -> list[str]:
     return [f"{t:%H:%M}" for t in approve_bot.post_times()]
 
 
+def _user_slots(cu: CurrentUser | None = None) -> list[str]:
+    if cu:
+        from src import db
+        from src.db.models import User
+        with db.session() as s:
+            user = s.get(User, cu.id)
+            if user and user.cadence and user.cadence.get("slots"):
+                return list(user.cadence["slots"])
+    return _slots()
+
+
 def _daily_cap() -> int:
     try:
         return max(0, int(get_env("GENERATE_DAILY_CAP", required=False, default=str(DEFAULT_DAILY_CAP))))
@@ -110,14 +121,14 @@ def _github_state(ok: bool) -> dict:
 
 
 @router.get("/config")
-def get_config() -> dict:
+def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
     now = datetime.now(IST)
     cap = _daily_cap()
     quota_at = generation.last_quota_failure(now)
     tomorrow = _day_start(now) + timedelta(days=1)
     return {
         "dispatch_configured": github_actions.configured(),
-        "slots": _slots(),
+        "slots": _user_slots(cu),
         "categories": [{"name": c, "weight": w} for c, w in load_brand()["topics_weight"].items()],
         "daily_cap": cap, "used_today": generation.used_today(_day_start(now)), "resets_at": tomorrow.isoformat(),
         "quota_cooldown_until": (quota_at + generation.QUOTA_COOLDOWN).isoformat() if quota_at else None,
@@ -137,15 +148,16 @@ def _current(items: list[q.Item], kind: str) -> q.Item | None:
 
 
 @router.get("/slots")
-def get_slots(days: int = Query(2, ge=1, le=3)) -> dict:
+def get_slots(days: int = Query(2, ge=1, le=3), cu: CurrentUser = Depends(current_user)) -> dict:
     now = datetime.now(IST)
     first = approve_bot.slot_at(now.date().isoformat(), "00:00")
     items = q.load_window(first, first + timedelta(days=days + 1))  # only these days' slots (QA-M-08)
     jobs = generation.since(now.astimezone(timezone.utc) - timedelta(days=2))
+    slots = _user_slots(cu)
     out = []
     for offset in range(days):
         day = (now + timedelta(days=offset)).date()
-        for hhmm in _slots():
+        for hhmm in slots:
             at = approve_bot.slot_at(day.isoformat(), hhmm)
             there = _items_at(at, items)
             mine = [j for j in jobs if j["slot_at"] and datetime.fromisoformat(j["slot_at"]) == at]

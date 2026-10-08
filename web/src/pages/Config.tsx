@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ClipboardEvent, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, Check, CircleDashed, Eye, EyeOff, LoaderCircle, Radar, RefreshCw, Send, ShieldCheck, Trash2, TriangleAlert, X } from "lucide-react";
+import { BookOpen, Check, CircleDashed, Eye, EyeOff, LoaderCircle, Radar, RefreshCw, Send, ShieldCheck, Sparkles, Trash2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { CheckList, GuideSheet, ResultNote, StateDot, StateTag } from "@/components/config/parts";
+import { TasteCadenceConfig } from "@/components/config/taste-cadence";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -13,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   deleteWebhook, detectChat, getOverview, save, verify, type DetectedChat, type FieldState, type Integration,
   type Overview, type Readiness, type State, type VerifyResult,
@@ -410,11 +412,13 @@ function Later({ items }: { items: Integration[] }) {
 }
 
 export default function ConfigPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guide, setGuide] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const location = useLocation();
+  const isOnboarding = user?.config_completed === false || !!(location.state as { onboarding?: boolean })?.onboarding;
 
   const load = useCallback(() => getOverview().then((d) => { setData(d); setError(null); }).catch((x) => setError(errText(x, "Couldn't load the configuration."))), []);
   useEffect(() => { load(); }, [load]);
@@ -443,6 +447,28 @@ export default function ConfigPage() {
             <Button variant="ghost" size="sm" onClick={load} aria-label="Reload"><RefreshCw /></Button>
           </>}
         />
+
+        {isOnboarding && (
+          <div className="flex flex-col gap-3 rounded-xl border border-signal/40 bg-signal/10 p-5 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-signal/20 text-signal">
+                <Sparkles className="size-5" />
+              </div>
+              <div>
+                <h3 className="font-heading font-semibold text-foreground">Welcome to CodexOne! Quick Initial Setup Required</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Complete your content taste, target destinations (Instagram / YouTube), and publishing schedule below to activate your workspace and unlock the content desk.
+                </p>
+              </div>
+            </div>
+            <a href="#taste-cadence" className="inline-flex shrink-0 items-center justify-center rounded-md bg-signal px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-90">
+              Configure Now ↓
+            </a>
+          </div>
+        )}
+
+        <TasteCadenceConfig isOnboarding={isOnboarding} onComplete={load} />
+
         {error && <p role="alert" className="rounded-md border border-bad/40 bg-bad/10 p-4 text-sm text-bad">{error}</p>}
         {!data && !error && <div className="grid gap-4" role="status" aria-label="Loading configuration"><div className="shimmer h-28 rounded-md" /><div className="shimmer h-72 rounded-md" /></div>}
 

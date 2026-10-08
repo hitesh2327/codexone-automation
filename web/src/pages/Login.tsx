@@ -209,6 +209,13 @@ export default function Login({ brand }: { brand: Brand | null }) {
           </p>
         </div>
       )}
+
+      <div className="mt-8 border-t border-border/50 pt-4 text-center text-xs text-muted-foreground">
+        Don't have an account?{" "}
+        <Link to="/signup" className="font-medium text-foreground underline-offset-4 hover:underline">
+          Create an account
+        </Link>
+      </div>
     </AuthStage>
   );
 }

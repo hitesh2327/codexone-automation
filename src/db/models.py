@@ -59,6 +59,7 @@ class Post(Base):
     targets: Mapped[list | None] = mapped_column(JSONType)
     yt_title: Mapped[str | None] = mapped_column(Text)          # overrides the title built from the caption
     yt_description: Mapped[str | None] = mapped_column(Text)    # overrides the built description
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, default=1, server_default="1")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -117,6 +118,17 @@ class User(Base):
     # Created by Google sign-in: access (including a password set later) lasts only while the email is on
     # ALLOWED_GOOGLE_EMAILS (QA-M-06). The seeded password admin is False.
     via_google: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Taste, niche, tone, aesthetic & prompt instructions (QA Task 3)
+    taste: Mapped[dict | None] = mapped_column(JSONType, default=dict)
+    # Cadence: custom posts per day & slot times (QA Task 4)
+    cadence: Mapped[dict | None] = mapped_column(JSONType, default=dict)
+    # Subscription status & Stripe customer details (QA Task 3)
+    subscription_tier: Mapped[str] = mapped_column(String(32), default="free", server_default="free")
+    subscription_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(100))
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(100))
+    # Config completion gate flag (QA Task 2)
+    config_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
 
 class OtpCode(Base):
@@ -156,6 +168,7 @@ class ActivityLog(Base):
     post_id: Mapped[str | None] = mapped_column(String(160))
     actor: Mapped[str | None] = mapped_column(String(254))
     detail: Mapped[dict | None] = mapped_column(JSONType)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, default=1, server_default="1")
 
 
 class RateLimitEvent(Base):
@@ -189,6 +202,7 @@ class GenerationJob(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     trigger: Mapped[str] = mapped_column(String(16))                       # dashboard | scheduled
     requested_by: Mapped[str | None] = mapped_column(String(254))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, default=1, server_default="1")
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True)
     # What was asked for
     slot_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

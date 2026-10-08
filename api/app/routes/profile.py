@@ -67,6 +67,19 @@ def profile_out(u: User) -> dict:
         "member_since": _iso(u.created_at),
         "last_login_at": _iso(u.last_login_at),
         "password_changed_at": _iso(u.password_changed_at),
+        "config_completed": bool(u.config_completed),
+        "subscription_tier": u.subscription_tier or "free",
+        "subscription_status": u.subscription_status or "active",
+        "taste": u.taste or {
+            "niche": "AI & Tech",
+            "tone": "Engaging & Informative",
+            "aesthetic": "Modern Minimalist",
+            "default_targets": ["ig", "yt"],
+        },
+        "cadence": u.cadence or {
+            "posts_per_day": 2,
+            "slots": ["10:00", "18:00"],
+        },
     }
 
 
@@ -93,6 +106,9 @@ class ProfileBody(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     timezone: str | None = Field(default=None, max_length=64)
     username: str | None = Field(default=None, max_length=32)
+    taste: dict | None = None
+    cadence: dict | None = None
+    config_completed: bool | None = None
 
 
 def _bad(msg: str, code: int = status.HTTP_422_UNPROCESSABLE_CONTENT) -> HTTPException:
@@ -141,6 +157,16 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
                 if taken:
                     raise _bad("That username is taken.", status.HTTP_409_CONFLICT)
                 u.username = uname
+        if "taste" in data and data["taste"] is not None:
+            current_taste = dict(u.taste or {})
+            current_taste.update(data["taste"])
+            u.taste = current_taste
+        if "cadence" in data and data["cadence"] is not None:
+            current_cadence = dict(u.cadence or {})
+            current_cadence.update(data["cadence"])
+            u.cadence = current_cadence
+        if "config_completed" in data and data["config_completed"] is not None:
+            u.config_completed = bool(data["config_completed"])
         ses.flush()
         return profile_out(u)
 

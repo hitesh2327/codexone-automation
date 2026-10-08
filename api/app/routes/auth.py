@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -14,7 +15,7 @@ from sqlalchemy import func, or_, select
 from api.app import ratelimit as rl
 from api.app.clientip import client_ip
 from api.app.deps import CurrentUser, access_allowed, current_user, require_csrf
-from api.app.security import check_password, clear_session_cookie, create_session_token, set_session_cookie
+from api.app.security import check_password, clear_session_cookie, create_session_token, hash_password, password_problems, set_session_cookie
 from api.app.settings import settings
 from src import activity, db
 from src.db.models import User
@@ -24,6 +25,9 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 oauth = OAuth()
 _google_registered = False
+
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 
 
 def _google():
@@ -44,6 +48,13 @@ class LoginBody(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class SignupBody(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=8, max_length=200)
+    name: str = Field(default="", max_length=128)
+
+
 def avatar_version(u: User) -> int | None:
     """Changes whenever the picture does; the page adds it to the image URL to bust its cache."""
     if not (u.avatar and u.avatar_updated_at):
@@ -53,9 +64,28 @@ def avatar_version(u: User) -> int | None:
 
 
 def _user_out(u: User, csrf: str) -> dict:
-    return {"id": u.id, "username": u.username, "email": u.email, "name": u.name or u.username or u.email,
-            "csrf": csrf, "has_password": bool(u.password_hash),
-            "avatar_v": avatar_version(u)}
+    return {
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "name": u.name or u.username or u.email,
+        "csrf": csrf,
+        "has_password": bool(u.password_hash),
+        "avatar_v": avatar_version(u),
+        "config_completed": bool(u.config_completed),
+        "subscription_tier": u.subscription_tier or "free",
+        "subscription_status": u.subscription_status or "active",
+        "taste": u.taste or {
+            "niche": "AI & Tech",
+            "tone": "Engaging & Informative",
+            "aesthetic": "Modern Minimalist",
+            "default_targets": ["ig", "yt"],
+        },
+        "cadence": u.cadence or {
+            "posts_per_day": 2,
+            "slots": ["10:00", "18:00"],
+        },
+    }
 
 
 def start_session(response: Response, user: User) -> str:
@@ -68,6 +98,60 @@ def start_session(response: Response, user: User) -> str:
 def providers() -> dict:
     """Public: which sign-in options the login page should show."""
     return {"password": True, "google": settings().google_enabled}
+
+
+@router.post("/signup")
+def signup(body: SignupBody, request: Request, response: Response) -> dict:
+    if "application/json" not in request.headers.get("content-type", ""):
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
+    username = body.username.strip().lower()
+    email = body.email.strip().lower()
+    name = body.name.strip()
+
+    if not USERNAME_RE.match(username):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Username must be 3-32 chars (letters, numbers, dots, dashes, underscores).")
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid email address.")
+
+    issues = password_problems(body.password, username, email, name)
+    if issues:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose a stronger password: " + ", ".join(issues) + ".")
+
+    ip = client_ip(request)
+    with db.session() as s:
+        existing = s.scalars(select(User).where(or_(func.lower(User.username) == username,
+                                                   func.lower(User.email) == email))).first()
+        if existing:
+            if existing.username and existing.username.lower() == username:
+                raise HTTPException(status.HTTP_409_CONFLICT, "That username is already registered.")
+            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered.")
+
+        user = User(
+            username=username,
+            email=email,
+            name=name or username,
+            password_hash=hash_password(body.password),
+            config_completed=False,
+            subscription_tier="free",
+            subscription_status="active",
+            taste={
+                "niche": "AI & Tech",
+                "tone": "Engaging & Informative",
+                "aesthetic": "Modern Minimalist",
+                "default_targets": ["ig", "yt"],
+            },
+            cadence={
+                "posts_per_day": 2,
+                "slots": ["10:00", "18:00"],
+            },
+        )
+        s.add(user)
+        s.flush()
+        user.last_login_at = datetime.now(timezone.utc)
+        csrf = start_session(response, user)
+        log.info("signup: %s (%s) from %s", username, email, ip)
+        activity.record("signup.success", f"Registered new user account {username}", source="auth", actor=username, user_id=user.id)
+        return _user_out(user, csrf)
 
 
 @router.post("/login")

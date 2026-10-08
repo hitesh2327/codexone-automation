@@ -416,10 +416,10 @@ def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
 # Decisions (shared by the Telegram bot and the dashboard, so they can't diverge)
 # --------------------------------------------------------------------------- #
 DECISIONS = {"approve": "approved", "reject": "rejected", "regen": "regenerate"}
-DECIDABLE = {"approve": {"pending", "approved", "expired"},   # approving again = reschedule; expired = revive
-             "reject": {"pending", "approved"},
+DECIDABLE = {"approve": {"pending", "approved", "expired", "failed", "regenerate"},   # approving again = reschedule; expired/failed/stuck = revive
+             "reject": {"pending", "approved", "regenerate", "failed"},
              "regen": {"pending", "approved", "failed", "expired"}}
-EDITABLE = {"pending", "approved", "failed", "expired"}
+EDITABLE = {"pending", "approved", "failed", "expired", "regenerate"}
 
 
 class DecisionError(ValueError):

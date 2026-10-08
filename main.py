@@ -170,18 +170,21 @@ def expire_stale(dry_run: bool) -> None:
         log.warning("%s was stuck in publishing; released for retry", item_id)
         activity.record("publish.released", "Publishing stalled for 30+ minutes; released for retry", level="warning",
                         source="publisher", post_id=item_id)
-    for item in q.load(statuses=("pending",)):
-        if item.status == "pending" and datetime.fromisoformat(item.created_at) < cutoff:
-            log.info("expiring %s (no decision in %dh)", item.id, EXPIRE_HOURS)
+    for item in q.load(statuses=("pending", "regenerate")):
+        if item.status in ("pending", "regenerate") and datetime.fromisoformat(item.created_at) < cutoff:
+            prev = item.status
+            log.info("expiring %s (status %s stalled for %dh)", item.id, prev, EXPIRE_HOURS)
             if dry_run:
                 continue
-            item.status = "expired"
-            if not q.update_if(item, "pending"):  # decided meanwhile (dashboard / Telegram): leave it
+            item.status = "expired" if prev == "pending" else "failed"
+            if prev == "regenerate" and not item.error:
+                item.error = f"Regeneration stalled for {EXPIRE_HOURS}h without completing"
+            if not q.update_if(item, prev):  # decided meanwhile (dashboard / Telegram): leave it
                 continue
-            activity.record("post.expired", f"No decision in {EXPIRE_HOURS}h; {item.kind} “{item.topic}” expired",
+            activity.record("post.expired" if prev == "pending" else "post.failed",
+                            f"{item.kind} “{item.topic}” {prev} timed out after {EXPIRE_HOURS}h",
                             source="pipeline", actor="system", post_id=item.id)
-            approve_bot.notify(f"⌛ No decision in {EXPIRE_HOURS}h — <code>{item.id}</code> expired "
-                               "and will not be posted.", item.tg_control_id)
+            approve_bot.notify(f"⌛ <code>{item.id}</code> ({prev}) timed out after {EXPIRE_HOURS}h.", item.tg_control_id)
 
 
 def cmd_poll(args) -> int:
@@ -262,9 +265,15 @@ def cmd_regenerate(args) -> int:
             for old in olds:
                 old.status = "replaced"
                 q.update_if(old, "regenerate")
-        except Exception as e:  # keep status=regenerate so the next run retries
+        except Exception as e:
             log.exception("regenerate %s failed", group_id)
             approve_bot.notify(f"⚠️ Regenerate failed for <code>{group_id}</code>: {e}", first.tg_control_id)
+            for old in olds:
+                old.attempts = (old.attempts or 0) + 1
+                if old.attempts >= 3:
+                    old.status = "failed"
+                    old.error = f"Regeneration failed after 3 attempts: {e}"
+                q.update_if(old, "regenerate")
     return 0
 
 

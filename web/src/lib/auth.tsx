@@ -4,14 +4,35 @@ import { Navigate, useLocation } from "react-router-dom";
 import { api, ApiError, setCsrfToken } from "./api";
 
 export type User = {
-  id: number; username: string | null; email: string | null; name: string; csrf: string;
-  has_password?: boolean; avatar_v?: number | null;
+  id: number;
+  username: string | null;
+  email: string | null;
+  name: string;
+  csrf: string;
+  has_password?: boolean;
+  avatar_v?: number | null;
+  config_completed?: boolean;
+  subscription_tier?: string;
+  subscription_status?: string;
+  taste?: {
+    niche?: string;
+    tone?: string;
+    aesthetic?: string;
+    target_audience?: string;
+    prompt_instructions?: string;
+    default_targets?: string[];
+  };
+  cadence?: {
+    posts_per_day?: number;
+    slots?: string[];
+  };
 };
 
 type AuthState = {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  signup: (data: { username: string; email: string; password: string; name?: string }) => Promise<void>;
   logout: () => Promise<void>;
   /** Merge fresh details (name, picture version...) into the signed-in user, e.g. after a profile edit. */
   patchUser: (p: Partial<User>) => void;
@@ -41,6 +62,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     accept(await api<User>("/api/auth/login", { method: "POST", body: { username, password } }));
   }, []);
 
+  const signup = useCallback(async (data: { username: string; email: string; password: string; name?: string }) => {
+    accept(await api<User>("/api/auth/signup", { method: "POST", body: data }));
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api("/api/auth/logout", { method: "POST" });
@@ -56,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((u) => (u ? { ...u, csrf: token } : u));
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, login, logout, patchUser, setCsrf }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, login, signup, logout, patchUser, setCsrf }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {
@@ -65,8 +90,8 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-/** Renders children only when signed in; otherwise redirects to /login (remembering where you were). */
-export function RequireAuth({ children }: { children: ReactNode }) {
+/** Renders children only when signed in; otherwise redirects to /login. If config is incomplete, redirects to /config. */
+export function RequireAuth({ children, allowUnconfigured = false }: { children: ReactNode; allowUnconfigured?: boolean }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) {
@@ -77,5 +102,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (
+    user.config_completed === false &&
+    !allowUnconfigured &&
+    !location.pathname.startsWith("/config") &&
+    !location.pathname.startsWith("/profile") &&
+    !location.pathname.startsWith("/subscription")
+  ) {
+    return <Navigate to="/config" replace state={{ onboarding: true }} />;
+  }
   return <>{children}</>;
 }
