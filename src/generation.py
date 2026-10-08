@@ -145,8 +145,7 @@ def _norm(title: str) -> str:
 def recent_topics(limit: int = 200) -> list[tuple[str, str]]:
     """(title, date) of recent posts, newest first: the queue plus the publishing history."""
     from src import queue_store as q
-    rows = [(i.topic, i.date) for i in sorted(q.load(), key=lambda i: i.created_at, reverse=True)]
-    rows += [(p.get("title", ""), p.get("date") or "") for p in reversed(q.posted_entries())]
+    rows = q.recent_topic_rows(limit)  # bounded queries, not every post ever made (QA-M-08)
     seen: dict[str, tuple[str, str]] = {}
     for title, day in rows:
         if title:

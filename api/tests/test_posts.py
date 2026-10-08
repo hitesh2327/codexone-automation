@@ -139,8 +139,8 @@ def test_regenerate_both_formats(authed):
 def test_publish_now_runs_publisher(authed, monkeypatch):
     calls = []
 
-    def fake_publish(item, dry_run=False, platforms=q.PLATFORMS):
-        calls.append((item.id, item.status, platforms))
+    def fake_publish(item, dry_run=False, platforms=q.PLATFORMS, claimed=False):
+        calls.append((item.id, item.status, platforms, claimed))
         item.status = "published"
         item.platforms = {p: {"status": "published", "url": f"https://{p}/x"} for p in item.effective_targets}
         q.upsert(item)
@@ -149,8 +149,18 @@ def test_publish_now_runs_publisher(authed, monkeypatch):
     monkeypatch.setattr("src.publish.publish_item", fake_publish)
     r = authed.post("/api/posts/r2/publish-now", json={"targets": ["ig"]})
     assert r.status_code == 200 and r.json()["status"] == "publishing"
-    assert calls == [("r2", "publishing", q.PLATFORMS)]          # background task ran
+    assert calls == [("r2", "publishing", q.PLATFORMS, True)]    # background task ran, as the claimer
     assert q.get("r2").status == "published" and q.get("r2").targets == ["ig"]
+
+
+def test_publish_now_409_when_a_publisher_holds_the_post(authed, monkeypatch):
+    """QA-H-01: the poll claimed it first -> the dashboard gets 409 and never publishes."""
+    monkeypatch.setattr("src.publish.publish_item", lambda *a, **k: pytest.fail("double publish"))
+    assert authed.post("/api/posts/r2/approve", json={}).status_code == 200
+    assert q.claim_for_publish("r2") is True
+    assert authed.post("/api/posts/r2/publish-now", json={}).status_code == 409
+    assert authed.post("/api/posts/r2/reject").status_code == 409
+    assert q.get("r2").status == "publishing"
 
 
 def test_publish_now_disabled(authed, monkeypatch):
@@ -163,7 +173,7 @@ def test_publish_now_disabled(authed, monkeypatch):
 def test_retry_only_failed_platform(authed, monkeypatch):
     calls = []
     monkeypatch.setattr("src.publish.publish_item",
-                        lambda item, dry_run=False, platforms=q.PLATFORMS: calls.append(platforms) or item)
+                        lambda item, dry_run=False, platforms=q.PLATFORMS, claimed=False: calls.append(platforms) or item)
     assert authed.post("/api/posts/x1/retry", json={"platform": "ig"}).status_code == 409  # IG didn't fail
     r = authed.post("/api/posts/x1/retry", json={"platform": "yt"})
     assert r.status_code == 200 and calls == [("yt",)]
@@ -257,3 +267,50 @@ def test_revived_post_is_not_expired_again(expired):
     item = q.get("e1"); item.created_at = old; item.status = "approved"; q.upsert(item)
     main.expire_stale(dry_run=False)
     assert q.get("e1").status == "approved"
+
+
+# --- QA-M-01: the dashboard says so when the GitHub job can't be started ----------------------------
+def test_dispatch_not_configured_is_reported(authed, monkeypatch):
+    monkeypatch.setenv("PUBLISH_VIA", "dispatch")
+    monkeypatch.setenv("GITHUB_DISPATCH_TOKEN", "")
+    monkeypatch.setattr("src.publish.publish_item", lambda *a, **k: pytest.fail("no publishing in dispatch mode"))
+    r = authed.post("/api/posts/r2/publish-now", json={})
+    assert r.status_code == 200 and r.json()["status"] == "approved"
+    assert "GITHUB_DISPATCH_TOKEN" in r.json()["notice"]
+    r = authed.post("/api/posts/regenerate", json={"item_ids": ["c2"]})
+    assert r.status_code == 200 and "isn't configured" in r.json()["notice"]
+    assert "notice" not in authed.post("/api/posts/r2/reject").json()   # no dispatch involved: no stale notice
+
+
+def test_dispatch_started_has_no_notice(authed, monkeypatch):
+    monkeypatch.setenv("PUBLISH_VIA", "dispatch")
+    monkeypatch.setenv("GITHUB_DISPATCH_TOKEN", "SENTINEL_token")
+
+    class Ok:
+        status_code, text = 204, ""
+    monkeypatch.setattr("src.actions.requests.post", lambda *a, **k: Ok())
+    r = authed.post("/api/posts/r2/publish-now", json={})
+    assert r.status_code == 200 and "notice" not in r.json()
+
+
+# --- QA-M-08: the list is paged; filters and counts still cover everything ----------------------------
+def test_posts_are_paged_with_a_cursor(authed):
+    q.save([_item(f"pg{n}", "carousel", 1, "pending", topic=f"Paged {n}", date="2026-08-01",
+                  post_dir=f"output/2026-08-01/paged-{n}/", publish_at=f"2026-08-01T{10 + n}:00:00+05:30")
+            for n in range(5)])
+    full = authed.get("/api/posts").json()
+    assert full["has_more"] is False and full["next_cursor"] is None and full["total"] == len(full["groups"])
+    seen, cursor = [], None
+    while True:
+        r = authed.get("/api/posts", params={"limit": 2, **({"cursor": cursor} if cursor else {})}).json()
+        assert len(r["groups"]) <= 2 and r["counts"] == full["counts"] and r["total"] == full["total"]
+        seen += [g["group_id"] for g in r["groups"]]
+        if not r["has_more"]:
+            break
+        cursor = r["next_cursor"]
+    assert seen == [g["group_id"] for g in full["groups"]]            # same order, nothing lost or repeated
+    assert authed.get("/api/posts", params={"cursor": "garbage"}).status_code == 422
+    assert authed.get("/api/posts", params={"limit": 501}).status_code == 422
+    paged = authed.get("/api/posts", params={"status": "pending", "limit": 1}).json()
+    assert paged["total"] >= 2 and paged["has_more"] is True                 # filters apply before paging
+    assert paged["groups"][0]["items"]["carousel"]["caption"]                 # page items are full items

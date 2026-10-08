@@ -342,7 +342,7 @@ function FirstPassword({ p, onDone }: { p: ProfileT; onDone: (r: Awaited<ReturnT
         </p>
         <ol className="relative mt-8 grid gap-6 pl-8 before:absolute before:top-2 before:bottom-2 before:left-[11px] before:w-px before:bg-border">
           {steps.map((s, i) => (
-            <li key={s} className={cn("relative text-sm", i > step ? "text-muted-foreground/60" : i === step ? "font-medium" : "text-muted-foreground")}>
+            <li key={s} className={cn("relative text-sm", i > step ? "text-muted-foreground" : i === step ? "font-medium" : "text-muted-foreground")}>
               <span className={cn("absolute top-0 -left-8 grid size-6 place-items-center rounded-full border bg-background font-mono text-[11px]", i < step && "border-ok-solid bg-ok-solid text-background", i === step && "border-signal text-signal")}>
                 {i < step ? <><Check className="size-3.5" aria-hidden /><span className="sr-only">(done)</span></> : i + 1}
               </span>

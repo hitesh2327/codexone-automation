@@ -35,6 +35,9 @@ on:
       request_id:
         description: "Dashboard request id (set by the dashboard; leave empty by hand)"
         required: false
+      date:
+        description: "Date of the slot, YYYY-MM-DD IST (set by the dashboard; default today)"
+        required: false
       dry_run:
         description: "Dry run (nothing sent or saved)"
         type: boolean
@@ -68,6 +71,9 @@ env:
   IG_USER_ID: ${{ secrets.IG_USER_ID }}
   IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
   DATABASE_URL: ${{ secrets.DATABASE_URL }}   # set -> Postgres; unset -> data/*.json
+  # Opens values saved on the dashboard's Config page (same value as the server's CONFIG_MASTER_KEY).
+  # Each run reports whether it could, and the Config page's readiness shows it (G9).
+  CONFIG_MASTER_KEY: ${{ secrets.CONFIG_MASTER_KEY }}
   TZ: Asia/Kolkata
 
 jobs:
@@ -90,7 +96,7 @@ jobs:
       - name: Apply database migrations
         if: env.DATABASE_URL != ''
         working-directory: api
-        run: alembic upgrade head
+        run: python migrate.py   # = alembic upgrade head, but a database AHEAD of this code is not an error
 
       - name: Generate post and send Telegram previews
         env:
@@ -102,6 +108,7 @@ jobs:
           IN_TOPIC: ${{ inputs.topic }}
           IN_SOURCE_URL: ${{ inputs.source_url }}
           IN_REQUEST_ID: ${{ inputs.request_id }}
+          IN_DATE: ${{ inputs.date }}
           IN_DRY_RUN: ${{ inputs.dry_run }}
           IN_FORCE: ${{ inputs.force }}
           IN_ALLOW_DUPLICATE: ${{ inputs.allow_duplicate }}
@@ -118,6 +125,7 @@ jobs:
           if [ -n "$IN_TOPIC" ]; then ARGS+=(--topic "$IN_TOPIC"); fi
           if [ -n "$IN_SOURCE_URL" ]; then ARGS+=(--source-url "$IN_SOURCE_URL"); fi
           if [ -n "$IN_REQUEST_ID" ]; then ARGS+=(--request-id "$IN_REQUEST_ID"); fi
+          if [ -n "$IN_DATE" ] && [ -z "$SCHEDULE" ]; then ARGS+=(--date "$IN_DATE"); fi
           if [ "$IN_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
           if [ "$IN_FORCE" = "true" ]; then ARGS+=(--force); fi
           if [ "$IN_ALLOW_DUPLICATE" = "true" ]; then ARGS+=(--allow-duplicate); fi

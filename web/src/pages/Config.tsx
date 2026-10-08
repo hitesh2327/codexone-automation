@@ -19,6 +19,10 @@ import {
 } from "@/lib/config";
 import { ago, checkField, cleanValue } from "@/lib/config-format";
 import { cn } from "@/lib/utils";
+function safeFix(fix: string | null | undefined): string | undefined {
+  if (!fix) return undefined;
+  return fix.startsWith("/") ? fix : undefined;
+}
 
 const MONO = "label-mono";
 const errText = (e: unknown, fallback = "Something went wrong. Please try again.") => (e instanceof ApiError ? e.message : fallback);
@@ -59,7 +63,7 @@ function ReadinessBanner({ r, steps }: { r: Readiness; steps: Integration[] }) {
               <span className="numeral text-xs text-signal">{m.id}</span>
               <span className="font-medium">{m.label}</span>
               <span className="col-start-2 text-sm text-muted-foreground sm:col-start-3">{m.detail}</span>
-              {m.fix && <a href={m.fix.replace("/config", "")} className="col-start-2 text-sm text-primary underline-offset-4 hover:underline sm:col-start-4">Fix<span className="sr-only"> {m.label}</span> →</a>}
+              {safeFix(m.fix) && <Link to={safeFix(m.fix)!} className="col-start-2 text-sm text-primary underline-offset-4 hover:underline sm:col-start-4">Fix<span className="sr-only"> {m.label}</span> →</Link>}
             </li>
           ))}
         </ol>

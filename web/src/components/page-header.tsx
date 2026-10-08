@@ -19,8 +19,10 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <header className={cn("relative grid gap-x-6 gap-y-3 border-b border-border pb-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end", className)}>
-      <div className="min-w-0">
+    // flex-wrap, not a 2-column grid: when the actions are wide (Dashboard's segmented controls) they drop below the
+    // title instead of squeezing it to one word per line.
+    <header className={cn("relative flex flex-wrap items-end gap-x-6 gap-y-3 border-b border-border pb-5", className)}>
+      <div className="min-w-0 flex-[1_1_15rem]">
         {(index || eyebrow) && (
           <p className="label-mono mb-2.5 flex items-center gap-2">
             {index && <span className="text-signal tabular-nums">{index}</span>}
@@ -32,7 +34,7 @@ export function PageHeader({
         {lead && <p className="mt-2 max-w-prose text-sm text-muted-foreground">{lead}</p>}
       </div>
       {(meta || actions) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:justify-end">
+        <div className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-2">
           {meta}
           {actions}
         </div>

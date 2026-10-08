@@ -24,7 +24,7 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
 
 @pytest.fixture(autouse=True)
 def _clean():
-    ratelimit.otp_limiter._hits.clear()
+    ratelimit.otp_limiter.clear()
     yield
 
 
@@ -258,10 +258,21 @@ def test_resend_has_a_cooldown_and_replaces_the_old_code(client, make_user, mail
                                                              "new_password": "fresh-new-secret-55"}).status_code == 400
 
 
-def test_forgot_is_rate_limited(client, make_user, mailbox):
-    for _ in range(ratelimit.OTP_SEND_PER_ADDRESS):
-        assert client.post("/api/auth/password/forgot", json={"identifier": "spam@example.com"}).status_code == 200
-    assert client.post("/api/auth/password/forgot", json={"identifier": "spam@example.com"}).status_code == 429
+def test_forgot_is_rate_limited(client, make_user, mailbox, monkeypatch):
+    monkeypatch.setenv("CLIENT_IP_SOURCE", "x-forwarded-for")   # lets the test act as several visitors
+
+    def ask(ip):
+        return client.post("/api/auth/password/forgot", json={"identifier": "spam@example.com"},
+                           headers={"X-Forwarded-For": ip}).status_code
+    for _ in range(ratelimit.OTP_SEND_PER_ADDRESS_IP):
+        assert ask("198.51.100.1") == 200
+    assert ask("198.51.100.1") == 429                             # one visitor can't use up the account's quota
+    sent = ratelimit.OTP_SEND_PER_ADDRESS_IP
+    n = 2
+    while sent < ratelimit.OTP_SEND_PER_ADDRESS:
+        assert ask(f"198.51.100.{n}") == 200
+        sent, n = sent + 1, n + 1
+    assert ask("203.0.113.9") == 429                              # ... but the per-account cap still holds
 
 
 # --------------------------------------------------------------------------- email change

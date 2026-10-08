@@ -132,10 +132,16 @@ def find_run(workflow: str, run_name: str, created_after: datetime) -> dict | No
     since = (created_after - timedelta(minutes=2)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data = _get(f"/actions/workflows/{workflow}/runs",
                 {"event": "workflow_dispatch", "per_page": 20, "created": f">={since}"})
-    for run in data.get("workflow_runs", []):
-        if run_name in (run.get("display_title"), run.get("name")):
-            return _slim(run)
-    return None
+    # The request id is random and only exists from the moment we dispatch, so the FIRST run carrying it is ours;
+    # a later run someone starts by hand with the same title (QA-L-11) can't take its place. Runs from another
+    # branch or event are never ours (we dispatch on main).
+    matches = [run for run in data.get("workflow_runs", [])
+               if run_name in (run.get("display_title"), run.get("name"))
+               and run.get("event", "workflow_dispatch") == "workflow_dispatch"
+               and run.get("head_branch", "main") == "main"]
+    if not matches:
+        return None
+    return _slim(min(matches, key=lambda r: (r.get("created_at") or "", r.get("id") or 0)))
 
 
 def get_run(run_id: int) -> dict:

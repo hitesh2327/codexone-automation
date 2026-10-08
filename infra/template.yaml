@@ -76,6 +76,9 @@ Resources:
           SSM_PREFIX: !Ref SsmPrefix
           ORIGIN_VERIFY: !Ref OriginVerify
           COOKIE_SECURE: "true"
+          # Rate limits / logs use the viewer IP from CloudFront-Viewer-Address (sent by the AllViewerExceptHostHeader
+          # origin request policy below), trusted only because ORIGIN_VERIFY proves the request came via CloudFront.
+          CLIENT_IP_SOURCE: cloudfront
           PUBLISH_VIA: dispatch          # the API never publishes itself; it kicks the GitHub poll job
           PUBLISH_ENABLED: !Ref PublishEnabled
           TELEGRAM_SYNC: !Ref TelegramSync

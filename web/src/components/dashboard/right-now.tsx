@@ -45,8 +45,8 @@ function Attention({ a }: { a: Overview["attention"] }) {
   const [open, setOpen] = useState(false);
   if (!a.ok) {
     return (
-      <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm">
-        <p className="font-medium text-destructive">Couldn't check what needs you.</p>
+      <div role="alert" className="border-l-[3px] border-bad bg-bad/10 py-3 pr-4 pl-4 text-sm">
+        <p className="font-medium text-bad">Couldn't check what needs you.</p>
         <p className="mt-1 text-muted-foreground">This is not an all-clear. Open Posts to look yourself.</p>
         <Button asChild variant="outline" size="sm" className="mt-3"><Link to="/posts">Open Posts<ArrowRight /></Link></Button>
       </div>
@@ -54,8 +54,8 @@ function Attention({ a }: { a: Overview["attention"] }) {
   }
   if (!a.items.length) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-[#2ea043]/30 bg-[#2ea043]/[0.07] p-4">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[#2ea043]/20 text-[#56d364]"><ShieldCheck className="size-5" aria-hidden /></span>
+      <div className="flex items-center gap-3 rounded-xl border border-ok/30 bg-ok-solid/[0.07] p-4">
+        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-ok-solid/20 text-ok"><ShieldCheck className="size-5" aria-hidden /></span>
         <div>
           <p className="font-medium">Nothing needs you.</p>
           <p className="text-sm text-muted-foreground">{a.last_decision_at ? `Last decision ${agoLabel(a.last_decision_at, now)}.` : "No decisions yet."}</p>
@@ -77,7 +77,7 @@ function Attention({ a }: { a: Overview["attention"] }) {
           const tucked = !open && (i >= PEEK ? "hidden" : i >= 1 ? "hidden sm:flex" : "");
           return (
             <li key={`${it.code}-${it.post_id ?? i}`} className={cn("flex items-center gap-3 border-t px-3 py-2.5 first:border-t-0", tucked || "flex")}>
-              <span className={cn("hidden size-8 shrink-0 place-items-center rounded-[10px] border sm:grid", TEXT[s.tone], it.severity === "high" ? "border-destructive/40 bg-destructive/10" : it.severity === "medium" ? "border-[var(--brand-accent)]/40 bg-[var(--brand-accent)]/10" : "border-border bg-muted/50")}>
+              <span className={cn("hidden size-8 shrink-0 place-items-center rounded-[10px] border sm:grid", TEXT[s.tone], it.severity === "high" ? "border-bad/40 bg-bad/10" : it.severity === "medium" ? "border-wait/40 bg-wait/10" : "border-border bg-muted/50")}>
                 <Icon className="size-4" aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
@@ -96,7 +96,7 @@ function Attention({ a }: { a: Overview["attention"] }) {
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {hiddenPhone > 0 && (
           <button type="button" aria-expanded={open} aria-controls="attention-list" onClick={() => setOpen((o) => !o)}
-            className={cn("min-h-9 rounded-md text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring", !hiddenWide && "sm:hidden")}>
+            className={cn("min-h-9 rounded-md text-primary underline-offset-4 hover:underline", !hiddenWide && "sm:hidden")}>
             {open ? "Show fewer" : <><span className="sm:hidden">Show {hiddenPhone} more</span><span className="hidden sm:inline">Show {hiddenWide} more</span></>}
           </button>
         )}
@@ -113,7 +113,7 @@ function Attention({ a }: { a: Overview["attention"] }) {
 function Chip({ icon: Icon, label, chip, now }: { icon: typeof Film; label: string; chip: NonNullable<Overview["next_slots"]["items"][number]["reel"]>; now: number }) {
   const stage = stageOf({ ...chip, platforms: chip.platforms as never, publish_at: chip.publish_at ?? new Date().toISOString(), status: chip.status as never }, formatIST(chip.publish_at, false), now);
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border bg-background/60 px-2 py-0.5 text-xs" title={stage.note}>
+    <span className="inline-flex items-center gap-1.5 rounded-[4px] border bg-background/60 px-2 py-0.5 text-xs" title={stage.note}>
       <Icon className="size-3 text-muted-foreground" aria-hidden />
       <span className="text-muted-foreground">{label}</span>
       <span aria-hidden className={cn("size-1.5 rounded-full", BG[stage.tone])} />
@@ -160,7 +160,7 @@ function NextSlots({ n }: { n: Overview["next_slots"] }) {
 export function RightNow({ data }: { data: Overview }) {
   const { now } = useDash();
   const h = headline(data.status, now);
-  const bar = h.tone === "bad" ? "bg-destructive" : h.tone === "wait" ? "bg-[var(--brand-accent)]" : h.tone === "ok" ? "bg-[#2ea043]" : "bg-muted-foreground/50";
+  const bar = h.tone === "bad" ? "bg-bad" : h.tone === "wait" ? "bg-wait" : h.tone === "ok" ? "bg-ok-solid" : "bg-muted-foreground/50";
   return (
     <section aria-labelledby="now-h" className="relative overflow-hidden rounded-2xl border bg-card">
       <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", bar)} />
@@ -168,7 +168,7 @@ export function RightNow({ data }: { data: Overview }) {
       <div className="grid content-start gap-3.5 p-4 pl-5 sm:gap-4 sm:p-6 sm:pl-8">
         <div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <span className={cn("inline-flex items-center gap-1.5 rounded-full border border-current/40 px-2.5 py-0.5 text-xs font-medium", TEXT[h.tone])}>
+            <span className={cn("inline-flex items-center gap-1.5 rounded-[4px] border border-current/40 px-2 py-0.5 text-xs font-medium", TEXT[h.tone])}>
               <span aria-hidden className={cn("size-1.5 rounded-full", BG[h.tone], h.tone === "ok" && "motion-safe:animate-pulse")} />
               {h.label}
             </span>

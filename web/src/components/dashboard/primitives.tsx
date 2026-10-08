@@ -14,10 +14,10 @@ export const MONO = "font-mono text-[11px] uppercase tracking-[0.14em] text-mute
 export const DEMO_TIP = "Sample data. Actions are off.";
 
 export const TEXT: Record<Tone, string> = {
-  wait: "text-[var(--brand-accent)]", go: "text-primary", ok: "text-[#56d364]", bad: "text-destructive", idle: "text-muted-foreground",
+  wait: "text-wait", go: "text-primary", ok: "text-ok", bad: "text-bad", idle: "text-muted-foreground",
 };
 export const BG: Record<Tone, string> = {
-  wait: "bg-[var(--brand-accent)]", go: "bg-primary", ok: "bg-[#2ea043]", bad: "bg-destructive", idle: "bg-muted-foreground/40",
+  wait: "bg-wait", go: "bg-primary", ok: "bg-ok-solid", bad: "bg-bad", idle: "bg-muted-foreground/40",
 };
 
 export const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -69,7 +69,7 @@ export function SampleMark({ className }: { className?: string }) {
 export function Unavailable({ what, className }: { what: string; className?: string }) {
   return (
     <div role="status" className={cn("flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground", className)}>
-      <TriangleAlert className="size-4 shrink-0 text-[var(--brand-accent)]" aria-hidden />
+      <TriangleAlert className="size-4 shrink-0 text-wait" aria-hidden />
       <span><span className="text-foreground/90">{what}</span>: unavailable right now. The rest of the page is unaffected.</span>
     </div>
   );
@@ -89,7 +89,7 @@ export function Why({ label, children }: { label: string; children: ReactNode })
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" aria-label={`How ${label} is calculated`} className="rounded-full text-muted-foreground/70 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+        <button type="button" aria-label={`How ${label} is calculated`} className="relative rounded-full text-muted-foreground after:absolute after:-inset-1.5 after:content-[''] hover:text-foreground touch:after:-inset-[15px]">
           <Info className="size-3.5" aria-hidden />
         </button>
       </TooltipTrigger>
@@ -117,7 +117,7 @@ export function Segmented<T extends string | number>({ label, value, options, on
         return (
           <button
             key={String(o.value)} type="button" role="radio" aria-checked={on} tabIndex={on ? 0 : -1} onClick={() => onChange(o.value)}
-            className={cn("min-h-9 rounded-md px-2.5 text-sm sm:px-3 font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            className={cn("min-h-9 rounded-md px-2.5 text-sm font-medium transition-colors touch:min-h-11 sm:px-3",
               on ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}
           >
             {o.label}
@@ -128,9 +128,11 @@ export function Segmented<T extends string | number>({ label, value, options, on
   );
 }
 
-export function DashSkeleton() {
+export function DashSkeleton({ days }: { days?: number }) {
   return (
-    <div className="grid gap-6" aria-busy="true" aria-label="Loading the dashboard">
+    <div className="grid gap-6" role="status" aria-busy="true" aria-label="Loading the dashboard">
+      {/* one line of words, so a slow cold start reads as "working", not "broken" */}
+      <p className="font-mono text-xs text-muted-foreground">Loading the last {days ?? 30} days…</p>
       <Skeleton className="h-[22rem] w-full rounded-2xl" />
       <Skeleton className="h-28 w-full rounded-xl" />
       <div className="grid gap-4 lg:grid-cols-2"><Skeleton className="h-56" /><Skeleton className="h-56" /></div>

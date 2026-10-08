@@ -179,6 +179,9 @@ CODES: dict[str, Code] = {
                               "Copy a fresh connection string from the Neon console and update DATABASE_URL."),
     "database.schema_behind": Code("misconfigured", "The database schema is older than this version of the app.",
                                    "Run the database migration (the poll-approvals workflow runs 'alembic upgrade head')."),
+    "database.schema_ahead": Code("misconfigured", "The database schema is newer than this version of the app.",
+                                  "Expected right after a rollback: older code runs on the newer (additive) schema. "
+                                  "Deploy the current version again to clear this."),
     "database.read_only": Code("forbidden", "The database user can read but not write.",
                                "Use a connection string for a role that owns the database."),
     "database.pooled_url": Code("misconfigured", "DATABASE_URL points at Neon's connection pooler.",
@@ -294,6 +297,10 @@ class Run:
 _INVISIBLE = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "\u00ad"}  # zero-width / BOM / soft hyphen
 
 
+_SMART_QUOTES = {("\u2018", "\u2019"), ("\u201c", "\u201d"), ("\u2019", "\u2019"), ("\u201d", "\u201d"),
+                 ("\u00ab", "\u00bb"), ("\u201e", "\u201c"), ("\u201a", "\u2018")}  # what word processors paste
+
+
 def clean_value(raw: str | None, name: str = "") -> tuple[str, list[str]]:
     """Strip what copy/paste adds: whitespace, newlines, zero-width characters, wrapping quotes, a
     leading `NAME=` or `export NAME=`. Returns (value, notes) where notes say what was removed (never
@@ -301,7 +308,7 @@ def clean_value(raw: str | None, name: str = "") -> tuple[str, list[str]]:
     if raw is None:
         return "", []
     notes: list[str] = []
-    v = unicodedata.normalize("NFC", raw)
+    v = raw  # no Unicode normalisation: it would silently change a secret that contains a combining mark (QA-L-04)
     if any(ch in v for ch in _INVISIBLE):
         v = "".join(ch for ch in v if ch not in _INVISIBLE)
         notes.append("removed invisible characters")
@@ -319,14 +326,16 @@ def clean_value(raw: str | None, name: str = "") -> tuple[str, list[str]]:
                     v = v[len(n) + 1:].strip()
                     notes.append(f"removed the leading {n}=")
                     break
-        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'`":
+        if len(v) >= 2 and ((v[0] == v[-1] and v[0] in "\"'`") or (v[0], v[-1]) in _SMART_QUOTES):
             v = v[1:-1]
             if "removed the quotes" not in notes:
                 notes.append("removed the quotes")
         if v == before:
             break
-    if name == "GITHUB_REPOSITORY":  # a pasted repository link -> owner/name
-        m = re.match(r"^(?:https?://)?(?:www\.)?github\.com/([^/\s]+)/([^/\s?#]+?)(?:\.git)?/?(?:[?#].*)?$", v, re.I)
+    if name == "GITHUB_REPOSITORY":  # a pasted repository link / clone URL -> owner/name
+        m = (re.match(r"^(?:https?://|ssh://git@)?(?:www\.)?github\.com/([^/\s]+)/([^/\s?#]+?)(?:\.git)?"
+                      r"(?:/(?:tree|blob|actions|pulls|issues|settings|commits?|releases|wiki)(?:/[^\s]*)?)?/?(?:[?#].*)?$", v, re.I)
+             or re.match(r"^git@github\.com:([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", v, re.I))
         if m:
             v = f"{m.group(1)}/{m.group(2)}"
             notes.append("used owner/name from the link")

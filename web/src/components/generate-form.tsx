@@ -253,7 +253,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
                   {force && <li>Adds an extra post to a slot that has one or has long passed.</li>}
                 </ul>
                 <p>It takes about 5 to 10 minutes and uses Gemini quota and GitHub Actions minutes. Previews are sent to Telegram; <strong>nothing is published until you approve it</strong>.</p>
-                {quotaWarn && <p className="text-destructive">Gemini&apos;s free quota ran out recently. This will probably fail.</p>}
+                {quotaWarn && <p className="text-wait">Gemini&apos;s free quota ran out recently. This will probably fail.</p>}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

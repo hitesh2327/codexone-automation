@@ -460,3 +460,23 @@ def test_rate_limited(authed):
         assert authed.get("/api/dashboard/overview").status_code == 200
     r = authed.get("/api/dashboard/overview")
     assert r.status_code == 429 and r.headers["retry-after"]
+
+
+def test_open_items_older_than_the_lookback_are_not_read():
+    """QA-M-09: every failed/pending post of all time used to be read and aggregated on each refresh."""
+    from sqlalchemy import update
+    from src import queue_store as qs
+    now = datetime.now(timezone.utc)
+    mk = lambda i: qs.Item(id=i, kind="reel", date="2026-01-01", topic="T", category="AI",  # noqa: E731
+                           post_dir=f"output/2026-01-01/{i}/", caption="c", status="failed")
+    qs.save([mk("m09-old"), mk("m09-new")])
+    with db.session() as s:
+        old = now - timedelta(days=route.OPEN_LOOKBACK_DAYS + 10)
+        s.execute(update(Post).where(Post.id == "m09-old").values(created_at=old, updated_at=old))
+        s.execute(update(Post).where(Post.id == "m09-new").values(created_at=old, updated_at=now - timedelta(days=2)))
+    try:
+        ids = {p.id for p in route._load_posts(now, 30)}
+        assert "m09-new" in ids and "m09-old" not in ids
+    finally:
+        with db.session() as s:
+            s.execute(delete(Post).where(Post.id.in_(["m09-old", "m09-new"])))

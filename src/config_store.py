@@ -346,17 +346,115 @@ def config_version() -> int:
         return 0
 
 
-def fingerprint(value: str) -> str | None:
+def fingerprint(value: str, *, create: bool = False) -> str | None:
     """Keyed fingerprint of any value (env or store) so the two can be compared without revealing either.
-    None when there is no usable master key."""
+    None when there is no usable master key, or no data key yet.
+
+    Reads never create key material (QA-M-03): a process holding a different/typo'd master key that merely
+    renders the Config page would otherwise wrap the first data key under ITS key and lock the real key out.
+    Only explicit, authenticated admin writes (save, a recorded verify) pass create=True."""
     from src import db
     try:
         kek = master_key()
         with db.session() as s:
-            dek = _load_dek(s, kek, create=True)
+            dek = _load_dek(s, kek, create=create)
             return dek.fingerprint(value) if dek else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def current_kek_id() -> str | None:
+    """Id (an HMAC, not the key) of the master key that wraps the newest data key; None if no data key yet."""
+    from sqlalchemy import select
+    from src import db
+    from src.db.models import ConfigKey
+    if not db.enabled():
+        return None
+    with db.session() as s:
+        return s.scalars(select(ConfigKey.kek_id).order_by(ConfigKey.version.desc()).limit(1)).first()
+
+
+def reset_unused_key() -> bool:
+    """Delete the data key if NO secret has ever been encrypted with it (recovery when a wrong master key
+    created it). Refuses (returns False) as soon as one encrypted value exists: those would be lost."""
+    from sqlalchemy import delete, func, select
+    from src import db
+    from src.db.models import ConfigKey, ConfigMeta, ConfigValue
+    with db.session() as s:
+        if s.scalar(select(func.count()).select_from(ConfigValue).where(ConfigValue.ciphertext.is_not(None))):
+            return False
+        s.execute(delete(ConfigKey))
+        meta = s.get(ConfigMeta, 1)
+        if meta:
+            meta.canary_nonce = meta.canary = None
+    _dek_cache.clear()
+    invalidate()
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# The GitHub runner's access (QA-H-02): the API can't see the runner's secrets, so the runner reports
+# whether its CONFIG_MASTER_KEY opens the store (names and an HMAC key id only, never a value).
+# --------------------------------------------------------------------------- #
+RUNNER_SETTING = "config_runner"
+
+
+def report_runner() -> dict | None:
+    """Record what this GitHub Actions run can read. Never raises (a report must not fail a run)."""
+    from src import db
+    from src.config_schema import SECRET_NAMES
+    if not db.enabled():
+        return None
+    try:
+        try:
+            key = check_canary()
+        except StoreError as e:
+            key = e.code
+        try:
+            kek_id = _kek_id(master_key())
+        except StoreError:
+            kek_id = None
+        report = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "key": key, "kek_id": kek_id,
+                  "env_names": sorted(n for n in SECRET_NAMES if _env_value(n)),
+                  "run_id": os.environ.get("GITHUB_RUN_ID"), "workflow": os.environ.get("GITHUB_WORKFLOW")}
+        db.set_setting(RUNNER_SETTING, report)
+        entries, _ = snapshot()
+        unreadable = sorted(n for n, e in entries.items() if e.is_secret and not e.value and n not in report["env_names"])
+        if unreadable:
+            log.warning("this runner can't read %s saved on the Config page (%s): add the CONFIG_MASTER_KEY "
+                        "repository secret with the server's value", ", ".join(unreadable), key)
+        return report
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not report the runner's config access (%s)", type(e).__name__)
+        return None
+
+
+def runner_access(entries: dict[str, Entry] | None = None) -> tuple[bool, str]:
+    """(ok, detail): can GitHub Actions read every secret saved on the Config page?"""
+    from src import db
+    if entries is None:
+        entries, _ = snapshot()
+    stored = sorted(n for n, e in entries.items() if e.is_secret)
+    if not stored:
+        return True, "No secrets are saved on the Config page, so GitHub Actions needs only its own secrets."
+    report = db.get_setting(RUNNER_SETTING) if db.enabled() else None
+    if not report:
+        return False, ("Not confirmed yet: no GitHub Actions run has reported whether it can read the saved secrets. "
+                       "Add the CONFIG_MASTER_KEY repository secret (the same value as the server's), then run the "
+                       "\"Poll Telegram approvals + publish\" workflow once.")
+    when = f"run {report.get('run_id') or '?'} at {str(report.get('at', ''))[:16].replace('T', ' ')} UTC"
+    if report.get("kek_id") and report.get("kek_id") == current_kek_id():
+        return True, f"GitHub Actions ({when}) opens the store with the same master key."
+    missing = [n for n in stored if n not in (report.get("env_names") or [])]
+    if not missing:
+        return True, (f"GitHub Actions ({when}) can't open the store ({report.get('key')}) but has its own secret for "
+                      "every saved value, so it uses those instead of the ones saved here.")
+    reason = {"database.master_key_missing": "has no CONFIG_MASTER_KEY secret",
+              "database.master_key_invalid": "has a malformed CONFIG_MASTER_KEY secret",
+              "database.key_mismatch": "has a different CONFIG_MASTER_KEY than the server"}.get(
+        str(report.get("key")), "has not opened the store with the current master key")
+    return False, (f"GitHub Actions ({when}) {reason}, so it can't read {', '.join(missing)}. Set the CONFIG_MASTER_KEY "
+                   "repository secret to the server's value; the next run confirms it.")
 
 
 def rotate_master_key(old: str, new: str) -> int:
@@ -395,8 +493,6 @@ def _env_value(name: str) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
-    from src import db
-    from src.config_schema import FIELDS
     ap = argparse.ArgumentParser(prog="python -m src.config_store", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("generate-key", help="print a new random master key")
@@ -404,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
     imp = sub.add_parser("import-env", help="copy configurable settings from the environment into the store")
     imp.add_argument("--apply", action="store_true", help="write (default: dry run, lists names only)")
     sub.add_parser("rotate", help="re-wrap the data key: CONFIG_MASTER_KEY=old, CONFIG_MASTER_KEY_NEW=new")
+    sub.add_parser("reset-unused-key", help="delete a data key that encrypts nothing (created under a wrong master key)")
     args = ap.parse_args(argv)
 
     if args.cmd == "generate-key":
@@ -411,6 +508,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Store this as CONFIG_MASTER_KEY on the server (SSM) and as a GitHub Actions secret. "
               "Keep a copy in a password manager: without it, saved secrets can't be recovered.", file=sys.stderr)
         return 0
+    from src import db
+    from src.config_schema import FIELDS
     if not db.enabled():
         print("DATABASE_URL is not set")
         return 1
@@ -435,6 +534,12 @@ def main(argv: list[str] | None = None) -> int:
             save(found, actor="import-env", source="import", required={f.name for f in FIELDS if f.required})
             print("Done. Verify them with: python -m src.verify all")
         return 0
+    if args.cmd == "reset-unused-key":
+        if reset_unused_key():
+            print("Data key removed. The next save on the Config page creates a new one under this process's key.")
+            return 0
+        print("Refused: secrets are stored under the current data key; use the right CONFIG_MASTER_KEY instead.")
+        return 1
     if args.cmd == "rotate":
         new = os.environ.get("CONFIG_MASTER_KEY_NEW", "")
         version = rotate_master_key(os.environ.get(MASTER_ENV, ""), new)

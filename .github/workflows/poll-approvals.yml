@@ -36,6 +36,9 @@ env:
   YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
   YT_PRIVACY: ${{ vars.YT_PRIVACY || 'private' }}   # repo variable: private | unlisted | public
   DATABASE_URL: ${{ secrets.DATABASE_URL }}   # set -> Postgres; unset -> data/*.json
+  # Opens values saved on the dashboard's Config page (same value as the server's CONFIG_MASTER_KEY).
+  # Each run reports whether it could, and the Config page's readiness shows it (G9).
+  CONFIG_MASTER_KEY: ${{ secrets.CONFIG_MASTER_KEY }}
   TZ: Asia/Kolkata
 
 jobs:
@@ -62,7 +65,7 @@ jobs:
       - name: Apply database migrations
         if: env.DATABASE_URL != '' && (steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch')
         working-directory: api
-        run: alembic upgrade head
+        run: python migrate.py   # = alembic upgrade head, but a database AHEAD of this code is not an error
 
       - name: Apply approvals and publish due items
         if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'

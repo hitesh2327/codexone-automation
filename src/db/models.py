@@ -114,6 +114,9 @@ class User(Base):
     avatar_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Created by Google sign-in: access (including a password set later) lasts only while the email is on
+    # ALLOWED_GOOGLE_EMAILS (QA-M-06). The seeded password admin is False.
+    via_google: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
 
 class OtpCode(Base):
@@ -153,6 +156,18 @@ class ActivityLog(Base):
     post_id: Mapped[str | None] = mapped_column(String(160))
     actor: Mapped[str | None] = mapped_column(String(254))
     detail: Mapped[dict | None] = mapped_column(JSONType)
+
+
+class RateLimitEvent(Base):
+    """One counted attempt (failed sign-in, code request, code guess) for api.app.ratelimit, shared by every API
+    process / Lambda container (QA-M-05). Rows older than a day are pruned as new ones arrive."""
+    __tablename__ = "rate_limit_events"
+    __table_args__ = (Index("ix_rate_limit_events_key_at", "key", "at"),
+                      Index("ix_rate_limit_events_at", "at"))
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(200))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class GenerationJob(Base):

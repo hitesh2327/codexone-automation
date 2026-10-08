@@ -9,6 +9,18 @@ import { api, ApiError, googleLoginUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { slotName, slotsHeadline, type Brand } from "@/lib/brand";
 
+const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
+  google_cancelled: "Google sign-in was cancelled. You can try again or sign in with your password.",
+  no_verified_email: "Your Google account doesn't have a verified email address.",
+  not_allowed: "That Google account isn't linked to a @codexonebyhitesh account.",
+  disabled: "Your account has been disabled. Contact the account owner.",
+};
+
+function googleErrorMessage(code: string | null): string | null {
+  if (!code) return null;
+  return GOOGLE_ERROR_MESSAGES[code] ?? null;
+}
+
 function GoogleIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden className="size-4">
@@ -51,7 +63,7 @@ export default function Login({ brand }: { brand: Brand | null }) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(params.get("error"));
+  const [error, setError] = useState<string | null>(googleErrorMessage(params.get("error")));
   const [notice] = useState<string | null>((location.state as { notice?: string } | null)?.notice ?? null);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [providers, setProviders] = useState<"loading" | "ready" | "offline">("loading");
@@ -135,8 +147,8 @@ export default function Login({ brand }: { brand: Brand | null }) {
 
       {notice && <p role="status" className="mt-6 border-l-[3px] border-ok bg-ok/10 px-3 py-2 text-sm text-ok">{notice}</p>}
       {error && (
-        <p role="alert" className="mt-6 flex items-start gap-2 border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" />{error}
+        <p role="alert" className="mt-6 flex items-start gap-2 border-l-[3px] border-bad bg-bad/10 px-3 py-2 text-sm text-bad">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />{error}
         </p>
       )}
 
@@ -150,7 +162,7 @@ export default function Login({ brand }: { brand: Brand | null }) {
         </div>
         <div className="grid gap-2">
           <Label2 htmlFor="password" right={
-            <Link to="/forgot-password" state={{ identifier: username.trim() }} className="text-xs text-primary underline-offset-4 hover:underline">
+            <Link to="/forgot-password" state={{ identifier: username.trim() }} className="text-xs text-primary underline-offset-4 hover:underline relative after:absolute after:-inset-x-1 after:-inset-y-3 after:content-['']">
               Forgot password?
             </Link>}>Password</Label2>
           <div className="relative">
@@ -178,9 +190,9 @@ export default function Login({ brand }: { brand: Brand | null }) {
       )}
 
       {providers === "offline" && (
-        <p role="status" className="mt-8 border-l-2 border-[var(--brand-accent)] bg-[var(--brand-accent)]/10 px-3 py-2 text-sm leading-relaxed">
+        <p role="status" className="mt-8 border-l-[3px] border-wait bg-wait/10 px-3 py-2 text-sm leading-relaxed">
           Couldn't reach the server, so Google sign-in can't be shown yet.{" "}
-          <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          <button type="button" className="text-primary underline-offset-4 hover:underline relative after:absolute after:-inset-x-1 after:-inset-y-3 after:content-['']" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </p>
       )}
 

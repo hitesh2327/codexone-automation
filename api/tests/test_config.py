@@ -14,7 +14,7 @@ from src import config_store, db
 from src import verify as verify_lib
 from src.config import get_env
 from src.config_schema import FIELDS
-from src.db.models import ActivityLog, ConfigCheck, ConfigKey, ConfigMeta, ConfigValue
+from src.db.models import ActivityLog, ConfigCheck, ConfigKey, ConfigMeta, ConfigValue, Setting
 from src.verify import base
 from src.verify.base import Run
 
@@ -41,6 +41,7 @@ def isolated(monkeypatch):
     with db.session() as s:
         for model in (ConfigCheck, ConfigValue, ConfigKey, ConfigMeta, ActivityLog):
             s.execute(delete(model))
+        s.execute(delete(Setting).where(Setting.key == config_store.RUNNER_SETTING))
     config_store._dek_cache.clear()
     config_store.invalidate()
     route._recent.clear()
@@ -158,6 +159,18 @@ def test_unknown_outcome_saves_only_when_asked(authed, fake):
     assert r.status_code == 200
     assert get_env("GEMINI_API_KEY") == "maybe-key-123456"
     assert r.json()["integration"]["state"] == "unknown"
+
+
+def test_unverified_save_never_replaces_a_verified_value(authed, fake):
+    """QA-L-03: provider rate-limiting (unknown) + save_unverified used to swap a working key for a wrong one."""
+    assert put(authed, "gemini", {"GEMINI_API_KEY": "good-key-123456"}).status_code == 200
+    v = version_of(authed, "gemini", "GEMINI_API_KEY")["version"]
+    fake.status["gemini"] = "unknown"
+    r = put(authed, "gemini", {"GEMINI_API_KEY": "wrong-key-999999"}, expected={"GEMINI_API_KEY": v},
+            save_unverified=True)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "verified_value_kept"
+    assert r.json()["detail"]["can_force"] is False
+    assert get_env("GEMINI_API_KEY") == "good-key-123456"
 
 
 def test_concurrent_edit_gets_409(authed, fake):
@@ -336,6 +349,7 @@ def make_ready(c):
     assert put(c, "telegram", {"TG_BOT_TOKEN": "111:tokentokentokentokentok", "TG_CHAT_ID": "42"}).status_code == 200
     assert put(c, "cloudinary", {"CLOUDINARY_URL": "cloudinary://1:secretsecret@demo"}).status_code == 200
     assert put(c, "github", {"GITHUB_REPOSITORY": "acme/automation", "GITHUB_DISPATCH_TOKEN": "github_pat_123456789"}).status_code == 200
+    assert config_store.report_runner()["key"] == "ok"   # a GitHub Actions run with the same master key reported
 
 
 def test_readiness_needs_every_tier1_check_for_the_current_values(authed, fake, monkeypatch):
@@ -370,6 +384,79 @@ def test_readiness_blocks_without_repository_or_master_key(authed, fake, monkeyp
     r = authed.get("/api/config/readiness").json()
     g1 = next(c for c in r["conditions"] if c["id"] == "G1")
     assert g1["ok"] is False and g1["code"] == "database.master_key_missing"
+
+
+def _g9(c) -> dict:
+    return next(x for x in c.get("/api/config/readiness").json()["conditions"] if x["id"] == "G9")
+
+
+def test_readiness_g9_runner_must_be_able_to_read_saved_secrets(authed, fake, monkeypatch):
+    """QA-H-02: saved secrets are useless to GitHub Actions without its own copy of CONFIG_MASTER_KEY."""
+    assert _g9(authed)["ok"] is True                      # nothing secret saved: nothing for the runner to read
+    assert put(authed, "gemini", {"GEMINI_API_KEY": SENTINEL}).status_code == 200
+    g9 = _g9(authed)
+    assert g9["ok"] is False and g9["blocking"] and "Not confirmed" in g9["detail"]
+
+    monkeypatch.delenv("CONFIG_MASTER_KEY")                # a runner without the repository secret
+    config_store._dek_cache.clear(); config_store.invalidate()
+    report = config_store.report_runner()
+    assert report["key"] == "database.master_key_missing" and report["kek_id"] is None
+    assert SENTINEL not in repr(report)
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY1)          # back to the API process
+    config_store.invalidate()
+    g9 = _g9(authed)
+    assert g9["ok"] is False and "no CONFIG_MASTER_KEY" in g9["detail"] and "GEMINI_API_KEY" in g9["detail"]
+    assert authed.get("/api/config/readiness").json()["ready_to_generate"] is False
+
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY2)          # a runner with a different key
+    config_store._dek_cache.clear(); config_store.invalidate()
+    assert config_store.report_runner()["key"] == "database.key_mismatch"
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY1)
+    config_store._dek_cache.clear(); config_store.invalidate()
+    assert "different CONFIG_MASTER_KEY" in _g9(authed)["detail"]
+
+    assert config_store.report_runner()["key"] == "ok"     # the right key: confirmed
+    assert _g9(authed)["ok"] is True
+
+
+def test_runner_reports_only_from_github_actions(monkeypatch):
+    import main
+    calls = []
+    monkeypatch.setattr(config_store, "report_runner", lambda: calls.append(1))
+    monkeypatch.setattr(main, "cmd_status", lambda args: 0)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setattr(main, "cmd_poll", lambda args: 0)
+    assert main.main(["status"]) == 0 and main.main(["poll"]) == 0
+    assert calls == []                                     # local runs never claim to be the runner
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert main.main(["poll"]) == 0 and calls == [1]
+    assert main.main(["poll", "--dry-run"]) == 0 and calls == [1]
+
+
+def test_reads_never_create_the_data_key(authed, fake, monkeypatch):
+    """QA-M-03: a process with the wrong key that only renders the Config page must not claim the store."""
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY2)                       # e.g. a staging API with a typo'd key
+    assert config_store.fingerprint("anything") is None
+    for path in ("/api/config", "/api/config/readiness"):
+        assert authed.get(path).status_code == 200
+    with db.session() as s:
+        assert s.scalars(select(ConfigKey)).first() is None
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY1)                       # the real key can still save
+    config_store._dek_cache.clear(); config_store.invalidate()
+    assert put(authed, "gemini", {"GEMINI_API_KEY": SENTINEL}).status_code == 200
+    assert config_store.check_canary() == "ok"
+
+
+def test_unused_data_key_can_be_reset_but_never_one_in_use(authed, fake, monkeypatch):
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY2)
+    assert put(authed, "github", {"GITHUB_REPOSITORY": "acme/x"}, expected={"GITHUB_REPOSITORY": 0}).status_code == 200
+    config_store.fingerprint("x", create=True)                          # a data key under the wrong key, nothing encrypted
+    assert config_store.reset_unused_key() is True
+    monkeypatch.setenv("CONFIG_MASTER_KEY", KEY1)
+    config_store._dek_cache.clear(); config_store.invalidate()
+    assert put(authed, "gemini", {"GEMINI_API_KEY": SENTINEL}).status_code == 200
+    assert config_store.reset_unused_key() is False                     # a secret depends on it now
+    assert get_env("GEMINI_API_KEY") == SENTINEL
 
 
 def test_failed_check_blocks_readiness(authed, fake):

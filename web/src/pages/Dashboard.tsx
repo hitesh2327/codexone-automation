@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/page-header";
 import { Cadence } from "@/components/dashboard/cadence";
 import { PipelineConsole, Turnaround } from "@/components/dashboard/engine";
 import { Funnel, Mix } from "@/components/dashboard/funnel-mix";
@@ -39,7 +40,7 @@ function Stamp({ data, fetchedAt, stale, loading, onRefresh }: { data: Overview 
           {stale && <span className="ml-1.5 rounded border border-[var(--brand-accent)]/60 px-1 py-px text-[10px] text-[var(--brand-accent)]">stale</span>}
         </span>
       )}
-      <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading && !data} aria-label="Refresh the dashboard">
+      <Button variant="outline" size="sm" className="touch:h-11 touch:min-w-11" onClick={onRefresh} disabled={loading && !data} aria-label="Refresh the dashboard">
         <RefreshCw className={loading ? "animate-spin" : ""} />
         <span className="hidden sm:inline">Refresh</span>
       </Button>
@@ -74,7 +75,7 @@ function Body({ data }: { data: Overview }) {
 
       <section aria-labelledby="eng-h">
         <SectionHead id="eng-h" n="03" title="Is the engine healthy?" hint="Reliability of generation and publishing, and how quickly you respond" />
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 border-t border-rule pt-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-8">
           <PipelineConsole data={data} />
           <Turnaround data={data} />
         </div>
@@ -142,12 +143,13 @@ export default function Dashboard() {
       <DashCtx.Provider value={ctx}>
         <TooltipProvider delayDuration={150}>
           {demo && <DemoBanner handle={data?.workspace === "demo" ? handle : "@demo_dev_daily"} />}
-          <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)] gap-5 px-4 py-5 md:gap-6 md:px-8 md:py-6">
-            <header className="flex flex-wrap items-end gap-x-3 gap-y-3">
-              <div className="mr-auto min-w-0 max-sm:sr-only">
-                <p className={cn(MONO, "truncate")}>Control room{!demo && handle ? ` · ${handle}` : ""}</p>
-                <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">Dashboard</h1>
-              </div>
+          <div className="mx-auto grid max-w-[78rem] grid-cols-[minmax(0,1fr)] gap-7 px-4 py-6 md:px-8 md:py-9">
+            <PageHeader
+              index="01"
+              eyebrow={<span className="truncate">Control room{!demo && handle ? ` · ${handle}` : ""}</span>}
+              title="Dashboard"
+              lead="What needs you now, whether you ship every day, and whether the engine is healthy."
+              actions={<>
               {(demoOk || demo) && (
                 <Segmented<Workspace> label="Workspace" value={workspace} onChange={pick}
                   options={[{ value: "live", label: "Live" }, { value: "demo", label: <><span className="sm:hidden">Demo</span><span className="hidden sm:inline">Demo workspace</span></> }]} />
@@ -155,10 +157,11 @@ export default function Dashboard() {
               <Segmented<30 | 90> label="Time window" value={range} onChange={setRange}
                 options={[{ value: 30, label: <>30<span className="hidden sm:inline"> days</span><span className="sm:hidden">d</span></> }, { value: 90, label: <>90<span className="hidden sm:inline"> days</span><span className="sm:hidden">d</span></> }]} />
               <Stamp data={data} fetchedAt={fetchedAt} stale={stale} loading={loading} onRefresh={() => void reload()} />
-            </header>
+              </>}
+            />
 
             {error && (
-              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              <div role="alert" className="flex flex-wrap items-center gap-3 border-l-[3px] border-bad bg-bad/10 py-2.5 pr-3 pl-4 text-sm text-bad">
                 <TriangleAlert className="size-4 shrink-0" aria-hidden />
                 <span className="min-w-0 flex-1">
                   {data ? "Couldn't refresh. Showing the last numbers loaded; they are marked stale." : (
@@ -169,7 +172,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {data ? <Body data={data} /> : !error || loading ? <DashSkeleton /> : null}
+            {data ? <Body data={data} /> : !error || loading ? <DashSkeleton days={range} /> : null}
           </div>
         </TooltipProvider>
       </DashCtx.Provider>

@@ -13,8 +13,11 @@ Configuration comes from the environment (.env locally, SSM on AWS), read when a
     MAIL_FROM        sender address, e.g. no-reply@yourdomain.com
     MAIL_FROM_NAME   display name, default "Content admin"
 
-The console driver prints the whole email (including one-time codes) to the log instead of sending it.
-It exists so the flows can be demoed and developed with no mail server; use `smtp` for real users.
+The console driver doesn't send anything: it writes the email to data/outbox/ (MAIL_OUTBOX_DIR) so the flows can
+be demoed and developed with no mail server, and logs only the recipient and subject (never the code).
+Production guard (QA-M-07): when COOKIE_SECURE is on or SSM_PREFIX is set (a real deployment), the console driver
+is refused unless MAIL_ALLOW_CONSOLE=true: no code is issued, signed-in users are told email isn't configured,
+"forgot password" gives its usual answer without sending, and start-up logs an ERROR saying what to set.
 """
 from __future__ import annotations
 
@@ -37,6 +40,14 @@ class MailError(RuntimeError):
     """The email could not be handed to the mail server."""
 
 
+class MailNotConfigured(MailError):
+    """No usable mail transport in this environment (e.g. the console driver in production)."""
+
+
+NOT_CONFIGURED = ("Email isn't configured on this server, so no code can be sent. Set SMTP_HOST, SMTP_USER, SMTP_PASS "
+                  "and MAIL_FROM (the console driver is refused in production: it would put codes in the logs).")
+
+
 @dataclass
 class Message:
     to: str
@@ -52,12 +63,10 @@ class ConsoleTransport:
     name = "console"
 
     def send(self, msg: Message) -> None:
-        bar = "=" * 64
-        log.info("\n%s\n[mail:console] To: %s\n[mail:console] Subject: %s\n\n%s\n%s", bar, msg.to, msg.subject,
-                 msg.text, bar)
-        # Also drop it in data/outbox/ so a demo can open the "email" without digging through logs.
+        # The body (one-time code) never goes to the log: logs are shipped and kept (CloudWatch, files).
+        out = Path(get_env("MAIL_OUTBOX_DIR", required=False) or "data/outbox")
+        log.info("[mail:console] not sent; To: %s, Subject: %s; open %s", msg.to, msg.subject, out / "latest.txt")
         try:
-            out = Path(get_env("MAIL_OUTBOX_DIR", required=False) or "data/outbox")
             out.mkdir(parents=True, exist_ok=True)
             body = f"To: {msg.to}\nSubject: {msg.subject}\n\n{msg.text}"
             (out / f"{time.strftime('%Y%m%d-%H%M%S')}-{msg.to.replace('@', '_at_')}.txt").write_text(body, encoding="utf-8")
@@ -123,6 +132,34 @@ class SmtpTransport:
         raise MailError("Couldn't reach the mail server.") from last
 
 
+def production() -> bool:
+    """A real deployment: secure cookies (the default) or secrets from SSM."""
+    from api.app.settings import settings
+    return settings().cookie_secure or bool((get_env("SSM_PREFIX", required=False) or "").strip())
+
+
+def _console_allowed() -> bool:
+    return (get_env("MAIL_ALLOW_CONSOLE", required=False) or "").strip().lower() in ("1", "true", "yes")
+
+
+def driver() -> str:
+    user = (get_env("SMTP_USER", required=False) or get_env("SMTP_USERNAME", required=False) or "").strip()
+    host = (get_env("SMTP_HOST", required=False) or "").strip()
+    return (get_env("MAIL_DRIVER", required=False) or ("smtp" if (host or user) else "console")).strip().lower()
+
+
+def configured_for_codes() -> bool:
+    """Can this environment deliver a one-time code to a person (not to a log)?"""
+    return driver() != "console" or not production() or _console_allowed()
+
+
+def startup_check() -> None:
+    if not configured_for_codes():
+        log.error("EMAIL NOT CONFIGURED: MAIL_DRIVER resolves to 'console' in production, so password-reset and "
+                  "verification codes are refused. Set SMTP_HOST, SMTP_USER, SMTP_PASS and MAIL_FROM "
+                  "(or MAIL_ALLOW_CONSOLE=true to accept codes in the outbox, never for real users).")
+
+
 def create_transport() -> ConsoleTransport | SmtpTransport:
     user = (get_env("SMTP_USER", required=False) or get_env("SMTP_USERNAME", required=False) or "").strip()
     password = (get_env("SMTP_PASS", required=False) or get_env("SMTP_PASSWORD", required=False) or "").strip()
@@ -134,6 +171,8 @@ def create_transport() -> ConsoleTransport | SmtpTransport:
 
     driver = (get_env("MAIL_DRIVER", required=False) or ("smtp" if (host or user) else "console")).strip().lower()
     if driver == "console":
+        if production() and not _console_allowed():
+            raise MailNotConfigured(NOT_CONFIGURED)
         return ConsoleTransport()
     if driver != "smtp":
         raise MailError(f"Unknown MAIL_DRIVER {driver!r} (use smtp or console)")

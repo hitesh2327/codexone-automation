@@ -7,8 +7,11 @@ If web/dist exists (production build), the SPA is served from here too (same ori
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
@@ -34,32 +37,87 @@ def _force_env_password() -> bool:
     return (get_env("ADMIN_PASSWORD_FORCE", required=False, default="false") or "").strip().lower() in ("1", "true", "yes")
 
 
-def sync_admin() -> None:
-    """Create the password admin from ADMIN_USERNAME/ADMIN_PASSWORD.
+ADMIN_SEED = "admin_seed"  # settings row: {"user_id", "at", "forced": HMAC marker of the last forced password}
 
-    The env password only seeds the account (first run, or an account that has no password yet). After
-    that the password is the user's own: it is changed from the profile page or the emailed-code reset,
-    and a restart never overwrites it. To force the env password back (locked out), start once with
-    ADMIN_PASSWORD_FORCE=true.
+
+def _force_marker(password: str) -> str:
+    """Which env password a FORCE was applied for, without storing anything guessable offline (keyed by JWT_SECRET)."""
+    return hmac.new(settings().jwt_secret.encode(), b"admin-force|" + password.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def sync_admin() -> None:
+    """Seed the password admin from ADMIN_USERNAME/ADMIN_PASSWORD exactly once (QA-H-03).
+
+    The env password only seeds the account: on the first start with no password account at all, the admin is
+    created and its id recorded (settings "admin_seed"). From then on the account is the user's own: it can be
+    renamed, its password changed from the profile page or the emailed-code reset, and a restart never creates
+    it again or puts the env password on any account (not on a renamed admin's old username, not on a
+    Google-only account that happens to carry that username).
+
+    Locked out: start with ADMIN_PASSWORD_FORCE=true. It sets the env password on the seeded account ONCE per
+    distinct ADMIN_PASSWORD value (QA-L-07): left on, later cold starts only log a warning, so it can't
+    silently revert a password changed afterwards. To force again, change ADMIN_PASSWORD.
     """
+    from sqlalchemy.exc import IntegrityError
+    from src.db.models import Setting
     s = settings()
     if not (s.admin_username and s.admin_password):
         log.warning("ADMIN_USERNAME/ADMIN_PASSWORD not set: no password admin")
         return
-    with db.session() as ses:
-        user = ses.scalars(select(User).where(func.lower(User.username) == s.admin_username.lower())).first()
-        if user is None:
-            ses.add(User(username=s.admin_username, password_hash=hash_password(s.admin_password), name="Admin"))
-            log.info("admin %r created", s.admin_username)
-        elif not user.password_hash or (_force_env_password() and not verify_password(s.admin_password, user.password_hash)):
-            user.password_hash = hash_password(s.admin_password)
-            user.token_version += 1  # password changed: sign out existing sessions
-            log.info("admin %r password set from env", s.admin_username)
+    force = _force_env_password()
+    try:
+        with db.session() as ses:
+            row = ses.get(Setting, ADMIN_SEED)
+            seed = dict(row.value) if row and isinstance(row.value, dict) else None
+            if seed is None:
+                named = ses.scalars(select(User).where(func.lower(User.username) == s.admin_username.lower())).first()
+                if named is not None and named.password_hash:
+                    seed = {"user_id": named.id}       # seeded before this marker existed: adopt, never overwrite
+                elif ses.scalar(select(func.count()).select_from(User).where(User.password_hash.is_not(None))):
+                    log.warning("ADMIN_USERNAME %r matches no password account, but password accounts exist: "
+                                "not creating another admin (the env password only seeds a new install)", s.admin_username)
+                    return
+                elif named is not None:
+                    log.warning("ADMIN_USERNAME %r belongs to an account without a password (e.g. Google sign-in): "
+                                "not giving it the env password; choose another ADMIN_USERNAME", s.admin_username)
+                    return
+                else:
+                    user = User(username=s.admin_username, password_hash=hash_password(s.admin_password), name="Admin")
+                    ses.add(user)
+                    ses.flush()
+                    seed = {"user_id": user.id}
+                    log.info("admin %r created", s.admin_username)
+                seed["at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                if row:
+                    row.value = seed
+                else:
+                    row = Setting(key=ADMIN_SEED, value=seed)
+                    ses.add(row)
+            if not force:
+                return
+            user = ses.get(User, seed.get("user_id"))
+            marker = _force_marker(s.admin_password)
+            if user is None:
+                log.warning("ADMIN_PASSWORD_FORCE is set but the seeded admin account no longer exists; nothing changed")
+            elif seed.get("forced") == marker:
+                log.warning("ADMIN_PASSWORD_FORCE is still set: it was already applied for this ADMIN_PASSWORD and is "
+                            "ignored now. Remove it (or change ADMIN_PASSWORD to force again).")
+            else:
+                if not (user.password_hash and verify_password(s.admin_password, user.password_hash)):
+                    user.password_hash = hash_password(s.admin_password)
+                    user.token_version += 1  # password changed: sign out existing sessions
+                    log.warning("ADMIN_PASSWORD_FORCE: password of admin %r (id %s) set from env; remove the flag now",
+                                user.username, user.id)
+                row.value = {**seed, "forced": marker}
+    except IntegrityError:  # another cold start seeded at the same moment
+        log.info("admin seed done by a concurrent start")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings()  # fail fast on bad config
+    from api.app import mailer
+    mailer.startup_check()  # loud if reset codes can't be delivered (QA-M-07)
     sync_admin()
     yield
 

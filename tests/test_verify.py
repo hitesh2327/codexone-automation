@@ -399,3 +399,20 @@ def test_provider_outage_never_reads_as_invalid():
     run.fail("b", "B", "gemini.key_rejected")
     res = run.finish()
     assert (res.status, res.code) == ("invalid", "gemini.key_rejected")  # leads with the real problem
+
+
+# --- QA-L-04: common paste shapes -----------------------------------------------------------------
+@pytest.mark.parametrize("raw,name,expected", [
+    ("‘SENTINEL_smart’", "GEMINI_API_KEY", "SENTINEL_smart"),
+    ("“SENTINEL_smart”", "GEMINI_API_KEY", "SENTINEL_smart"),
+    ("GEMINI_API_KEY=“SENTINEL_smart”", "GEMINI_API_KEY", "SENTINEL_smart"),
+    ("git@github.com:o/n.git", "GITHUB_REPOSITORY", "o/n"),
+    ("https://github.com/o/n/tree/main", "GITHUB_REPOSITORY", "o/n"),
+    ("https://github.com/o/n/blob/main/README.md", "GITHUB_REPOSITORY", "o/n"),
+    ("ssh://git@github.com/o/n.git", "GITHUB_REPOSITORY", "o/n"),
+    ("https://github.com/o/n.git", "GITHUB_REPOSITORY", "o/n"),
+    ("é", "GEMINI_API_KEY", "é"),          # a combining mark stays as typed (no NFC rewrite)
+])
+def test_paste_cleaner_handles_common_shapes(raw, name, expected):
+    from src.verify.base import clean_value
+    assert clean_value(raw, name)[0] == expected

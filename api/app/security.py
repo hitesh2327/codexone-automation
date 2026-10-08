@@ -73,6 +73,15 @@ def burn_time() -> None:
     bcrypt.checkpw(b"x", _DUMMY_HASH.encode())
 
 
+def check_password(password: str, hashed: str | None) -> bool:
+    """verify_password that always costs one bcrypt check, also when there is no hash or the input is too long,
+    so the response time doesn't reveal whether an account exists or has a password (QA-L-05)."""
+    if not hashed or len(password.encode()) > BCRYPT_MAX_BYTES:
+        burn_time()
+        return False
+    return verify_password(password, hashed)
+
+
 # --------------------------------------------------------------------------- #
 # Session tokens
 # --------------------------------------------------------------------------- #

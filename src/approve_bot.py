@@ -359,8 +359,12 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
         return applied
     if offset is not None:
         _save_offset(offset)
-    if changed:  # only what this poll changed: never overwrite concurrent dashboard edits
-        q.save(list(changed.values()))
+    # Only what this poll changed, and only if each item is still pending: a decision made in the
+    # dashboard meanwhile (or a publisher's claim) is never overwritten by this stale copy.
+    for item in changed.values():
+        if not q.update_if(item, "pending"):
+            log.warning("%s changed while Telegram was being read; its Telegram change was not applied", item.id)
+            applied = [a for a in applied if a[0] != item.id]
     return applied
 
 

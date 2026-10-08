@@ -29,6 +29,16 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+def expected_var(name: str) -> str | None:
+    """A repository variable with the expected identity. Unset is not silent (QA-L-01): the step log says the
+    comparison was skipped, as a GitHub warning annotation, so a missing variable is visible."""
+    value = (os.getenv(name) or "").strip()
+    if not value:
+        print(f"::warning::SKIPPED: {name} is not set (repository variable), so this identity was not compared")
+        return None
+    return value
+
+
 def telegram() -> None:
     from telegram import Bot
 
@@ -39,7 +49,7 @@ def telegram() -> None:
     async def run():
         async with Bot(get_env("TG_BOT_TOKEN")) as bot:
             me = await bot.get_me()
-            expected = os.getenv("EXPECTED_BOT_ID")
+            expected = expected_var("EXPECTED_BOT_ID")
             if expected and str(me.id) != expected:
                 fail(f"TG_BOT_TOKEN belongs to @{me.username} (id {me.id}), expected bot id {expected}")
             chat = await bot.get_chat(int(chat_raw))
@@ -84,7 +94,7 @@ def instagram() -> None:
     me = r.json()
     if str(me.get("user_id")) != uid:
         fail(f"IG_USER_ID {uid} does not match the token's account {me.get('user_id')} (@{me.get('username')})")
-    expected = os.getenv("EXPECTED_IG_ID")
+    expected = expected_var("EXPECTED_IG_ID")
     if expected and uid != expected:
         fail(f"IG_USER_ID is {uid}, expected {expected}")
     print(f"OK: Instagram token works for @{me.get('username')}")
@@ -140,7 +150,7 @@ def yt_value(name: str) -> None:
     ok, hint = YT_FORMAT[name]
     if not ok(v):
         fail(f"{name} does not look right: {hint} (length {len(v)})")
-    expected = os.getenv(f"EXPECTED_FP_{name}")
+    expected = expected_var(f"EXPECTED_FP_{name}")
     fp = hashlib.sha256(v.encode()).hexdigest()[:8]
     if expected and fp != expected:
         fail(f"{name} differs from the working local value (length {len(v)}); re-copy it from .env")

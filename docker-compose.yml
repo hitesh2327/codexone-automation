@@ -31,7 +31,7 @@ services:
     volumes:   # live code reload
       - ./src:/app/src
       - ./api:/app/api
-    command: sh -c "cd api && alembic upgrade head && cd .. && uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir api --reload-dir src"
+    command: sh -c "cd api && python migrate.py && cd .. && uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir api --reload-dir src"
     depends_on:
       db:
         condition: service_healthy

@@ -42,7 +42,20 @@ export type Item = {
   can: { approve: boolean; reject: boolean; regen: boolean };
   source_url: string;
   youtube?: { title: string; description: string; tags: string[]; title_is_custom: boolean; description_is_custom: boolean };
+  /** Set when the GitHub job behind this action couldn't be started (not configured / dispatch failed). */
+  notice?: string | null;
 };
+
+/** The first "couldn't start the GitHub job" warning in an action's result (an Item, a list, or { items, notice }). */
+export function noticeOf(result: unknown): string | null {
+  const list = Array.isArray(result) ? result : [result];
+  for (const r of list) {
+    if (r && typeof r === "object" && typeof (r as { notice?: unknown }).notice === "string") {
+      return (r as { notice: string }).notice;
+    }
+  }
+  return null;
+}
 
 export type Group = {
   group_id: string;
@@ -60,6 +73,10 @@ export type PostsResponse = {
   categories: string[];
   counts: Partial<Record<Status, number>>;
   publishing_enabled: boolean;
+  /** Paging (newest first, 200 groups per page by default): pass next_cursor as `cursor` for the next page. */
+  total?: number;
+  has_more?: boolean;
+  next_cursor?: string | null;
 };
 
 export type Filters = { status?: string; platform?: string; category?: string; date_from?: string; date_to?: string; q?: string };
@@ -89,7 +106,7 @@ export const retryItem = (id: string, platform: Platform) =>
   api<Item>(`/api/posts/${id}/retry`, { method: "POST", body: { platform } });
 
 export const regenerateItems = (itemIds: string[], feedback: string) =>
-  api<{ items: Item[] }>("/api/posts/regenerate", { method: "POST", body: { item_ids: itemIds, feedback } });
+  api<{ items: Item[]; notice?: string | null }>("/api/posts/regenerate", { method: "POST", body: { item_ids: itemIds, feedback } });
 
 export type EditBody = {
   caption?: string;

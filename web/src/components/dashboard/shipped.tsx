@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { CircleCheck, CircleX, ExternalLink, Film, Images, Sparkles, TriangleAlert, ShieldCheck, ThumbsUp, ThumbsDown, RefreshCw, Hourglass, Clapperboard } from "lucide-react";
 
 import { FEED_VERB, agoLabel, pctText, ratioText, stampIST, timeIST, type Overview } from "@/lib/dashboard-format";
-import { cn } from "@/lib/utils";
+import { cn, safeHref } from "@/lib/utils";
 import { DEMO_TIP, Empty, MONO, TEXT, Unavailable, useDash } from "./primitives";
 
 const PLATFORM_NOTE: Record<string, string> = { private: "Private: not public yet", unlisted: "Unlisted: only people with the link", public: "Public" };
@@ -38,10 +38,10 @@ export function Platforms({ data }: { data: Overview }) {
                   <span aria-hidden className="text-muted-foreground">{r.kind === "reel" ? <Film className="size-4" /> : <Images className="size-4" />}</span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm">{r.topic}</p>
-                    <p className="text-xs text-muted-foreground">{r.at ? agoLabel(r.at, now) : "—"}{r.privacy && <span className={cn("ml-2 rounded border px-1 py-px text-[10px]", r.privacy === "private" && "border-[var(--brand-accent)]/50 text-[var(--brand-accent)]")} title={PLATFORM_NOTE[r.privacy]}>{r.privacy}{r.privacy === "private" ? " · not public" : ""}</span>}</p>
+                    <p className="text-xs text-muted-foreground">{r.at ? agoLabel(r.at, now) : "—"}{r.privacy && <span className={cn("ml-2 rounded border px-1 py-px text-[10px]", r.privacy === "private" && "border-wait/50 text-wait")} title={PLATFORM_NOTE[r.privacy]}>{r.privacy}{r.privacy === "private" ? " · not public" : ""}</span>}</p>
                   </div>
-                  {r.url && !demo ? (
-                    <a href={r.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+                  {safeHref(r.url) && !demo ? (
+                    <a href={safeHref(r.url)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-muted">
                       Open<ExternalLink className="size-3" aria-hidden /><span className="sr-only"> on {pl.name} (new tab)</span>
                     </a>
                   ) : (
@@ -76,7 +76,7 @@ export function Gallery({ data }: { data: Overview }) {
   if (!r.ok) return <Unavailable what="Recently shipped" />;
   if (!r.items.length) return <Empty title="Nothing has gone live yet">The last eight topics appear here, newest first.</Empty>;
   return (
-    <ul tabIndex={demo ? 0 : undefined} className="relative flex snap-x gap-3 overflow-x-auto rounded-lg pb-2 outline-none focus-visible:ring-2 focus-visible:ring-ring [scrollbar-width:thin] lg:grid lg:grid-cols-8 lg:overflow-visible" aria-label="Last topics that went live">
+    <ul tabIndex={demo ? 0 : undefined} className="relative flex snap-x gap-3 overflow-x-auto rounded-lg pb-2 [scrollbar-width:thin] lg:grid lg:grid-cols-8 lg:overflow-visible" aria-label="Last topics that went live">
       {r.items.map((it, idx) => {
         const inner = (
           <>
@@ -90,7 +90,7 @@ export function Gallery({ data }: { data: Overview }) {
               </p>
               <p className="flex flex-wrap gap-1">
                 {it.chips.map((c, i) => (
-                  <span key={i} className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-px font-mono text-[10px] uppercase", c.status === "published" ? "border-[#2ea043]/40 text-[#56d364]" : c.status === "failed" ? "border-destructive/40 text-destructive" : "text-muted-foreground")}>
+                  <span key={i} className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 py-px font-mono text-[10px] uppercase", c.status === "published" ? "border-ok/40 text-ok" : c.status === "failed" ? "border-bad/40 text-bad" : "text-muted-foreground")}>
                     {c.platform}{c.kind === "reel" ? " reel" : " post"}<span className="sr-only"> {c.status}</span>
                   </span>
                 ))}
@@ -101,7 +101,7 @@ export function Gallery({ data }: { data: Overview }) {
         return (
           <li key={it.group_id} className="w-32 shrink-0 snap-start lg:w-auto">
             {demo ? <div title={DEMO_TIP}>{inner}</div> : (
-              <Link to={`/posts?post=${it.post_id}`} className="block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">{inner}</Link>
+              <Link to={`/posts?post=${encodeURIComponent(it.post_id)}`} className="block rounded-lg">{inner}</Link>
             )}
           </li>
         );
@@ -118,8 +118,8 @@ const FEED_ICON: Record<string, typeof Sparkles> = {
 
 const VERB_PREFIX = /^(published|approved|rejected|generated|regenerated|scheduled)\s+/i;
 const TAG_TONE: Record<string, string> = {
-  "post.published": "text-[#56d364]", "publish.failed": "text-destructive", "generate.failed": "text-destructive",
-  "post.approved": "text-primary", "post.scheduled": "text-primary", "post.rejected": "text-[var(--brand-accent)]", "post.expired": "text-[var(--brand-accent)]",
+  "post.published": "text-ok", "publish.failed": "text-bad", "generate.failed": "text-bad",
+  "post.approved": "text-primary", "post.scheduled": "text-primary", "post.rejected": "text-muted-foreground", "post.expired": "text-muted-foreground",
 };
 
 /** The last 15 things that happened, as a ledger: time, what, who. Actors are role labels only. */

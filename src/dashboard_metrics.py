@@ -379,6 +379,8 @@ def attention(c: Ctx) -> dict:
     auth_yt = auth_ig = False
     for p in c.posts:
         t = _WHAT
+        if p.status not in ("failed", "approved", "publishing", "pending", "expired"):
+            continue  # most rows (published, rejected, replaced): nothing to flag, skip the formatting
         slot = p.publish_at.astimezone(IST).strftime("%H:%M") if p.publish_at else "?"
         if p.status == "failed":
             bad = [pl for pl in _targets(p) if _rec(p, pl).get("status") == "failed"]

@@ -61,19 +61,37 @@ def issue(ses: Session, user: User, purpose: str, email: str) -> str:
     return code
 
 
-def verify(ses: Session, user: User, purpose: str, email: str, code: str) -> bool:
-    """True once for the right, unexpired code. Wrong guesses are counted; the 5th kills the code."""
+def check(ses: Session, user: User, purpose: str, email: str, code: str) -> OtpCode | None:
+    """The live code row if `code` is right and unexpired, WITHOUT using it up (the caller calls consume()).
+    Wrong guesses are counted; the 5th kills the code."""
     code = (code or "").strip().replace(" ", "")
     now = _now()
     row = ses.scalars(select(OtpCode).where(OtpCode.user_id == user.id, OtpCode.purpose == purpose,
                                             OtpCode.email == email.lower(), OtpCode.used_at.is_(None))
                       .order_by(OtpCode.id.desc())).first()
     if row is None or _aware(row.expires_at) <= now or row.attempts >= MAX_ATTEMPTS:
-        return False
+        return None
     if not (code.isdigit() and len(code) == 6) or not hmac.compare_digest(row.code_hash, _digest(user.id, purpose, email, code)):
         row.attempts += 1
         if row.attempts >= MAX_ATTEMPTS:
             row.used_at = now
+        return None
+    return row
+
+
+def consume(row: OtpCode) -> None:
+    row.used_at = _now()
+
+
+def verify(ses: Session, user: User, purpose: str, email: str, code: str) -> bool:
+    """True once for the right, unexpired code. Wrong guesses are counted; the 5th kills the code."""
+    row = check(ses, user, purpose, email, code)
+    if row is None:
         return False
-    row.used_at = now
+    consume(row)
     return True
+
+
+def dummy_check(identifier: str, code: str) -> None:
+    """The same HMAC work as check(), for an identifier that matches no account (equal timing, QA-M-04)."""
+    hmac.compare_digest(_digest(0, "reset", identifier, code or ""), "0" * 64)

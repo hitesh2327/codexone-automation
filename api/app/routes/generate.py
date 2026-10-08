@@ -139,7 +139,8 @@ def _current(items: list[q.Item], kind: str) -> q.Item | None:
 @router.get("/slots")
 def get_slots(days: int = Query(2, ge=1, le=3)) -> dict:
     now = datetime.now(IST)
-    items = q.load()
+    first = approve_bot.slot_at(now.date().isoformat(), "00:00")
+    items = q.load_window(first, first + timedelta(days=days + 1))  # only these days' slots (QA-M-08)
     jobs = generation.since(now.astimezone(timezone.utc) - timedelta(days=2))
     out = []
     for offset in range(days):
@@ -247,7 +248,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
 
     slot_at = approve_bot.next_slot(now) if body.slot == "auto" else approve_bot.slot_at(now.date().isoformat(), body.slot)
     if not body.force:
-        taken = bool(_items_at(slot_at, q.load()))
+        taken = bool(q.load_window(slot_at, slot_at))
         state = generation.slot_state(slot_at, now, taken)
         if state == "taken":
             raise _fail(409, "slot_taken", f"The {slot_at:%H:%M} slot already has a post. Tick “extra post” to add another.")
@@ -273,7 +274,9 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                     source="generate", actor=_actor(user),
                     detail={"request_id": job["id"], "slot": slot_at.isoformat(), "category": body.category,
                             "topic": body.topic, "source_url": body.source_url, "force": body.force})
-    inputs = {"slot": body.slot, "category": body.category or "", "topic": body.topic or "",
+    # The slot the API validated (taken/stale) and showed, not "auto": a run that waits in the queue past the
+    # 30-minute lead would otherwise resolve "auto" to the NEXT slot (QA-L-10).
+    inputs = {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": body.category or "", "topic": body.topic or "",
               "source_url": body.source_url or "", "request_id": job["id"], "dry_run": "false",
               "force": str(body.force).lower(), "allow_duplicate": str(body.allow_duplicate).lower()}
     try:

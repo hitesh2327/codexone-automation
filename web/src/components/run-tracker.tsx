@@ -4,6 +4,7 @@ import { ExternalLink, RotateCcw, ScrollText } from "lucide-react";
 import { JobStatusBadge, PhaseTrack } from "@/components/phase-track";
 import { Button } from "@/components/ui/button";
 import { elapsedSeconds, elapsedText, type GithubState, type Job } from "@/lib/generate-format";
+import { safeHref } from "@/lib/utils";
 import { formatIST } from "@/lib/posts";
 
 const REASON_TITLE: Record<string, string> = {
@@ -94,7 +95,7 @@ export function RunTracker({ job, now, github, onRetry }: {
       <div className="flex flex-wrap items-center gap-2">
         {reviewId && (
           <Button asChild size="sm" className="touch:h-11">
-            <Link to={`/posts?post=${reviewId}`}>Review in Posts</Link>
+            <Link to={`/posts?post=${encodeURIComponent(reviewId)}`}>Review in Posts</Link>
           </Button>
         )}
         {job.status === "succeeded" && !reviewId && (
@@ -106,9 +107,9 @@ export function RunTracker({ job, now, github, onRetry }: {
             Retry
           </Button>
         )}
-        {job.github_run_url ? (
+        {safeHref(job.github_run_url, true) ? (
           <Button asChild size="sm" variant="ghost" className="touch:h-11">
-            <a href={job.github_run_url} target="_blank" rel="noreferrer">
+            <a href={safeHref(job.github_run_url, true)} target="_blank" rel="noreferrer">
               <ExternalLink />
               Open GitHub run<span className="sr-only"> (opens in a new tab)</span>
             </a>
@@ -118,7 +119,7 @@ export function RunTracker({ job, now, github, onRetry }: {
         ) : null}
         {(failed || job.status === "skipped") && (
           <Button asChild size="sm" variant="ghost" className="touch:h-11">
-            <Link to={`/logs?q=${job.id}`}><ScrollText />Logs</Link>
+            <Link to={`/logs?q=${encodeURIComponent(job.id)}`}><ScrollText />Logs</Link>
           </Button>
         )}
       </div>

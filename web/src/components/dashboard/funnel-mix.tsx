@@ -2,6 +2,8 @@ import { LEAK_TEXT, deltaText, funnelShape, mixNote, sharePct, type Overview } f
 import { cn } from "@/lib/utils";
 import { CountUp, Empty, MONO, Unavailable } from "./primitives";
 
+// the cyan steps down as the funnel narrows, so the eye reads loss instead of equal things; live stays green
+const STEP = ["fill-go", "fill-go/70", "fill-go/55"];
 const STAGE_TEXT = ["Everything the AI drafted", "Got a decision", "You approved", "Went live"];
 
 /** Generated -> decided -> approved -> published, drawn as bars joined by flowing bands. Labels are real text. */
@@ -17,7 +19,7 @@ export function Funnel({ data }: { data: Overview }) {
       <div role="img" aria-label={`Funnel over ${data.window_days} days: ${f.stages.map((s) => `${s.label} ${s.n}`).join(", ")}.`}>
         <svg viewBox={`0 0 ${g.w} ${g.h}`} preserveAspectRatio="none" className="h-36 w-full" aria-hidden>
           {g.bands.map((d, i) => <path key={i} d={d} className="fill-primary/15" />)}
-          {g.bars.map((b, i) => <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} rx="2" className={i === g.bars.length - 1 ? "fill-[#2ea043]" : "fill-primary"} />)}
+          {g.bars.map((b, i) => <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} rx="2" className={i === g.bars.length - 1 ? "fill-ok-solid" : STEP[i] ?? "fill-go/55"} />)}
         </svg>
         <div className="mt-2 grid grid-cols-4">
           {f.stages.map((s, i) => (
@@ -35,7 +37,7 @@ export function Funnel({ data }: { data: Overview }) {
         <p className={cn(MONO, "mb-2")}>Where the rest went</p>
         <ul className="flex flex-wrap gap-2">
           {leaks.length ? leaks.map((l) => (
-            <li key={l.key} className="rounded-full border px-2.5 py-1 text-xs">
+            <li key={l.key} className="rounded-[4px] border px-2 py-1 text-xs">
               <strong className="tabular-nums">{l.n}</strong> <span className="text-muted-foreground">{LEAK_TEXT[l.key] ?? l.key}</span>
             </li>
           )) : <li className="text-xs text-muted-foreground">Nothing dropped out.</li>}
@@ -71,10 +73,10 @@ export function Mix({ data }: { data: Overview }) {
               </span>
             </div>
             <div className="relative mt-1.5 h-2.5 rounded-full bg-muted">
-              <div className={cn("h-full rounded-full", c.tone === "off" ? "bg-[var(--brand-accent)]" : c.tone === "on" ? "bg-primary" : "bg-muted-foreground/60")} style={{ width: `${(c.share / max) * 100}%` }} />
+              <div className={cn("h-full rounded-full", c.tone === "off" ? "bg-wait" : c.tone === "on" ? "bg-primary" : "bg-muted-foreground/60")} style={{ width: `${(c.share / max) * 100}%` }} />
               {c.target !== null && <span aria-hidden className="absolute -top-1 h-4.5 w-0.5 rounded bg-foreground" style={{ left: `calc(${(c.target / max) * 100}% - 1px)` }} />}
             </div>
-            <p className={cn("mt-1 text-[11px]", c.tone === "off" ? "text-[var(--brand-accent)]" : "text-muted-foreground")}>
+            <p className={cn("mt-1 text-[11px]", c.tone === "off" ? "text-wait" : "text-muted-foreground")}>
               {deltaText(c, m.judged)}{c.tone === "off" ? ", outside the normal range" : ""}
             </p>
           </li>

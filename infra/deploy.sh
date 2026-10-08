@@ -15,6 +15,11 @@ IMAGE="$REGISTRY/$REPO:$TAG"
 echo "== account $ACCOUNT, region $AWS_REGION, stack $STACK"
 aws ssm get-parameter --name "${PREFIX}JWT_SECRET" --query Parameter.Name --output text >/dev/null \
   || { echo "secrets missing - run: python infra/put_secrets.py --apply"; exit 1; }
+# Not fatal, but dashboard features are off without them (names only; values are never read here).
+for NAME in CONFIG_MASTER_KEY GITHUB_REPOSITORY GITHUB_DISPATCH_TOKEN; do
+  aws ssm get-parameter --name "${PREFIX}${NAME}" --query Parameter.Name --output text >/dev/null 2>&1 \
+    || echo "WARNING: ${PREFIX}${NAME} not in SSM - see infra/README.md step 1 (features that need it stay off)"
+done
 
 echo "== 1/5 container image"
 aws ecr describe-repositories --repository-names "$REPO" >/dev/null 2>&1 \

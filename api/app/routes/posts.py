@@ -2,7 +2,9 @@
 publish now, retry, regenerate, edit). All logic lives in src/ (actions, queue_store)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+import base64
+import json
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -43,28 +45,79 @@ def item_out(item: q.Item) -> dict:
     return out
 
 
-def _current(items: list[q.Item]) -> q.Item | None:
+def _ts(value: str | datetime | None) -> float:
+    """Sortable instant of an ISO string (full items) or a datetime (light rows); naive = UTC (SQLite)."""
+    if value is None or value == "":
+        return 0.0
+    dt = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def _created(i) -> float:
+    return _ts(i.created_dt if isinstance(i, q.Light) else i.created_at)
+
+
+def _slot(i) -> float:
+    if isinstance(i, q.Light) and i.publish_dt is not None:
+        return _ts(i.publish_dt)
+    return _ts(item_publish_at(i))
+
+
+def _current(items: list) -> q.Item | None:
     """Newest version that hasn't been replaced (or simply the newest)."""
     live = [i for i in items if i.status != "replaced"] or items
-    return max(live, key=lambda i: (i.version, i.created_at)) if live else None
+    return max(live, key=lambda i: (i.version, _created(i))) if live else None
 
 
-def _groups(items: list[q.Item]) -> list[dict]:
-    by_group: dict[str, list[q.Item]] = {}
+def _group_meta(items: list) -> list[dict]:
+    """Per topic group: its current carousel/reel and sort key (numbers, no formatting). Newest first."""
+    by_group: dict[str, list] = {}
     for i in items:
         by_group.setdefault(i.group_id, []).append(i)
     out = []
     for gid, members in by_group.items():
         current = {k: _current([m for m in members if m.kind == k]) for k in ("carousel", "reel")}
         head = current["reel"] or current["carousel"]
-        out.append({
-            "group_id": gid, "topic": head.topic, "category": head.category, "date": head.date,
-            "publish_at": item_publish_at(head).isoformat(),
-            "created_at": max(m.created_at for m in members),
-            "versions": max(m.version for m in members),
-            "items": {k: item_out(v) if v else None for k, v in current.items()},
-        })
-    return sorted(out, key=lambda g: (g["publish_at"], g["created_at"]), reverse=True)
+        out.append({"group_id": gid, "topic": head.topic, "category": head.category, "date": head.date,
+                    "key": (_slot(head), max(_created(m) for m in members), gid),
+                    "members": members, "current": current})
+    return sorted(out, key=_order, reverse=True)
+
+
+def _order(g: dict) -> tuple[float, float, str]:
+    return g["key"]
+
+
+def _groups(items: list[q.Item]) -> list[dict]:
+    out = []
+    for g in _group_meta(items):
+        head = g["current"]["reel"] or g["current"]["carousel"]
+        out.append({"group_id": g["group_id"], "topic": g["topic"], "category": g["category"], "date": g["date"],
+                    "publish_at": item_publish_at(head).isoformat(),
+                    "created_at": max(m.created_at for m in g["members"]),
+                    "versions": max(m.version for m in g["members"]),
+                    "items": {k: item_out(v) if v else None for k, v in g["current"].items()}})
+    return out
+
+
+# Pages of topic groups (QA-M-08: the full list grew without bound; at 50k posts it was 79 MB, past Lambda's 6 MB
+# response limit). The default keeps today's page unchanged for ~100 days of posts (2 groups/day).
+DEFAULT_GROUPS, MAX_GROUPS = 200, 500
+
+
+def _cursor_out(g: dict) -> str:
+    return base64.urlsafe_b64encode(json.dumps(list(_order(g))).encode()).decode()
+
+
+def _cursor_in(raw: str) -> tuple[float, float, str]:
+    try:
+        key = json.loads(base64.urlsafe_b64decode(raw.encode()))
+        if isinstance(key, list) and len(key) == 3 and all(isinstance(x, (int, float)) for x in key[:2]) \
+                and isinstance(key[2], str):
+            return float(key[0]), float(key[1]), key[2]
+    except (ValueError, TypeError):
+        pass
+    raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid cursor")
 
 
 # --------------------------------------------------------------------------- #
@@ -73,15 +126,18 @@ def _groups(items: list[q.Item]) -> list[dict]:
 @router.get("")
 def list_posts(status_: str | None = Query(None, alias="status"), platform: str | None = None,
                category: str | None = None, date_from: date | None = None, date_to: date | None = None,
-               search: str | None = Query(None, alias="q", max_length=100)) -> dict:
-    items = q.load()
-    groups = _groups(items)
+               search: str | None = Query(None, alias="q", max_length=100),
+               limit: int = Query(DEFAULT_GROUPS, ge=1, le=MAX_GROUPS),
+               cursor: str | None = Query(None, max_length=600)) -> dict:
+    """Topic groups, newest first, `limit` per page; pass `next_cursor` back as `cursor` for the next page.
+    Filters, counts and categories cover every post; only the page's groups are read in full."""
+    groups = _group_meta(q.load_light())
 
     def keep(g: dict) -> bool:
-        current = [i for i in g["items"].values() if i]
-        if status_ and not any(i["status"] == status_ for i in current):
+        current = [i for i in g["current"].values() if i]
+        if status_ and not any(i.status == status_ for i in current):
             return False
-        if platform and not any(platform in i["targets"] for i in current):
+        if platform and not any(platform in i.effective_targets for i in current):
             return False
         if category and g["category"] != category:
             return False
@@ -92,12 +148,21 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
 
     counts: dict[str, int] = {}
     for g in groups:
-        for i in g["items"].values():
+        for i in g["current"].values():
             if i:
-                counts[i["status"]] = counts.get(i["status"], 0) + 1
-    return {"groups": [g for g in groups if keep(g)],
+                counts[i.status] = counts.get(i.status, 0) + 1
+    matching = [g for g in groups if keep(g)]
+    total = len(matching)
+    if cursor:
+        after = _cursor_in(cursor)
+        matching = [g for g in matching if _order(g) < after]
+    page, more = matching[:limit], len(matching) > limit
+    full = {g["group_id"]: g for g in _groups(q.load(group_ids=[g["group_id"] for g in page]))} if page else {}
+    return {"groups": [full[g["group_id"]] for g in page if g["group_id"] in full],
             "categories": sorted({g["category"] for g in groups}),
             "counts": counts,
+            "total": total,                                  # groups matching the filters, all pages
+            "has_more": more, "next_cursor": _cursor_out(page[-1]) if more else None,
             "publishing_enabled": actions.publishing_enabled()}
 
 
@@ -106,7 +171,7 @@ def get_post(item_id: str) -> dict:
     item = q.get(item_id)
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
-    history = sorted((i for i in q.load() if i.group_id == item.group_id and i.kind == item.kind),
+    history = sorted((i for i in q.load(group_ids=[item.group_id]) if i.kind == item.kind),
                      key=lambda i: i.version)
     return {"item": item_out(item),
             "history": [{"id": h.id, "version": h.version, "status": h.status, "created_at": h.created_at,
@@ -117,10 +182,14 @@ def get_post(item_id: str) -> dict:
 # Writes
 # --------------------------------------------------------------------------- #
 def _run(fn, *args, **kwargs) -> dict:
+    actions.take_dispatch_notice()  # start clean
     try:
-        return item_out(fn(*args, **kwargs))
+        out = item_out(fn(*args, **kwargs))
     except actions.ActionError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    if notice := actions.take_dispatch_notice():  # QA-M-01: the GitHub job couldn't be started
+        out["notice"] = notice
+    return out
 
 
 class TargetsBody(BaseModel):
@@ -190,11 +259,12 @@ def retry_post(item_id: str, body: RetryBody, background: BackgroundTasks) -> di
 
 @router.post("/regenerate")
 def regenerate(body: RegenerateBody) -> dict:
+    actions.take_dispatch_notice()
     try:
         items = actions.regenerate(body.item_ids, body.feedback)
     except actions.ActionError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
-    return {"items": [item_out(i) for i in items]}
+    return {"items": [item_out(i) for i in items], "notice": actions.take_dispatch_notice()}
 
 
 @router.post("/sync-telegram")

@@ -23,10 +23,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
 import {
-  approveItem, editItem, formatIST, fromISTInput, PLATFORM_LABEL, publishNow, regenerateItems,
+  approveItem, editItem, formatIST, fromISTInput, noticeOf, PLATFORM_LABEL, publishNow, regenerateItems,
   rejectItem, retryItem, scheduleItem, STATUS_LABEL, toISTInput, type Group, type Item, type Platform,
 } from "@/lib/posts";
-import { cn } from "@/lib/utils";
+import { cn, safeHref } from "@/lib/utils";
 
 const CAPTION_MAX = 2200;
 const YT_TITLE_MAX = 100;
@@ -78,8 +78,9 @@ function PlatformResults({ item, publishingEnabled, onChanged }: { item: Item; p
   async function retry(p: Platform) {
     setBusy(p);
     try {
-      await retryItem(item.id, p);
-      toast.success(`Retrying ${PLATFORM_LABEL[p]}…`);
+      const notice = noticeOf(await retryItem(item.id, p));
+      if (notice) toast.warning(notice);
+      else toast.success(`Retrying ${PLATFORM_LABEL[p]}…`);
       onChanged();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -98,8 +99,8 @@ function PlatformResults({ item, publishingEnabled, onChanged }: { item: Item; p
             {r.status === "published" && (
               <>
                 <span className="text-ok">Published{r.privacy && r.privacy !== "public" ? ` · ${r.privacy}` : ""}</span>
-                {r.url && (
-                  <a href={r.url} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
+                {safeHref(r.url) && (
+                  <a href={safeHref(r.url)} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
                     Open <ArrowUpRight className="size-3.5" aria-hidden />
                   </a>
                 )}
@@ -309,8 +310,9 @@ export function PostPanel({
   async function run(label: string, fn: () => Promise<unknown>, success: string) {
     setBusy(label);
     try {
-      await fn();
-      toast.success(success);
+      const notice = noticeOf(await fn());
+      if (notice) toast.warning(notice);
+      else toast.success(success);
       onChanged();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -455,8 +457,8 @@ export function PostPanel({
                       {reel.media.reel ? (
                         <video
                           key={reel.media.reel}
-                          src={reel.media.reel}
-                          poster={reel.media.cover}
+                          src={safeHref(reel.media.reel, true)}
+                          poster={safeHref(reel.media.cover, true)}
                           controls
                           playsInline
                           preload="metadata"
@@ -486,9 +488,9 @@ export function PostPanel({
                     <p className={MONO}>{(carousel.media.carousel ?? []).length} slides</p>
                     <div className="-mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-3 sm:-mx-7 sm:px-7" aria-label="Carousel slides" role="list">
                       {(carousel.media.carousel ?? []).map((url, i, all) => (
-                        <a key={url} href={url} target="_blank" rel="noreferrer" role="listitem" className="group/slide relative shrink-0 snap-start rounded-[12px]">
+                        <a key={url} href={safeHref(url, true)} target="_blank" rel="noreferrer" role="listitem" className="group/slide relative shrink-0 snap-start rounded-[12px]">
                           <img
-                            src={url}
+                            src={safeHref(url, true) ?? url}
                             alt={`Slide ${i + 1}`}
                             loading="lazy"
                             className="aspect-[4/5] w-40 rounded-[12px] border border-border bg-sunken object-cover transition-transform duration-(--dur-base) group-hover/slide:-translate-y-0.5 sm:w-48"

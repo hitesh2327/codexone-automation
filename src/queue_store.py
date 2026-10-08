@@ -17,15 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import date as date_cls, datetime, timedelta, timezone
-from typing import Literal
+from dataclasses import dataclass
+from typing import Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from src import db
 from src.config import DATA_DIR, POSTED_FILE
 
 QUEUE_FILE = DATA_DIR / "queue.json"
+log = logging.getLogger("codexone.queue")
 IST = timezone(timedelta(hours=5, minutes=30))
 Status = Literal["pending", "approved", "publishing", "rejected", "regenerate", "replaced",
                  "published", "failed", "expired"]
@@ -128,15 +131,114 @@ def _from_row(row) -> Item:
 # --------------------------------------------------------------------------- #
 # Queue
 # --------------------------------------------------------------------------- #
-def load() -> list[Item]:
+def _valid_items(rows, convert) -> list[Item]:
+    """Convert rows one by one: a single row the code can't read (e.g. a status written by a newer version, or
+    by hand) is skipped with a warning instead of failing every page and the poll job (QA-L-12)."""
+    out: list[Item] = []
+    for r in rows:
+        try:
+            out.append(convert(r))
+        except (ValidationError, ValueError, TypeError, AttributeError) as e:
+            rid = getattr(r, "id", None) or (r.get("id") if isinstance(r, dict) else None)
+            log.warning("skipping unreadable post %s: %s", rid, str(e).splitlines()[0][:200])
+    return out
+
+
+def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = None) -> list[Item]:
+    """Queue items, oldest first. `statuses` / `group_ids` narrow it in the query (QA-M-08: the table grows forever,
+    so request paths read only what they need)."""
+    if db.enabled():
+        from sqlalchemy import select
+        from src.db.models import Post
+        stmt = select(Post).order_by(Post.created_at)
+        if statuses is not None:
+            stmt = stmt.where(Post.status.in_(statuses))
+        if group_ids is not None:
+            stmt = stmt.where(Post.group_id.in_(group_ids))
+        with db.session() as s:
+            return _valid_items(s.scalars(stmt), _from_row)
+    if not QUEUE_FILE.exists():
+        return []
+    items = _valid_items(json.loads(QUEUE_FILE.read_text(encoding="utf-8") or "[]"), Item.model_validate)
+    return [i for i in items if (statuses is None or i.status in statuses)
+            and (group_ids is None or i.group_id in group_ids)]
+
+
+def load_window(start: datetime, end: datetime) -> list[Item]:
+    """Items whose slot (publish_at) is within [start, end]."""
     if db.enabled():
         from sqlalchemy import select
         from src.db.models import Post
         with db.session() as s:
-            return [_from_row(r) for r in s.scalars(select(Post).order_by(Post.created_at))]
-    if not QUEUE_FILE.exists():
-        return []
-    return [Item.model_validate(x) for x in json.loads(QUEUE_FILE.read_text(encoding="utf-8") or "[]")]
+            return _valid_items(s.scalars(select(Post).where(Post.publish_at >= start, Post.publish_at <= end)
+                                          .order_by(Post.created_at)), _from_row)
+    return [i for i in load() if i.publish_at and start <= datetime.fromisoformat(i.publish_at) <= end]
+
+
+_LIGHT = ("id", "kind", "date", "topic", "category", "status", "version", "publish_at", "created_at", "group_id",
+          "targets", "post_dir")
+_STATUSES = frozenset(get_args(Status))
+
+
+@dataclass(slots=True)
+class Light:
+    """The few fields the Posts list groups, sorts, filters and counts by (no captions, media, platform records).
+    Duck-types the Item attributes those code paths read; timestamps are converted only when used."""
+    id: str
+    kind: str
+    date: str
+    topic: str
+    category: str
+    status: str
+    version: int
+    publish_dt: datetime | None
+    created_dt: datetime | None
+    group_id: str
+    targets: list[str] | None
+
+    @property
+    def publish_at(self) -> str | None:
+        return _iso(self.publish_dt, IST)
+
+    @property
+    def created_at(self) -> str:
+        return _iso(self.created_dt) or ""
+
+    @property
+    def effective_targets(self) -> list[str]:
+        allowed = DEFAULT_TARGETS.get(self.kind, [])
+        return [p for p in (self.targets if self.targets is not None else allowed) if p in allowed]
+
+
+def load_light() -> list[Light]:
+    """Every item, light (QA-M-08: the Posts list pages over these and reads full items only for its page)."""
+    if not db.enabled():
+        return load()  # type: ignore[return-value] -- file mode is small; full items have the same attributes
+    from sqlalchemy import select
+    from src.db.models import Post
+
+    def convert(r) -> Light:
+        if r.status not in _STATUSES or r.kind not in DEFAULT_TARGETS:
+            raise ValueError(f"unknown status/kind {r.status!r}/{r.kind!r}")
+        return Light(r.id, r.kind, r.date.isoformat(), r.topic or "", r.category or "", r.status, r.version or 1,
+                     r.publish_at, r.created_at, r.group_id or group_of(r.post_dir or "", r.date.isoformat()),
+                     r.targets if isinstance(r.targets, list) else None)
+    with db.session() as s:
+        return _valid_items(s.execute(select(*(getattr(Post, c) for c in _LIGHT)).order_by(Post.created_at)), convert)
+
+
+def recent_topic_rows(limit: int) -> list[tuple[str, str]]:
+    """(title, date) of the newest posts, then of the newest publishing records; newest first, bounded."""
+    if db.enabled():
+        from sqlalchemy import select
+        from src.db.models import Post, PostedTopic
+        with db.session() as s:
+            posts = s.execute(select(Post.topic, Post.date).order_by(Post.created_at.desc()).limit(limit * 3)).all()
+            hist = s.execute(select(PostedTopic.title, PostedTopic.date)
+                             .order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)).all()
+        return [(t or "", d.isoformat() if d else "") for t, d in [*posts, *hist]]
+    rows = [(i.topic, i.date) for i in sorted(load(), key=lambda i: i.created_at, reverse=True)]
+    return rows + [(p.get("title", ""), p.get("date") or "") for p in reversed(posted_entries())]
 
 
 def save(items: list[Item]) -> None:
@@ -161,12 +263,38 @@ def upsert(item: Item) -> None:
     save(items)
 
 
+def update_if(item: Item, from_status: str | tuple[str, ...]) -> bool:
+    """Write this item only if its stored status is still one of `from_status` (compare-and-set).
+
+    Every read-modify-write that changes a status goes through here, so a stale copy can never
+    overwrite what another process did meanwhile (e.g. put an item a publisher has just claimed
+    back to "approved", which would publish it twice). Returns False, writing nothing, if the
+    row's status changed (or the row is gone).
+    """
+    allowed = (from_status,) if isinstance(from_status, str) else tuple(from_status)
+    if db.enabled():
+        from sqlalchemy import update
+        from src.db.models import Post
+        values = _to_row_values(item)
+        values.pop("id")
+        with db.session() as s:
+            result = s.execute(update(Post).where(Post.id == item.id, Post.status.in_(allowed)).values(**values))
+            return result.rowcount == 1
+    items = load()
+    current = next((i for i in items if i.id == item.id), None)
+    if current is None or current.status not in allowed:
+        return False
+    save([item if i.id == item.id else i for i in items])
+    return True
+
+
 def get(item_id: str) -> Item | None:
     if db.enabled():
         from src.db.models import Post
         with db.session() as s:
             row = s.get(Post, item_id)
-            return _from_row(row) if row else None
+            found = _valid_items([row], _from_row) if row else []
+            return found[0] if found else None
     return next((i for i in load() if i.id == item_id), None)
 
 
@@ -230,22 +358,34 @@ def posted_entries() -> list[dict]:
 CLAIMABLE = ("approved", "failed")
 
 
-def claim_for_publish(item_id: str) -> bool:
+PUBLISHABLE = ("approved", "failed", "published")  # "published": complete a platform that failed/was added
+
+
+def claim_for_publish(item_id: str, from_status: tuple[str, ...] = CLAIMABLE) -> bool:
     """Atomically take ownership of an item for publishing.
 
     Two publishers can run at once (a scheduled poll and a manual/dashboard publish), and
-    Instagram happily accepts the same post twice. This flips approved|failed -> publishing
+    Instagram happily accepts the same post twice. This flips <from_status> -> publishing
     in a single UPDATE; only the caller that changes a row may publish. A crash leaves the
-    item in "publishing", which expire_stale() recovers.
+    item in "publishing", which expire_stale() recovers. "publishing" itself is never
+    claimable: whoever holds it is the publisher.
     """
-    if not db.enabled():
-        return True  # file mode: a single process, nothing to race with
+    allowed = tuple(s for s in from_status if s in PUBLISHABLE)
+    if not allowed:
+        return False
+    if not db.enabled():  # file mode: a single process, but keep the same state rule
+        item = get(item_id)
+        if not item or item.status not in allowed:
+            return False
+        item.status = "publishing"
+        upsert(item)
+        return True
     from sqlalchemy import update
     from src.db.models import Post
     with db.session() as s:
         result = s.execute(
             update(Post)
-            .where(Post.id == item_id, Post.status.in_(CLAIMABLE))
+            .where(Post.id == item_id, Post.status.in_(allowed))
             .values(status="publishing")
         )
         return result.rowcount == 1

@@ -11,6 +11,7 @@ import { SlotBoard } from "@/components/slot-board";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
+import { safeHref } from "@/lib/utils";
 import { getConfig, getJob, getJobs, getSlots } from "@/lib/generate";
 import {
   blockedReason, elapsedText, pollDelay, type GenConfig, type GithubState, type Job, type Slot,
@@ -67,9 +68,9 @@ function History({ jobs, onOpen }: { jobs: Job[]; onOpen: (j: Job) => void }) {
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:justify-end">
             {j.duration_sec != null && <span className="tabular-nums">{elapsedText(j.duration_sec)}</span>}
-            {j.post_ids[0] && <Link to={`/posts?post=${j.post_ids[0]}`} className="inline-flex items-center rounded-[4px] text-primary underline-offset-2 hover:underline touch:min-h-11">Post</Link>}
-            {j.github_run_url && (
-              <a href={j.github_run_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 rounded-[4px] text-primary underline-offset-2 hover:underline touch:min-h-11">
+            {j.post_ids[0] && <Link to={`/posts?post=${encodeURIComponent(j.post_ids[0])}`} className="inline-flex items-center rounded-[4px] text-primary underline-offset-2 hover:underline touch:min-h-11">Post</Link>}
+            {safeHref(j.github_run_url, true) && (
+              <a href={safeHref(j.github_run_url, true)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 rounded-[4px] text-primary underline-offset-2 hover:underline touch:min-h-11">
                 Run<ExternalLink className="size-3" aria-hidden /><span className="sr-only"> (opens in a new tab)</span>
               </a>
             )}

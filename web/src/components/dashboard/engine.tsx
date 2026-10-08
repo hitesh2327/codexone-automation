@@ -6,10 +6,10 @@ import { BG, CountUp, Empty, MONO, TEXT, Unavailable, Why, useDash } from "./pri
 function Row({ label, tone, word, children, hint }: { label: string; tone: Tone; word: string; children: React.ReactNode; hint?: string }) {
   return (
     <li className="flex items-baseline gap-2.5 py-2.5">
-      <span aria-hidden className={cn("relative top-px size-2 shrink-0 self-center rounded-full", BG[tone], tone === "ok" && "shadow-[0_0_8px_#2ea043]")} />
+      <span aria-hidden className={cn("relative top-px size-2 shrink-0 self-center rounded-full", BG[tone])} />
       <span className="sr-only">{word}:</span>
       <span className="shrink-0 font-mono text-xs tracking-wide uppercase">{label}</span>
-      <span aria-hidden className="min-w-4 flex-1 border-b border-dotted border-muted-foreground/30" />
+      <span aria-hidden className="leader min-w-4 flex-1" />
       <span className="text-right font-mono text-sm">{children}</span>
       {hint && <span className="sr-only">{hint}</span>}
     </li>
@@ -27,7 +27,7 @@ export function PipelineConsole({ data }: { data: Overview }) {
   const g = p.generation;
   const pub = p.publishing;
   return (
-    <div className="rounded-xl border bg-[color-mix(in_srgb,var(--brand-bg)_55%,black)] p-5 sm:p-6">
+    <div className="min-w-0">
       <div className="mb-1 flex items-center justify-between">
         <p className={MONO}>Engine · last {data.window_days} days</p>
         <Why label="pipeline health">Slot fill rate comes from posts and works from day one. Generation figures come from recorded runs and say "tracking since" when the history is short.</Why>
@@ -74,7 +74,7 @@ export function Turnaround({ data }: { data: Overview }) {
   if (!t.n) return <Empty title="No decisions in this period yet">Turnaround appears once you have approved something.</Empty>;
   const max = Math.max(...t.bins.map((b) => b.n), 1);
   return (
-    <div className="rounded-xl border bg-card p-5 sm:p-6">
+    <div className="min-w-0 max-lg:border-t max-lg:border-dashed max-lg:pt-5 lg:border-l lg:pl-8">
       <div className="flex items-start justify-between gap-3">
         <div className="flex gap-8">
           <div>
@@ -92,7 +92,7 @@ export function Turnaround({ data }: { data: Overview }) {
         {t.bins.map((b) => (
           <div key={b.label} className="grid justify-items-center gap-1.5">
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{b.n}</span>
-            <div className="flex h-24 w-full items-end"><div className="w-full rounded-t bg-[var(--brand-accent)]/75" style={{ height: `${Math.max(b.n ? 4 : 1, (b.n / max) * 100)}%` }} /></div>
+            <div className="flex h-24 w-full items-end"><div className="w-full rounded-t-[3px] bg-wait/75" style={{ height: `${Math.max(b.n ? 4 : 1, (b.n / max) * 100)}%` }} /></div>
             <span className="text-center text-[10px] leading-tight text-muted-foreground">{b.label.replace("under ", "< ").replace(" or more", "+")}</span>
           </div>
         ))}

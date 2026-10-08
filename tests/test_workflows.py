@@ -89,3 +89,24 @@ def test_migrations_have_a_single_head():
     cfg.set_main_option("script_location", str(ROOT / "api" / "migrations"))
     heads = ScriptDirectory.from_config(cfg).get_heads()
     assert len(heads) == 1, heads
+
+
+@pytest.mark.parametrize("name", ["daily-generate.yml", "poll-approvals.yml"])
+def test_runner_gets_the_config_master_key(name):
+    """QA-H-02: values saved on the Config page are only readable by a runner that has the master key."""
+    doc = load(ROOT / ".github" / "workflows" / name)
+    assert doc["env"].get("CONFIG_MASTER_KEY") == "${{ secrets.CONFIG_MASTER_KEY }}"
+
+
+def test_runner_reports_its_config_access():
+    text = (ROOT / "main.py").read_text(encoding="utf-8")
+    assert "config_store.report_runner()" in text and 'GITHUB_ACTIONS") == "true"' in text
+
+
+@pytest.mark.parametrize("name", ["daily-generate.yml", "poll-approvals.yml"])
+def test_migration_step_tolerates_a_database_ahead_of_the_code(name):
+    """QA-M-02: a plain `alembic upgrade head` fails on an unknown (newer) revision and stops every run."""
+    doc = load(ROOT / ".github" / "workflows" / name)
+    step = next(s for s in steps(doc) if s.get("name") == "Apply database migrations")
+    assert step["working-directory"] == "api" and step["run"].startswith("python migrate.py")
+    assert "alembic upgrade head" not in step["run"].split("#")[0]

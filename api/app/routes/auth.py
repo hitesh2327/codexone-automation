@@ -12,9 +12,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
 from api.app import ratelimit as rl
-from api.app.deps import CurrentUser, current_user, require_csrf
-from api.app.security import (burn_time, clear_session_cookie, create_session_token, set_session_cookie,
-                              verify_password)
+from api.app.clientip import client_ip
+from api.app.deps import CurrentUser, access_allowed, current_user, require_csrf
+from api.app.security import check_password, clear_session_cookie, create_session_token, set_session_cookie
 from api.app.settings import settings
 from src import activity, db
 from src.db.models import User
@@ -75,7 +75,7 @@ def login(body: LoginBody, request: Request, response: Response) -> dict:
     if "application/json" not in request.headers.get("content-type", ""):
         # HTML forms can't send JSON cross-site without a CORS preflight: blocks login CSRF.
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)  # the real visitor, not CloudFront's edge (QA-M-05)
     account_key, ip_key = f"acct:{ip}:{body.username.lower()}", f"ip:{ip}"
     wait = max(rl.login_limiter.retry_after(account_key, rl.PER_ACCOUNT, rl.WINDOW),
                rl.login_limiter.retry_after(ip_key, rl.PER_IP, rl.WINDOW))
@@ -88,13 +88,15 @@ def login(body: LoginBody, request: Request, response: Response) -> dict:
         ident = body.username.strip().lower()
         user = s.scalars(select(User).where(or_(func.lower(User.username) == ident,
                                                 func.lower(User.email) == ident))).first()
-        if user is None:
-            burn_time()  # same timing as a wrong password
-        ok = bool(user and user.is_active and verify_password(body.password, user.password_hash))
+        # bcrypt runs on every attempt (a dummy hash when there is no account / no password), so timing can't tell
+        # unknown, Google-only and disabled accounts apart (QA-L-05); the other checks come after it.
+        password_ok = check_password(body.password, user.password_hash if user else None)
+        ok = password_ok and bool(user and user.is_active and access_allowed(user))
         if not ok:
             rl.login_limiter.hit(account_key)
             rl.login_limiter.hit(ip_key)
-            log.warning("failed login for %r from %s", body.username, ip)
+            # Never the typed name: it may be a password typed into the wrong box (QA-L-08).
+            log.warning("failed login for %s from %s", f"account {user.id}" if user else "an unknown name", ip)
             # Only a real account name is kept (a mistyped password in the username box must not reach the log).
             activity.record("login.failed", "Failed sign-in" + ("" if user else " (no such account)"), level="warning",
                             source="auth", actor=(user.username or user.email) if user else "unknown")
@@ -159,7 +161,7 @@ async def google_callback(request: Request):
     with db.session() as s:
         user = s.scalars(select(User).where(func.lower(User.email) == email)).first()
         if user is None:
-            user = User(email=email, name=info.get("name") or "")
+            user = User(email=email, name=info.get("name") or "", via_google=True)
             s.add(user)
             s.flush()
         if not user.is_active:

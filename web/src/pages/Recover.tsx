@@ -153,10 +153,10 @@ export default function Recover({ brand }: { brand: Brand | null }) {
             {cooldown.left > 0 ? (
               <span className="tabular-nums">Resend in 0:{String(cooldown.left).padStart(2, "0")}</span>
             ) : (
-              <button type="button" className="text-primary underline-offset-4 hover:underline" disabled={busy} onClick={() => send()}>Send a new code</button>
+              <button type="button" className="text-primary underline-offset-4 hover:underline relative after:absolute after:-inset-x-1 after:-inset-y-3 after:content-['']" disabled={busy} onClick={() => send()}>Send a new code</button>
             )}
             {" · "}
-            <button type="button" className="underline-offset-4 hover:underline" onClick={() => { setStep(0); setError(null); }}>Change account</button>
+            <button type="button" className="underline-offset-4 hover:underline relative after:absolute after:-inset-x-1 after:-inset-y-3 after:content-['']" onClick={() => { setStep(0); setError(null); }}>Change account</button>
           </p>
         </form>
       )}

@@ -34,11 +34,12 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat(timespec="seconds")
 
 
-def values_fp(values: dict[str, str]) -> str | None:
-    """Keyed fingerprint of a set of values (None without a usable master key)."""
+def values_fp(values: dict[str, str], *, create: bool = False) -> str | None:
+    """Keyed fingerprint of a set of values (None without a usable master key or data key). Only an
+    authenticated admin write passes create=True (see config_store.fingerprint)."""
     from src import config_store
     canon = "\n".join(f"{k}={values[k]}" for k in sorted(values)) or "(empty)"
-    return config_store.fingerprint(canon)
+    return config_store.fingerprint(canon, create=create)
 
 
 # --------------------------------------------------------------------------- #
@@ -201,9 +202,10 @@ def readiness(states: dict[str, dict] | None = None) -> dict:
 
     db_result = run("database")  # live, local: connect, schema, rolled-back write, canary
     add("G1", "Database and master key", db_result.status in ("valid", "warning"),
-        db_result.message or "Database reachable, schema current, writable; master key opens the store. "
-        "(The GitHub runner's copy of the key is proven by the system test, not built yet.)",
+        db_result.message or "Database reachable, schema current, writable; master key opens the store.",
         "database", code=db_result.code)
+    runner_ok, runner_detail = config_store.runner_access()
+    add("G9", "GitHub Actions can read the saved settings", runner_ok, runner_detail, "github")
 
     for gid, name in (("G2", "gemini"), ("G3", "telegram"), ("G4", "cloudinary"), ("G5", "github")):
         st = states[name]

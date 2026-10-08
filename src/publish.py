@@ -226,17 +226,26 @@ def _log_platform(item: q.Item, p: str, rec: dict, tries: int) -> None:
                         detail={"platform": p, "error": rec.get("error"), "attempt": tries})
 
 
-def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -> q.Item:
-    # "published" is allowed so a platform that failed or was added later can be completed;
-    # pending/rejected/expired items can never be published.
-    if item.status not in ("approved", "publishing", "failed", "published"):
-        raise PermissionError(f"{item.id} is '{item.status}' -- only Telegram-approved items can be published")
+def _todo(item: q.Item, platforms: tuple[str, ...]) -> tuple[list[str], list[str]]:
     if item.ig_media_id and "ig" not in item.platforms:  # published before per-platform tracking
         item.platforms["ig"] = {"status": "published", "id": item.ig_media_id}
-
     targets = _targets(item, platforms)
-    todo = [p for p in targets if not _done(item, p)]
-    if not todo:
+    return targets, [p for p in targets if not _done(item, p)]
+
+
+def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS,
+                 claimed: bool = False) -> q.Item:
+    """Publish one item. The caller either passes an approved/failed/published item (this claims
+    it) or has already claimed it itself with q.claim_for_publish and says so with claimed=True.
+    A "publishing" item that the caller did not claim belongs to another publisher: skipped."""
+    # "published" is allowed so a platform that failed or was added later can be completed;
+    # pending/rejected/expired items can never be published.
+    allowed = ("publishing",) if claimed else q.PUBLISHABLE + ("publishing",)
+    if item.status not in allowed:
+        raise PermissionError(f"{item.id} is '{item.status}' -- only Telegram-approved items can be published")
+
+    targets, todo = _todo(item, platforms)
+    if not todo and not claimed:
         log.info("%s already published on %s", item.id, ", ".join(LABEL[p] for p in targets) or "nothing")
         return item
 
@@ -261,11 +270,24 @@ def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...]
         return item
 
     # A scheduled poll and a manual/dashboard publish can overlap, and Instagram accepts the
-    # same post twice. Whoever claims the item publishes it; the other backs off.
-    if item.status != "publishing" and not q.claim_for_publish(item.id):
+    # same post twice. Whoever claims the item (compare-and-set on its status) publishes it; the
+    # other backs off. An unclaimed "publishing" item is never taken as permission.
+    if not claimed and (item.status == "publishing" or not q.claim_for_publish(item.id, (item.status,))):
         log.warning("%s is already being published by another run; skipping", item.id)
         return q.get(item.id) or item
-    item.status = "publishing"
+    # Work from the stored row, not the caller's copy: another publisher may have finished a
+    # platform between the caller's read and our claim.
+    fresh = q.get(item.id)
+    if fresh is None or fresh.status != "publishing":
+        log.warning("%s is no longer claimed for publishing (%s); skipping", item.id, fresh and fresh.status)
+        return fresh or item
+    item = fresh
+    targets, todo = _todo(item, platforms)
+    if not todo:  # nothing left to do: hand the claim back with the true status
+        item.status = "failed" if any(item.platforms.get(p, {}).get("status") == "failed" for p in targets) \
+            else "published"
+        q.update_if(item, "publishing")
+        return item
 
     item.attempts += 1
     for p in todo:  # Instagram first, then YouTube; saved after each so nothing double-posts
@@ -311,7 +333,7 @@ def publish_due(dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -
     """Publish approved items whose slot time (item.publish_at) has passed."""
     now = datetime.now(IST)
     done = []
-    for item in q.load():
+    for item in q.load(statuses=("approved", "failed")):
         ready = item.status == "approved" or (item.status == "failed" and _retryable(item, platforms))
         if not ready:
             continue

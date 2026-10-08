@@ -34,6 +34,9 @@ log = logging.getLogger("codexone.dashboard")
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 CACHE_SECONDS = 15
+# Open items (pending/approved/publishing/failed) older than this are left to the Posts page's status filter:
+# without a bound every failed post ever made was read and aggregated on each refresh (QA-M-09).
+OPEN_LOOKBACK_DAYS = 30
 LIMIT_PER_MIN = 30
 _limiter = RateLimiter()
 _cache: dict[tuple, tuple[float, bytes, str]] = {}
@@ -68,7 +71,8 @@ def _load_posts(now: datetime, days: int) -> list[PostRow] | None:
             Post.error, Post.targets)
     stmt = select(*cols).where(or_(
         Post.created_at >= since,
-        Post.status.in_(("pending", "approved", "publishing", "failed")),
+        and_(Post.status.in_(("pending", "approved", "publishing", "failed")),
+             Post.updated_at >= now - timedelta(days=OPEN_LOOKBACK_DAYS)),
         and_(Post.status == "expired", Post.updated_at >= now - timedelta(days=8)),
     ))
     try:

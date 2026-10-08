@@ -1,7 +1,11 @@
 // Thin fetch wrapper: sends the session cookie, adds the CSRF header on writes, and turns
 // error responses into ApiError with the server's message.
 
-const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+// `?.` only so the module also loads under plain Node (web/tests); Vite always defines import.meta.env.
+const BASE = (import.meta.env?.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
+/** What a cancelled request rejects with. Callers ignore it by `name === "AbortError"`; it is never shown. */
+const aborted = () => new DOMException("The request was cancelled.", "AbortError");
 
 let csrfToken: string | null = null;
 export const setCsrfToken = (token: string | null) => {
@@ -41,10 +45,16 @@ export async function api<T = unknown>(path: string, { method = "GET", body, sig
       signal,
     });
   } catch {
+    // Cancelled by the caller (a newer request replaced this one, or the view went away): not a network failure,
+    // so it must not surface as "Can't reach the server".
+    if (signal?.aborted) throw aborted();
     throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
   }
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
+  // A cancel can also land while the body is still streaming; json() then fails, and that must not read as an
+  // empty successful response (callers would store `null` over good data).
+  if (signal?.aborted) throw aborted();
   if (!res.ok) {
     const detail = (data as { detail?: unknown } | null)?.detail;
     const retry = Number(res.headers.get("Retry-After")) || undefined;

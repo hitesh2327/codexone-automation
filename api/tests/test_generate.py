@@ -126,8 +126,10 @@ def test_happy_path_dispatches_once_with_inputs(authed, gh):
     assert len(gh.posts) == 1
     sent = gh.posts[0]
     assert sent["url"].endswith("/actions/workflows/daily-generate.yml/dispatches")
-    assert sent["json"]["inputs"] == {"slot": "auto", "category": "DSA", "topic": evil, "source_url": "https://example.com/a",
-                                      "request_id": job["id"], "dry_run": "false", "force": "false", "allow_duplicate": "false"}
+    slot_at = datetime.fromisoformat(job["slot_at"]).astimezone(IST)   # "auto" resolved ONCE, by the API (QA-L-10)
+    assert sent["json"]["inputs"] == {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": "DSA",
+                                      "topic": evil, "source_url": "https://example.com/a", "request_id": job["id"],
+                                      "dry_run": "false", "force": "false", "allow_duplicate": "false"}
     assert events() == [("generate.requested", "info")]
     assert job["id"] in authed.get("/api/logs", params={"q": job["id"]}).text
     # nothing in any response carries the token or a GitHub body
@@ -431,3 +433,19 @@ def test_activity_helper_is_used_for_audit(authed, gh):
         row = s.scalars(select(ActivityLog).where(ActivityLog.event == "generate.requested")).one()
     assert row.source == "generate" and row.actor == "admin" and row.detail["request_id"] == generation.recent()[0]["id"]
     assert activity.record  # the never-raising helper
+
+
+def test_run_matching_takes_the_first_run_with_our_title(gh):
+    """QA-L-11: a later hand-started run titled "Generate <id>" can't stand in for ours."""
+    from datetime import datetime as dt
+    ours = {**run(11, "Generate abc"), "created_at": "2026-10-06T10:00:05Z", "event": "workflow_dispatch", "head_branch": "main"}
+    forged = {**run(12, "Generate abc"), "created_at": "2026-10-06T10:00:40Z", "event": "workflow_dispatch", "head_branch": "main"}
+    other_branch = {**run(10, "Generate abc"), "created_at": "2026-10-06T09:59:59Z", "head_branch": "evil"}
+    gh.runs = [forged, ours, other_branch]                    # GitHub lists newest first
+    found = github_actions.find_run("daily-generate.yml", "Generate abc", dt(2026, 10, 6, 10, 0, tzinfo=timezone.utc))
+    assert found["id"] == 11
+
+
+def test_runner_rejects_a_malformed_date():
+    import main
+    assert main.main(["generate", "--date", "2026-13-45", "--dry-run"]) == 2

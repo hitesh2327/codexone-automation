@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import os
-import tempfile
-from pathlib import Path
 
 import pytest
 
-_TMP = Path(tempfile.mkdtemp())
+# The database, secret sentinels and the network guard come from the repo-root conftest.py (QA-L-13).
 TEST_ENV = {
-    "DATABASE_URL": f"sqlite:///{(_TMP / 'test.db').as_posix()}",
     "JWT_SECRET": "t" * 48,
     "SESSION_SECRET": "s" * 48,
     "ADMIN_USERNAME": "admin",
@@ -24,6 +21,8 @@ TEST_ENV = {
     "GITHUB_DISPATCH_TOKEN": "",       # never trigger real workflows
     "GITHUB_REPOSITORY": "test-owner/test-repo",  # there is no owner default any more (R-20)
     "CONFIG_MASTER_KEY": "",           # config-store tests set their own throwaway key
+    "RECOVERY_MIN_MS": "0",            # no response-time floor on /forgot and /reset (tests that need it set it)
+    "CLIENT_IP_SOURCE": "",            # the TCP peer (tests of clientip set their own)
 }
 os.environ.update(TEST_ENV)  # before importing the app (env beats .env)
 
@@ -46,7 +45,8 @@ GOOD = {"username": "admin", "password": "correct horse battery"}
 
 @pytest.fixture()
 def client():
-    ratelimit.login_limiter._hits.clear()
+    ratelimit.login_limiter.clear()
+    ratelimit.otp_limiter.clear()
     with TestClient(create_app()) as c:  # runs lifespan -> seeds the admin
         yield c
 

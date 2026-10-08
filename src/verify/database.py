@@ -39,6 +39,14 @@ def migration_heads(versions_dir: Path = VERSIONS_DIR) -> set[str] | None:
     return (revs - downs) or None
 
 
+def migration_revisions(versions_dir: Path = VERSIONS_DIR) -> set[str]:
+    """Every revision this build's migration files know."""
+    if not versions_dir.is_dir():
+        return set()
+    return {m.group(1) for f in versions_dir.glob("*.py")
+            if (m := _REV.search(f.read_text(encoding="utf-8", errors="replace")))}
+
+
 def _connect(engine):
     from sqlalchemy import text
     from sqlalchemy.exc import OperationalError
@@ -107,6 +115,9 @@ def verify(values: dict[str, str], depth: str = "live") -> Result:
                 current = c.execute(text("select version_num from alembic_version")).scalar()
             if current in heads:
                 run.ok("migrations", "Migrations are at the latest version", f"at {current}")
+            elif current and current not in migration_revisions():  # a rollback: newer code migrated it (QA-M-02)
+                run.warn("migrations", "Migrations are at the latest version", "database.schema_ahead",
+                         f"database at {current}, newer than this app ({', '.join(sorted(heads))})")
             else:
                 run.fail("migrations", "Migrations are at the latest version", "database.schema_behind",
                          f"database at {current}, this app expects {', '.join(sorted(heads))}")

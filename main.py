@@ -39,6 +39,10 @@ def _log_generated(item, regenerated: bool = False) -> None:
 def _generate_input_error(args) -> str | None:
     """Why these arguments can't be used (the workflow passes user-typed text), else None."""
     from src import approve_bot, generation
+    try:
+        date.fromisoformat(args.date)
+    except (TypeError, ValueError):
+        return f"--date {args.date!r} is not YYYY-MM-DD"
     if args.slot and (not generation.valid_slot(args.slot)
                       or args.slot not in {f"{t:%H:%M}" for t in approve_bot.post_times()}):
         return f"--slot {args.slot!r} is not one of the posting slots"
@@ -84,7 +88,7 @@ def _generate(args, publish_at: datetime, job) -> int:
     # Two schedulers can fire for the same slot (cron-job.org + GitHub's backup cron): only the
     # first one generates. A trigger arriving long after the slot is skipped as stale.
     # Compare instants, not strings: the DB returns the same slot as UTC ("13:30+00:00").
-    taken = any(i.publish_at and datetime.fromisoformat(i.publish_at) == publish_at for i in q.load())
+    taken = bool(q.load_window(publish_at, publish_at))
     now = datetime.now(approve_bot.IST)
     state = "ok" if args.force else slot_state(publish_at, now, taken)
     hours_late = (now - publish_at).total_seconds() / 3600
@@ -166,13 +170,14 @@ def expire_stale(dry_run: bool) -> None:
         log.warning("%s was stuck in publishing; released for retry", item_id)
         activity.record("publish.released", "Publishing stalled for 30+ minutes; released for retry", level="warning",
                         source="publisher", post_id=item_id)
-    for item in q.load():
+    for item in q.load(statuses=("pending",)):
         if item.status == "pending" and datetime.fromisoformat(item.created_at) < cutoff:
             log.info("expiring %s (no decision in %dh)", item.id, EXPIRE_HOURS)
             if dry_run:
                 continue
             item.status = "expired"
-            q.upsert(item)
+            if not q.update_if(item, "pending"):  # decided meanwhile (dashboard / Telegram): leave it
+                continue
             activity.record("post.expired", f"No decision in {EXPIRE_HOURS}h; {item.kind} “{item.topic}” expired",
                             source="pipeline", actor="system", post_id=item.id)
             approve_bot.notify(f"⌛ No decision in {EXPIRE_HOURS}h — <code>{item.id}</code> expired "
@@ -207,7 +212,7 @@ def cmd_regenerate(args) -> int:
     from src import approve_bot, gen_content, render_post, render_reel, upload
     from src.rank_topics import RankedTopic
 
-    todo = [i for i in q.load() if i.status == "regenerate"]
+    todo = q.load(statuses=("regenerate",))
     if not todo:
         log.info("nothing to regenerate")
         return 0
@@ -256,7 +261,7 @@ def cmd_regenerate(args) -> int:
                 _log_generated(new, regenerated=True)
             for old in olds:
                 old.status = "replaced"
-                q.upsert(old)
+                q.update_if(old, "regenerate")
         except Exception as e:  # keep status=regenerate so the next run retries
             log.exception("regenerate %s failed", group_id)
             approve_bot.notify(f"⚠️ Regenerate failed for <code>{group_id}</code>: {e}", first.tg_control_id)
@@ -264,7 +269,7 @@ def cmd_regenerate(args) -> int:
 
 
 def cmd_needs_regen(args) -> int:
-    needed = any(i.status == "regenerate" for i in q.load())
+    needed = bool(q.load(statuses=("regenerate",)))
     print("true" if needed else "false")
     if out := os.getenv("GITHUB_OUTPUT"):
         with open(out, "a", encoding="utf-8") as f:
@@ -322,6 +327,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     ensure_dirs()
     log.info("=== %s%s ===", args.cmd, " (dry-run)" if args.dry_run else "")
+    if os.getenv("GITHUB_ACTIONS") == "true" and args.cmd in ("generate", "poll", "regenerate") and not args.dry_run:
+        from src import config_store  # tells the Config page whether this runner can read saved secrets
+        config_store.report_runner()
     try:
         return args.fn(args)
     except Exception as e:

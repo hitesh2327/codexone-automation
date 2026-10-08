@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from api.app import mailer, otp
 from api.app import ratelimit as rl
@@ -100,6 +101,13 @@ def _bad(msg: str, code: int = status.HTTP_422_UNPROCESSABLE_CONTENT) -> HTTPExc
 
 @router.patch("")
 def update_profile(body: ProfileBody, cu: CurrentUser = Depends(current_user)) -> dict:
+    try:
+        return _update_profile(body, cu)
+    except IntegrityError:  # two accounts took the same username at the same moment (QA-L-09)
+        raise _bad("That username is taken.", status.HTTP_409_CONFLICT) from None
+
+
+def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
     data = body.model_dump(exclude_unset=True)
     with db.session() as ses:
         u = _user(ses, cu)
@@ -202,6 +210,8 @@ class EmailBody(EmailOtpBody):
 
 
 def _send_code(ses, u: User, purpose: str, to: str) -> mailer.Message:
+    if not mailer.configured_for_codes():  # QA-M-07: say so instead of "sent" (and issue no code)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, mailer.NOT_CONFIGURED)
     for key, limit in ((f"send:{u.id}:{purpose}", rl.OTP_SEND_PER_ADDRESS),):
         wait = rl.otp_limiter.retry_after(key, limit, rl.WINDOW)
         if wait:
@@ -243,6 +253,13 @@ def email_code(body: EmailOtpBody, cu: CurrentUser = Depends(current_user)) -> d
 
 @router.post("/email")
 def change_email(body: EmailBody, cu: CurrentUser = Depends(current_user)) -> dict:
+    try:
+        return _change_email(body, cu)
+    except IntegrityError:  # another account took this address at the same moment (QA-L-09)
+        raise _bad("That email belongs to another account.", status.HTTP_409_CONFLICT) from None
+
+
+def _change_email(body: EmailBody, cu: CurrentUser) -> dict:
     new = body.email.strip().lower()
     ok, conflict = False, False
     with db.session() as ses:

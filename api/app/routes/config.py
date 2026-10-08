@@ -109,7 +109,8 @@ def _candidate(integration: str, cleaned: dict[str, str]) -> dict[str, str]:
 
 def _verify(integration: str, values: dict[str, str], depth: str, actor: str, record: bool = True) -> dict:
     """Run one verification with de-duplication and a per-integration single-flight lock."""
-    fp = config_status.values_fp(values) if values else None
+    # A recorded check is an authenticated admin write: the only read path allowed to create the data key.
+    fp = config_status.values_fp(values, create=record) if values else None
     key = (integration, fp or "", depth)
     hit = _recent.get(key)
     if fp and hit and time.monotonic() - hit[0] < DEDUPE_SECONDS and depth != "deep":
@@ -222,6 +223,12 @@ def save(integration: str, body: SaveBody, user: CurrentUser = Depends(require_a
     status = result["status"]
     saved_unverified = False
     if status == "unknown" and body.save_unverified:
+        # Never trade a value whose last check passed for one nobody could check (QA-L-03): a provider that is
+        # rate-limiting can't tell a typo from a good key, so a working setup would be silently broken.
+        if config_status.integration_state(integration)["state"] in ("valid", "warning"):
+            raise _fail(409, "verified_value_kept", "The value in use was verified and the provider can't check the "
+                        "new one right now, so nothing was saved. Try again in a few minutes.",
+                        result=result, cleaned=notes, can_force=False)
         saved_unverified = True
     elif status not in ("valid", "warning"):
         activity.record("config.save_rejected", f"{integ.title} not saved: the check said {status}"
