@@ -150,7 +150,7 @@ def signup(body: SignupBody, request: Request, response: Response) -> dict:
         user.last_login_at = datetime.now(timezone.utc)
         csrf = start_session(response, user)
         log.info("signup: %s (%s) from %s", username, email, ip)
-        activity.record("signup.success", f"Registered new user account {username}", source="auth", actor=username, user_id=user.id)
+        activity.record("signup.success", f"Registered new user account {username}", source="auth", actor=username, detail={"user_id": user.id})
         return _user_out(user, csrf)
 
 
