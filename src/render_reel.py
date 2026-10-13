@@ -372,6 +372,12 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
         v2.save_scene(spec, out_dir)
         try:
             return render_v2(spec, out_dir, voice or pick_voice())
+        except RuntimeError as e:
+            msg = str(e).lower()
+            if "no word boundaries" in msg or "edge-tts" in msg:
+                log.error("TTS unavailable in v2 reel (%s); skipping reel — carousel will still publish", e)
+                return None
+            log.exception("v2 reel render failed; rendering the classic reel instead")
         except Exception:  # content.reel mirrors the same beats as a classic text reel
             log.exception("v2 reel render failed; rendering the classic reel instead")
     brand = load_brand()
@@ -389,16 +395,23 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
     work = out_dir / "reel_parts"
     work.mkdir(parents=True, exist_ok=True)
 
-    # 1) voiceover per part → exact timeline
-    t = 0.0
-    for i, s in enumerate(scenes):
-        off = 0.0
-        for j, p in enumerate(s.parts):
-            synthesize(p, voice, work / f"voice_{i}_{j}.mp3", f"{s.kind} part {j}")
-            p.offset = off
-            off += p.duration + PART_GAP
-        s.start = t
-        t += s.duration + GAP
+    # 1) voiceover per part → exact timeline.
+    # edge-tts is blocked on cloud IPs (GitHub Actions) since late 2025; return None so the
+    # carousel still publishes rather than failing the whole job.
+    try:
+        t = 0.0
+        for i, s in enumerate(scenes):
+            off = 0.0
+            for j, p in enumerate(s.parts):
+                synthesize(p, voice, work / f"voice_{i}_{j}.mp3", f"{s.kind} part {j}")
+                p.offset = off
+                off += p.duration + PART_GAP
+            s.start = t
+            t += s.duration + GAP
+    except RuntimeError as e:
+        log.error("TTS unavailable (%s); skipping reel — carousel will still publish. "
+                  "Fix: replace edge-tts with a cloud-friendly TTS service.", e)
+        return None
     total = scenes[-1].start + scenes[-1].duration + TAIL
     log.info("voiceover %.1fs across %d scenes", total, len(scenes))
     lo, hi = (int(x) for x in str(brand["reel"]["duration_sec"]).split("-"))
