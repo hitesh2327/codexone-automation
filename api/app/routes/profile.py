@@ -172,6 +172,68 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# AI schedule suggestions
+# --------------------------------------------------------------------------- #
+@router.post("/suggest-schedule")
+def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
+    """Ask Gemini for optimal posting times based on the user's niche and platforms."""
+    import json as _json
+    from src.config import get_env
+    try:
+        from google import genai
+    except ImportError:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Gemini SDK not available")
+
+    with db.session() as ses:
+        u = _user(ses, cu)
+        taste = dict(u.taste or {})
+
+    niche = taste.get("niche") or "Software Engineering & Dev"
+    audience = taste.get("target_audience") or "Developers and tech enthusiasts"
+    platforms: list[str] = taste.get("default_targets") or ["ig", "yt"]
+
+    platform_names = {"ig": "Instagram Reels", "yt": "YouTube Shorts", "li": "LinkedIn"}
+    plat_list = ", ".join(platform_names.get(p, p) for p in platforms)
+
+    prompt = (
+        f"You are a social media expert optimising posting schedules for maximum organic reach.\n\n"
+        f"Creator profile:\n"
+        f"- Niche: {niche}\n"
+        f"- Target audience: {audience}\n"
+        f"- Platforms: {plat_list}\n"
+        f"- Timezone: IST (UTC+5:30)\n\n"
+        f"Suggest the 2 best daily posting times (24h, IST) for each platform to maximise engagement. "
+        f"Consider platform-specific peak hours, audience timezone, and content type (short-form video/carousels). "
+        f"Times must be between 06:00 and 23:00 IST.\n\n"
+        f"Return ONLY valid JSON with this exact structure (one key per platform slug + a reasoning key):\n"
+        f'{{"ig": ["HH:MM", "HH:MM"], "yt": ["HH:MM", "HH:MM"], "reasoning": "one sentence"}}'
+    )
+
+    api_key = get_env("GEMINI_API_KEY", required=False)
+    if not api_key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "GEMINI_API_KEY not configured")
+
+    try:
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config={"response_mime_type": "application/json"},
+        )
+        result: dict = _json.loads(resp.text)
+    except Exception as e:
+        log.error("suggest-schedule: Gemini failed: %s", e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not get schedule suggestions; try again.")
+
+    # Validate / fill missing platforms with sensible defaults
+    defaults = {"ig": ["10:00", "19:00"], "yt": ["10:00", "20:00"]}
+    for p in platforms:
+        if p not in result or not isinstance(result.get(p), list):
+            result[p] = defaults.get(p, ["10:00", "19:00"])
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # Picture (the browser crops and resizes; we accept a small JPEG/PNG/WebP as raw bytes)
 # --------------------------------------------------------------------------- #
 def _sniff(data: bytes) -> str | None:

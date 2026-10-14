@@ -67,6 +67,44 @@ def post_times() -> list[dtime]:
     return sorted(dtime(*(int(x) for x in t.split(":"))) for t in raw)
 
 
+_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def post_times_for_cadence(cadence: dict | None, day: "date | None" = None) -> list[dtime]:
+    """Slot times from a user cadence dict, respecting schedule_mode and day-of-week.
+
+    Returns an empty list when the given day has no posts scheduled.
+    Falls back to brand config when cadence is None or slots are absent.
+    """
+    from datetime import date as _date  # local import avoids circular
+    if not cadence:
+        return post_times() if day is None else post_times()
+
+    mode = cadence.get("schedule_mode", "uniform")
+
+    if mode == "weekly":
+        weekly = cadence.get("weekly_slots") or {}
+        if day is not None:
+            dow = _DAYS[day.weekday()]
+            raw = weekly.get(dow)
+            if raw is None:       # day explicitly disabled
+                return []
+        else:
+            # No specific day: merge all enabled days' slots (used for display / generation scheduling)
+            raw = sorted({t for slots in weekly.values() for t in (slots or [])})
+    elif mode == "ai":
+        ai_sched = cadence.get("ai_schedule") or {}
+        # Merge and deduplicate across platforms; fall back to uniform slots
+        merged = sorted({t for times in ai_sched.values() for t in (times or [])})
+        raw = merged or cadence.get("slots") or []
+    else:  # uniform
+        raw = cadence.get("slots") or []
+
+    if not raw:
+        return post_times()
+    return sorted(dtime(*(int(x) for x in t.split(":"))) for t in raw if t)
+
+
 def slot_at(day: str, hhmm: str) -> datetime:
     """The given IST slot on `day` (YYYY-MM-DD)."""
     hh, mm = (int(x) for x in hhmm.split(":"))

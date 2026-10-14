@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -289,7 +288,6 @@ export function PostPanel({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [regenOpen, setRegenOpen] = useState(false);
-  const [regenScope, setRegenScope] = useState<"content" | "reel" | "carousel">("content");
   const [feedback, setFeedback] = useState("");
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -342,10 +340,11 @@ export function PostPanel({
     run("schedule", () => Promise.all(decidable.map((i) => scheduleItem(i.id, fromISTInput(scheduleAt)))),
       `Scheduled for ${formatIST(fromISTInput(scheduleAt))} IST`).then(() => setScheduleOpen(false));
 
-  const regenerate = () => {
-    const ids = regenScope === "content" ? regenable.map((i) => i.id)
-      : regenable.filter((i) => i.kind === regenScope).map((i) => i.id);
-    return run("regen", () => regenerateItems(ids, feedback), "Regeneration requested — new previews will follow")
+  const doRegen = (scope: "content" | "reel" | "carousel", fb: string = feedback) => {
+    const ids = scope === "content" ? regenable.map((i) => i.id)
+      : regenable.filter((i) => i.kind === scope).map((i) => i.id);
+    if (!ids.length) return;
+    run("regen", () => regenerateItems(ids, fb), "Regeneration requested — new previews will follow")
       .then(() => { setRegenOpen(false); setFeedback(""); });
   };
 
@@ -400,8 +399,8 @@ export function PostPanel({
               <span aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" />
               <div className="flex gap-1 max-sm:w-full">
                 <Button variant="ghost" disabled={!regenable.length || busy !== null}
-                  onClick={() => { setRegenScope(bothRegenable ? "content" : (regenable[0]?.kind ?? "content")); setRegenOpen(true); }}>
-                  <RefreshCw />
+                  onClick={() => bothRegenable ? setRegenOpen(true) : doRegen((regenable[0]?.kind ?? "content") as "reel" | "carousel", "")}>
+                  {busy === "regen" ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
                   Regenerate
                 </Button>
                 <Button variant="ghost" className="text-bad hover:bg-bad/10 hover:text-bad" disabled={!rejectable.length || busy !== null} onClick={() => setConfirm("reject")}>
@@ -571,37 +570,34 @@ export function PostPanel({
         </DialogContent>
       </Dialog>
 
-      {/* regenerate */}
-      <Dialog open={regenOpen} onOpenChange={setRegenOpen}>
+      {/* regenerate — only shown when both reel + carousel are regenable (single item fires immediately) */}
+      <Dialog open={regenOpen} onOpenChange={(o) => { setRegenOpen(o); if (!o) setFeedback(""); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Regenerate</DialogTitle>
-            <DialogDescription>Gemini rewrites it with your feedback; new previews arrive here and in Telegram in about 10 minutes.</DialogDescription>
+            <DialogTitle>What to regenerate?</DialogTitle>
+            <DialogDescription>Gemini rewrites it; new previews arrive in about 10 minutes. Add feedback below to steer the rewrite.</DialogDescription>
           </DialogHeader>
-          <RadioGroup value={regenScope} onValueChange={(v) => setRegenScope(v as typeof regenScope)} className="grid gap-2">
-            {[
-              { value: "content", label: "Content (reel + carousel, one new script)", enabled: bothRegenable },
-              { value: "reel", label: "Reel only", enabled: regenable.some((i) => i.kind === "reel") },
-              { value: "carousel", label: "Carousel only", enabled: regenable.some((i) => i.kind === "carousel") },
-            ].map((o) => (
-              <label key={o.value} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 text-sm transition-colors hover:border-rule has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[[data-state=checked]]:border-primary/55 has-[[data-state=checked]]:bg-primary/[0.07]">
-                <RadioGroupItem value={o.value} disabled={!o.enabled} />
-                {o.label}
-              </label>
-            ))}
-          </RadioGroup>
           <div className="grid gap-2">
             <Label htmlFor="regen-feedback" className={MONO}>Feedback (optional)</Label>
             <Textarea id="regen-feedback" value={feedback} onChange={(e) => setFeedback(e.target.value)}
-              placeholder='e.g. "Show the example prompt in a highlighted box" or "use the voice Andrew"' />
+              placeholder='e.g. "Show the example prompt in a highlighted box" or "use the voice Andrew"' rows={2} />
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRegenOpen(false)}>Cancel</Button>
-            <Button onClick={regenerate} disabled={busy !== null}>
-              {busy === "regen" ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
-              Regenerate
-            </Button>
-          </DialogFooter>
+          <div className="grid gap-2">
+            {[
+              { scope: "content" as const, label: "Reel + Carousel", sub: "one shared script" },
+              { scope: "reel" as const, label: "Reel only", sub: null },
+              { scope: "carousel" as const, label: "Carousel only", sub: null },
+            ].map((o) => (
+              <Button key={o.scope} variant="outline" className="h-auto justify-start gap-3 py-2.5 text-left"
+                disabled={busy !== null} onClick={() => doRegen(o.scope)}>
+                <RefreshCw className="size-4 shrink-0" />
+                <span>
+                  <span className="font-medium">{o.label}</span>
+                  {o.sub && <span className="ml-1.5 text-xs text-muted-foreground">({o.sub})</span>}
+                </span>
+              </Button>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
     </>

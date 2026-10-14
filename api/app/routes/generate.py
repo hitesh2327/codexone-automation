@@ -44,14 +44,18 @@ def _slots() -> list[str]:
     return [f"{t:%H:%M}" for t in approve_bot.post_times()]
 
 
-def _user_slots(cu: CurrentUser | None = None) -> list[str]:
+def _user_slots(cu: CurrentUser | None = None, day: "datetime | None" = None) -> list[str]:
+    """Return the posting slots for `cu` on `day` (today if None), respecting schedule_mode."""
+    from datetime import date as _date
+    target_day = (day or datetime.now(approve_bot.IST)).date()
     if cu:
         from src import db
         from src.db.models import User
         with db.session() as s:
             user = s.get(User, cu.id)
-            if user and user.cadence and user.cadence.get("slots"):
-                return list(user.cadence["slots"])
+            if user and user.cadence:
+                times = approve_bot.post_times_for_cadence(dict(user.cadence), target_day)
+                return [f"{t:%H:%M}" for t in times]
     return _slots()
 
 

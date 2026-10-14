@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  Brain,
+  CalendarDays,
   Check,
   Clock,
   Loader2,
   Palette,
+  RefreshCw,
   Save,
   Sliders,
   Sparkles,
@@ -65,6 +68,17 @@ const AESTHETICS = [
 
 const DEFAULT_SLOTS = ["10:00", "18:00", "14:00", "21:00"];
 
+const DAYS_SHORT = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const DAYS_LABEL: Record<string, string> = {
+  mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+};
+type DayKey = typeof DAYS_SHORT[number];
+type WeeklySlots = Record<DayKey, string[] | null>;
+
+function defaultWeeklySlots(slots: string[]): WeeklySlots {
+  return Object.fromEntries(DAYS_SHORT.map((d) => [d, [...slots]])) as WeeklySlots;
+}
+
 export function TasteCadenceConfig({
   isOnboarding,
   onComplete,
@@ -95,6 +109,17 @@ export function TasteCadenceConfig({
   const [slots, setSlots] = useState<string[]>(
     user?.cadence?.slots || ["10:00", "18:00"]
   );
+  const [scheduleMode, setScheduleMode] = useState<"uniform" | "weekly" | "ai">(
+    (user?.cadence?.schedule_mode as "uniform" | "weekly" | "ai") || "uniform"
+  );
+  const [weeklySlots, setWeeklySlots] = useState<WeeklySlots>(
+    (user?.cadence?.weekly_slots as WeeklySlots) || defaultWeeklySlots(user?.cadence?.slots || ["10:00", "18:00"])
+  );
+  const [aiSchedule, setAiSchedule] = useState<Record<string, string[]>>(
+    user?.cadence?.ai_schedule || {}
+  );
+  const [aiReasoning, setAiReasoning] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
 
@@ -110,16 +135,64 @@ export function TasteCadenceConfig({
     if (user?.cadence) {
       if (user.cadence.posts_per_day) setPostsPerDay(user.cadence.posts_per_day);
       if (user.cadence.slots) setSlots(user.cadence.slots);
+      if (user.cadence.schedule_mode) setScheduleMode(user.cadence.schedule_mode as "uniform" | "weekly" | "ai");
+      if (user.cadence.weekly_slots) setWeeklySlots(user.cadence.weekly_slots as WeeklySlots);
+      if (user.cadence.ai_schedule) setAiSchedule(user.cadence.ai_schedule);
     }
   }, [user]);
 
   function handlePostsPerDayChange(count: number) {
     setPostsPerDay(count);
     const newSlots = [...slots];
-    while (newSlots.length < count) {
-      newSlots.push(DEFAULT_SLOTS[newSlots.length] || "12:00");
+    while (newSlots.length < count) newSlots.push(DEFAULT_SLOTS[newSlots.length] || "12:00");
+    const resized = newSlots.slice(0, count);
+    setSlots(resized);
+    // Resize weekly slots too
+    setWeeklySlots((prev) => {
+      const next = { ...prev };
+      for (const d of DAYS_SHORT) {
+        const cur = next[d];
+        if (cur === null) continue;
+        const expanded = [...(cur || [])];
+        while (expanded.length < count) expanded.push(DEFAULT_SLOTS[expanded.length] || "12:00");
+        next[d] = expanded.slice(0, count);
+      }
+      return next;
+    });
+  }
+
+  function handleWeeklySlotChange(day: DayKey, index: number, value: string) {
+    setWeeklySlots((prev) => {
+      const cur = prev[day] ? [...prev[day]!] : [...slots];
+      cur[index] = value;
+      return { ...prev, [day]: cur };
+    });
+  }
+
+  function toggleDayEnabled(day: DayKey) {
+    setWeeklySlots((prev) => ({
+      ...prev,
+      [day]: prev[day] === null ? [...slots] : null,
+    }));
+  }
+
+  async function handleGetAiSuggestions() {
+    setAiLoading(true);
+    try {
+      const result = await api<Record<string, string[] | string>>("/api/profile/suggest-schedule", { method: "POST" });
+      const schedule: Record<string, string[]> = {};
+      let reasoning = "";
+      for (const [k, v] of Object.entries(result)) {
+        if (k === "reasoning") { reasoning = v as string; continue; }
+        if (Array.isArray(v)) schedule[k] = v;
+      }
+      setAiSchedule(schedule);
+      setAiReasoning(reasoning);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not get AI suggestions. Make sure GEMINI_API_KEY is configured.");
+    } finally {
+      setAiLoading(false);
     }
-    setSlots(newSlots.slice(0, count));
   }
 
   function handleSlotTimeChange(index: number, value: string) {
@@ -153,6 +226,9 @@ export function TasteCadenceConfig({
       cadence: {
         posts_per_day: postsPerDay,
         slots,
+        schedule_mode: scheduleMode,
+        weekly_slots: scheduleMode === "weekly" ? weeklySlots : undefined,
+        ai_schedule: scheduleMode === "ai" ? aiSchedule : undefined,
       },
       config_completed: completeOnboarding ? true : user?.config_completed ?? true,
     };
@@ -454,31 +530,132 @@ export function TasteCadenceConfig({
             </div>
           </div>
 
-          {/* Slot Timings */}
+          {/* Schedule Mode */}
           <div className="grid gap-3">
             <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Slot Times (24h IST)
+              Posting Schedule
             </label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {slots.map((slotTime, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-1.5"
-                >
-                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <Clock className="size-3.5 text-primary" />
-                    <span>Slot #{i + 1}</span>
-                  </div>
-                  <Input
-                    type="time"
-                    value={slotTime}
-                    onChange={(e) => handleSlotTimeChange(i, e.target.value)}
-                    className="h-8 w-28 font-mono text-xs"
-                  />
-                </div>
+            <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-border bg-background/50 p-1">
+              {([
+                { mode: "uniform" as const, icon: Clock, label: "Same Every Day" },
+                { mode: "weekly" as const, icon: CalendarDays, label: "Per Day of Week" },
+                { mode: "ai" as const, icon: Brain, label: "AI Picks Best Time" },
+              ] as const).map(({ mode, icon: Icon, label }) => (
+                <button key={mode} type="button" onClick={() => setScheduleMode(mode)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-md px-2 py-2 text-[10px] font-mono font-medium uppercase tracking-wide transition-colors",
+                    scheduleMode === mode
+                      ? "bg-primary/10 text-primary shadow-sm"
+                      : "text-muted-foreground hover:bg-raised hover:text-foreground"
+                  )}>
+                  <Icon className="size-3.5" />
+                  {label}
+                </button>
               ))}
             </div>
           </div>
+
+          {/* Uniform: same time every day */}
+          {scheduleMode === "uniform" && (
+            <div className="grid gap-2">
+              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Slot Times (24h IST)
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {slots.map((slotTime, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-1.5">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Clock className="size-3.5 text-primary" />
+                      <span>Slot #{i + 1}</span>
+                    </div>
+                    <Input type="time" value={slotTime} onChange={(e) => handleSlotTimeChange(i, e.target.value)}
+                      className="h-8 w-28 font-mono text-xs" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Weekly: different time per day */}
+          {scheduleMode === "weekly" && (
+            <div className="grid gap-2">
+              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Times Per Day (24h IST) — toggle a day off to skip it
+              </label>
+              <div className="grid gap-1.5">
+                {DAYS_SHORT.map((day) => {
+                  const enabled = weeklySlots[day] !== null;
+                  const daytimes = weeklySlots[day] || slots;
+                  return (
+                    <div key={day} className={cn(
+                      "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 transition-colors",
+                      enabled ? "border-border bg-background/60" : "border-border/40 bg-background/20 opacity-50"
+                    )}>
+                      <button type="button" onClick={() => toggleDayEnabled(day)}
+                        className={cn(
+                          "flex size-6 shrink-0 items-center justify-center rounded border transition-colors",
+                          enabled ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+                        )}>
+                        {enabled && <Check className="size-3.5" />}
+                      </button>
+                      <span className="w-8 font-mono text-xs font-medium">{DAYS_LABEL[day]}</span>
+                      {enabled && daytimes.slice(0, postsPerDay).map((t, i) => (
+                        <Input key={i} type="time" value={t}
+                          onChange={(e) => handleWeeklySlotChange(day, i, e.target.value)}
+                          className="h-7 w-24 font-mono text-xs" />
+                      ))}
+                      {!enabled && <span className="text-xs text-muted-foreground italic">No posts</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* AI: let Gemini suggest the best times */}
+          {scheduleMode === "ai" && (
+            <div className="grid gap-3">
+              <div className="flex items-center justify-between">
+                <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  AI-Suggested Times (IST)
+                </label>
+                <button type="button" onClick={handleGetAiSuggestions} disabled={aiLoading}
+                  className="flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50">
+                  {aiLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  {Object.keys(aiSchedule).length ? "Re-suggest" : "Get Suggestions"}
+                </button>
+              </div>
+              {Object.keys(aiSchedule).length > 0 ? (
+                <div className="grid gap-2">
+                  {Object.entries(aiSchedule).map(([plat, times]) => (
+                    <div key={plat} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+                      <span className="w-16 font-mono text-xs font-semibold uppercase text-muted-foreground">
+                        {plat === "ig" ? "Instagram" : plat === "yt" ? "YouTube" : plat}
+                      </span>
+                      {(times || []).map((t, i) => (
+                        <span key={i} className="flex items-center gap-1 rounded border border-primary/30 bg-primary/5 px-2 py-0.5 font-mono text-xs text-primary">
+                          <Clock className="size-3" />{t}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                  {aiReasoning && (
+                    <p className="rounded-md border border-border/50 bg-background/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground/70">Why: </span>{aiReasoning}
+                    </p>
+                  )}
+                  <button type="button" onClick={handleGetAiSuggestions} disabled={aiLoading}
+                    className="flex items-center gap-1.5 self-start text-xs text-muted-foreground hover:text-foreground">
+                    <RefreshCw className="size-3" />Refresh suggestions
+                  </button>
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-border/60 px-4 py-5 text-center text-xs text-muted-foreground">
+                  Click "Get Suggestions" and Gemini will recommend the best posting times for your niche and platforms.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Action Button */}
           <div className="mt-auto pt-4">

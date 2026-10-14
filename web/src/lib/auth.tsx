@@ -25,6 +25,10 @@ export type User = {
   cadence?: {
     posts_per_day?: number;
     slots?: string[];
+    schedule_mode?: "uniform" | "weekly" | "ai";
+    weekly_slots?: Record<string, string[] | null>;
+    ai_schedule?: Record<string, string[]>;
+    ai_suggested_at?: string;
   };
 };
 
