@@ -32,6 +32,7 @@ from telegram.error import BadRequest, NetworkError, TelegramError, TimedOut
 from src import activity, db
 from src import queue_store as q
 from src.config import DATA_DIR, ROOT, get_env, load_brand
+from src.credentials import active_user_id, get_for_user
 from src.gen_content import Content
 from src.logger import get_logger
 from src.redact import redact
@@ -47,8 +48,8 @@ def sync_enabled() -> bool:
     return (get_env("TELEGRAM_SYNC", required=False, default="true") or "true").lower() not in ("0", "false", "no")
 
 
-def _chat_id() -> int:
-    return int(get_env("TG_CHAT_ID"))
+def _chat_id(user_id: int | None = None) -> int:
+    return int(get_for_user("TG_CHAT_ID", user_id) or get_env("TG_CHAT_ID"))
 
 
 def _bot() -> Bot:
@@ -245,7 +246,11 @@ def send_preview(item: q.Item, dry_run: bool = False) -> q.Item:
     if dry_run:
         log.info("[dry-run] would send %s preview %s: %s", item.kind, item.id, item.topic)
         return item
-    item = asyncio.run(_send_preview(item))
+    tok = active_user_id.set(item.user_id)
+    try:
+        item = asyncio.run(_send_preview(item))
+    finally:
+        active_user_id.reset(tok)
     q.upsert(item)
     log.info("sent %s preview %s (message %s)", item.kind, item.id, item.tg_control_id)
     return item
@@ -343,7 +348,6 @@ def _decision_note(action: str, item: q.Item) -> str:
 
 
 async def _poll(dry_run: bool) -> list[tuple[str, str]]:
-    chat = _chat_id()
     applied: list[tuple[str, str]] = []
     changed: dict[str, q.Item] = {}
     items = {i.id: i for i in q.load()}
@@ -357,10 +361,14 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
             offset = u.update_id + 1
             cq, msg = u.callback_query, u.message
 
-            if cq and cq.data and cq.message and cq.message.chat.id == chat:
+            if cq and cq.data and cq.message:
                 action, _, item_id = cq.data.partition(":")
                 item = items.get(item_id)
                 if not item or action not in ACTIONS:
+                    continue
+                # Accept only presses from the item owner's registered chat
+                item_chat = _chat_id(item.user_id)
+                if cq.message.chat.id != item_chat:
                     continue
                 if item.status != "pending":  # e.g. already decided in the dashboard
                     await _safe(bot.answer_callback_query(cq.id, f"Already {item.status}."))
@@ -371,25 +379,30 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
                 log.info("%s → %s", item.id, item.status)
                 if not dry_run:
                     activity.record("post." + {"approve": "approved", "reject": "rejected", "regen": "regenerate"}[action],
-                                    f"{ACTIONS[action][2:]} chosen in Telegram for {item.kind} “{item.topic}”",
+                                    f'{ACTIONS[action][2:]} chosen in Telegram for {item.kind} “{item.topic}”',
                                     source="telegram", actor="telegram", post_id=item.id)
                     await _safe(bot.answer_callback_query(cq.id, item.status.capitalize()))
-                    await _safe(bot.edit_message_reply_markup(chat, cq.message.message_id, reply_markup=None))
-                    await _safe(bot.send_message(chat, _decision_note(action, item),
+                    await _safe(bot.edit_message_reply_markup(item_chat, cq.message.message_id, reply_markup=None))
+                    await _safe(bot.send_message(item_chat, _decision_note(action, item),
                                                  reply_to_message_id=cq.message.message_id))
 
-            elif msg and msg.chat.id == chat and msg.text and msg.reply_to_message:
+            elif msg and msg.text and msg.reply_to_message:
                 item = by_msg.get(msg.reply_to_message.message_id)
-                if item and item.status == "pending":
+                if not item:
+                    continue
+                # Only accept text replies from the item owner's chat
+                if msg.chat.id != _chat_id(item.user_id):
+                    continue
+                if item.status == "pending":
                     item.feedback = (item.feedback + "\n" + msg.text).strip()
                     changed[item.id] = item
                     applied.append((item.id, "feedback"))
                     log.info("%s feedback: %s", item.id, msg.text)
                     if not dry_run:
-                        activity.record("post.feedback", f"Feedback added in Telegram for {item.kind} “{item.topic}”",
+                        activity.record("post.feedback", f'Feedback added in Telegram for {item.kind} “{item.topic}”',
                                         source="telegram", actor="telegram", post_id=item.id)
                     if not dry_run:
-                        await _safe(bot.send_message(chat, "📝 Noted. Tap 🔄 Regenerate to apply it.",
+                        await _safe(bot.send_message(msg.chat.id, "📝 Noted. Tap 🔄 Regenerate to apply it.",
                                                      reply_to_message_id=msg.message_id))
 
     if dry_run:

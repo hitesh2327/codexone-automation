@@ -30,6 +30,7 @@ from src import publish_youtube as yt
 from src import queue_store as q
 from src.approve_bot import IST, item_publish_at, notify
 from src.config import get_env
+from src.credentials import active_user_id, get_for_user
 from src.logger import get_logger
 from src.redact import redact, redact_exc
 
@@ -56,7 +57,7 @@ def _call(method: str, path: str, retries: int = 4, **params) -> dict:
     `requests` builds from the URL) is never kept raw: it is scrubbed before it can reach a log line,
     an IGError, the post's `error` field, the activity log or Telegram.
     """
-    params["access_token"] = get_env("IG_ACCESS_TOKEN")
+    params["access_token"] = get_for_user("IG_ACCESS_TOKEN") or get_env("IG_ACCESS_TOKEN")
     url = f"{_base()}/{path.lstrip('/')}"
     for attempt in range(1, retries + 1):
         try:
@@ -102,25 +103,25 @@ def _wait_finished(container_id: str, timeout: int = 600, interval: int = 8) -> 
     raise IGError(f"container {container_id} not ready after {timeout}s")
 
 
-_resolved_user: str | None = None
+_resolved_users: dict[int | None, str] = {}  # user_id -> resolved numeric IG user id
 
 
 def _user() -> str:
     """Numeric IG user id. If IG_USER_ID is unset or not numeric (e.g. the @username),
-    resolve it from the token via /me."""
-    global _resolved_user
-    if _resolved_user:
-        return _resolved_user
-    configured = get_env("IG_USER_ID", required=False, default="")
+    resolve it from the token via /me. Cached per user_id."""
+    uid = active_user_id.get()
+    if uid in _resolved_users:
+        return _resolved_users[uid]
+    configured = get_for_user("IG_USER_ID") or get_env("IG_USER_ID", required=False, default="")
     if configured.isdigit():
-        _resolved_user = configured
+        _resolved_users[uid] = configured
     else:
         me = _call("GET", "me", fields="user_id,username")
-        _resolved_user = str(me["user_id"])
+        _resolved_users[uid] = str(me["user_id"])
         log.warning("IG_USER_ID %r is not a numeric id; using %s (@%s) from the token. "
                     "Set IG_USER_ID=%s to skip this lookup.",
-                    configured, _resolved_user, me.get("username"), _resolved_user)
-    return _resolved_user
+                    configured, _resolved_users[uid], me.get("username"), _resolved_users[uid])
+    return _resolved_users[uid]
 
 
 # --------------------------------------------------------------------------- #
@@ -238,6 +239,14 @@ def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...]
     """Publish one item. The caller either passes an approved/failed/published item (this claims
     it) or has already claimed it itself with q.claim_for_publish and says so with claimed=True.
     A "publishing" item that the caller did not claim belongs to another publisher: skipped."""
+    tok = active_user_id.set(item.user_id)
+    try:
+        return _publish_item(item, dry_run, platforms, claimed)
+    finally:
+        active_user_id.reset(tok)
+
+
+def _publish_item(item: q.Item, dry_run: bool, platforms: tuple[str, ...], claimed: bool) -> q.Item:
     # "published" is allowed so a platform that failed or was added later can be completed;
     # pending/rejected/expired items can never be published.
     allowed = ("publishing",) if claimed else q.PUBLISHABLE + ("publishing",)

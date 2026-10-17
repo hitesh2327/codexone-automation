@@ -32,6 +32,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
 from src.config import get_env, load_brand
+from src.credentials import get_for_user
 from src.logger import get_logger
 
 log = get_logger("publish_youtube")
@@ -51,7 +52,7 @@ class YTError(RuntimeError):
 
 
 def configured() -> bool:
-    return all(get_env(k, required=False) for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"))
+    return all(get_for_user(k) for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"))
 
 
 def privacy() -> str:
@@ -62,8 +63,8 @@ def privacy() -> str:
 
 
 def credentials() -> Credentials:
-    creds = Credentials(token=None, refresh_token=get_env("YT_REFRESH_TOKEN"), token_uri=TOKEN_URI,
-                        client_id=get_env("YT_CLIENT_ID"), client_secret=get_env("YT_CLIENT_SECRET"),
+    creds = Credentials(token=None, refresh_token=get_for_user("YT_REFRESH_TOKEN"), token_uri=TOKEN_URI,
+                        client_id=get_for_user("YT_CLIENT_ID"), client_secret=get_for_user("YT_CLIENT_SECRET"),
                         scopes=SCOPES)
     try:
         creds.refresh(Request())
