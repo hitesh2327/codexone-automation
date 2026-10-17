@@ -17,8 +17,10 @@
   #dia { position: absolute; left: 70px; top: 500px; width: 940px; height: 760px; }
   #stats { position: absolute; left: 70px; top: 1290px; width: 940px; }
   #term { position: absolute; left: 70px; top: 1432px; width: 940px; height: 84px; display: flex; align-items: center; }
-  #caption { position: absolute; left: 90px; width: 900px; top: 1556px; text-align: center; font: 700 46px/1.2 Poppins; }
-  #caption em { font-style: normal; color: var(--amber); }
+  #caption { position: absolute; left: 90px; width: 900px; top: 1540px; text-align: center; }
+  #caption .cap { display: inline-block; font: 800 52px/1.15 Poppins; text-transform: uppercase; letter-spacing: -0.5px; padding: 14px 28px; border-radius: 18px; background: rgba(13,17,23,0.82); }
+  #caption .cap span { color: #C9D1D9; }
+  #caption .cap span.on { color: var(--amber); }
   #payoff { position: absolute; left: 70px; top: 490px; width: 940px; height: 770px; border-radius: 34px; display: flex; flex-direction: column;
     align-items: center; justify-content: center; text-align: center; gap: 14px;
     background: rgba(13,17,23,.86); border: 2px solid rgba(124,240,166,.35); }
@@ -87,8 +89,15 @@ function renderAt(t) {
     term.innerHTML = `<span class="p">$ </span>${esc(b.term.slice(0, typed))}${blink ? '<span class="cur"></span>' : ''}`;
   }
 
-  const cp = ease((t - bStart - .05) / .3), cap = document.querySelector('#caption');
-  cap.innerHTML = emph(b.caption); cap.style.opacity = cp; cap.style.transform = `translateY(${(1 - cp) * 20}px)`;
+  const cap = document.querySelector('#caption');
+  const beatSubs = (TL.subs && TL.subs[bi]) ? TL.subs[bi] : [];
+  const activeSub = beatSubs.find(s => t >= s.start && t < s.end) || null;
+  if (activeSub) {
+    const html = activeSub.words.map(w => `<span${t >= w.start ? ' class="on"' : ''}>${esc(w.text)}</span>`).join(' ');
+    cap.innerHTML = `<div class="cap">${html}</div>`;
+  } else {
+    cap.innerHTML = '';
+  }
 
   const last = spec.beats.length - 1, pp = ease((t - TL.starts[last]) / .45), po = document.querySelector('#payoff');
   po.style.opacity = pp; po.style.transform = `scale(${.9 + .1 * pp})`;

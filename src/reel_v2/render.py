@@ -81,6 +81,33 @@ def _voice_beats(spec: SceneSpec, voice: str, rate: int, work: Path) -> tuple[li
     return files, words, durs
 
 
+def _build_subs(ws: list[Word], beat_start: float, beat_dur: float, max_w: int = 4) -> list[dict]:
+    """Chunk word boundaries into subtitle frames for karaoke rendering in the browser."""
+    import re as _re
+    if not ws:
+        return []
+    chunks: list[list[Word]] = []
+    cur: list[Word] = []
+    for w in ws:
+        cur.append(w)
+        if len(cur) >= max_w or _re.search(r"[.,!?;:]$", w.text):
+            chunks.append(cur)
+            cur = []
+    if cur:
+        chunks.append(cur)
+
+    result = []
+    for ci, chunk in enumerate(chunks):
+        chunk_start = beat_start + chunk[0].start
+        chunk_end = beat_start + (chunks[ci + 1][0].start if ci + 1 < len(chunks) else beat_dur)
+        result.append({
+            "start": chunk_start,
+            "end": chunk_end,
+            "words": [{"text": w.text, "start": beat_start + w.start} for w in chunk],
+        })
+    return result
+
+
 def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
     """Voice every beat, fit the reel under MAX_SECONDS, and pin triggers to spoken words."""
     rate = BASE_RATE
@@ -108,6 +135,8 @@ def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
             log.warning("beat %d: trigger %r not matched exactly; using %.2fs", i, b.trigger, hit)
         triggers.append(starts[i] + hit)
 
+    subs = [_build_subs(ws, starts[i], durs[i]) for i, ws in enumerate(words)]
+
     audio = work / "voice.m4a"
     clips = [AudioFileClip(str(f)).with_start(s) for f, s in zip(files, starts)]
     CompositeAudioClip(clips).with_duration(total).write_audiofile(str(audio), fps=44100, codec="aac", logger=None)
@@ -115,7 +144,7 @@ def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
         c.close()
     log.info("voice %s at +%d%%: %.1fs over %d beats", voice, rate, total, len(spec.beats))
     return {"spec": spec.model_dump(), "handle": load_brand()["handle"], "starts": starts,
-            "triggers": triggers, "total": round(total, 3)}, audio
+            "triggers": triggers, "total": round(total, 3), "subs": subs}, audio
 
 
 def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, preview: float | None = None) -> Path:
