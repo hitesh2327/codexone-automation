@@ -7,10 +7,12 @@ import {
   Clock,
   Loader2,
   Palette,
+  Plus,
   RefreshCw,
   Save,
   Sliders,
   Sparkles,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -164,6 +166,12 @@ export function TasteCadenceConfig({
   const navigate = useNavigate();
 
   const [niche, setNiche] = useState(user?.taste?.niche || "");
+  const [categories, setCategories] = useState<string[]>(
+    (user?.taste as { categories?: string[] })?.categories || []
+  );
+  const [categoryInput, setCategoryInput] = useState("");
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesReasoning, setCategoriesReasoning] = useState("");
   const [tone, setTone] = useState(user?.taste?.tone || "Educational & Insightful");
   const [contentType, setContentType] = useState(user?.taste?.content_type || "Educational & How-To");
   const [aesthetic, setAesthetic] = useState(user?.taste?.aesthetic || "Dark Minimalist Luxury");
@@ -202,6 +210,8 @@ export function TasteCadenceConfig({
   useEffect(() => {
     if (user?.taste) {
       if (user.taste.niche) setNiche(user.taste.niche);
+      const tasteCats = (user.taste as { categories?: string[] }).categories;
+      if (tasteCats) setCategories(tasteCats);
       if (user.taste.tone) setTone(user.taste.tone);
       if (user.taste.content_type) setContentType(user.taste.content_type);
       if (user.taste.aesthetic) setAesthetic(user.taste.aesthetic);
@@ -285,6 +295,38 @@ export function TasteCadenceConfig({
     );
   }
 
+  async function handleSuggestCategories() {
+    if (!niche.trim()) {
+      toast.error("Set your niche first so AI knows what categories to suggest.");
+      return;
+    }
+    setCategoriesLoading(true);
+    try {
+      const result = await api<{ categories: string[]; reasoning: string }>(
+        "/api/profile/suggest-categories",
+        { method: "POST" }
+      );
+      setCategories(result.categories);
+      setCategoriesReasoning(result.reasoning);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not get suggestions. Make sure GEMINI_API_KEY is configured.");
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }
+
+  function handleAddCategory() {
+    const val = categoryInput.trim();
+    if (!val) return;
+    if (categories.includes(val)) { setCategoryInput(""); return; }
+    setCategories((prev) => [...prev, val]);
+    setCategoryInput("");
+  }
+
+  function handleRemoveCategory(cat: string) {
+    setCategories((prev) => prev.filter((c) => c !== cat));
+  }
+
   async function handleSave(completeOnboarding = false) {
     if (platforms.length === 0) {
       toast.error("Please select at least one publishing platform (Instagram or YouTube).");
@@ -295,6 +337,7 @@ export function TasteCadenceConfig({
     const payload = {
       taste: {
         niche,
+        categories: categories.length > 0 ? categories : undefined,
         tone,
         content_type: contentType,
         aesthetic,
@@ -430,6 +473,72 @@ export function TasteCadenceConfig({
                   {ct}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Content Categories */}
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Content Categories
+              </label>
+              <button
+                type="button"
+                onClick={handleSuggestCategories}
+                disabled={categoriesLoading}
+                className="flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+              >
+                {categoriesLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                {categories.length ? "Re-suggest" : "AI Suggest"}
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground/70">
+              These are the content pillars your posts rotate across (e.g. "Recipes", "Techniques", "Reviews").
+            </p>
+            {categories.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {categories.map((cat) => (
+                  <span
+                    key={cat}
+                    className="flex items-center gap-1 rounded-md border border-primary/50 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground"
+                  >
+                    {cat}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCategory(cat)}
+                      className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-border/60 px-4 py-3 text-center text-xs text-muted-foreground">
+                No categories set — click "AI Suggest" or add manually below.
+              </p>
+            )}
+            {categoriesReasoning && (
+              <p className="rounded-md border border-border/50 bg-background/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground/70">Why: </span>{categoriesReasoning}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Input
+                value={categoryInput}
+                onChange={(e) => setCategoryInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddCategory(); } }}
+                placeholder="Add a custom category..."
+                className="h-8 text-xs"
+              />
+              <button
+                type="button"
+                onClick={handleAddCategory}
+                disabled={!categoryInput.trim()}
+                className="flex items-center gap-1 rounded-md border border-border bg-background/50 px-2.5 py-1 text-xs text-muted-foreground hover:bg-raised hover:text-foreground disabled:opacity-40"
+              >
+                <Plus className="size-3.5" />Add
+              </button>
             </div>
           </div>
 

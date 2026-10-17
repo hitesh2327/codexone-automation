@@ -238,6 +238,60 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
     return result
 
 
+@router.post("/suggest-categories")
+def suggest_categories(cu: CurrentUser = Depends(current_user)) -> dict:
+    """Ask Gemini to suggest 4-6 content categories for the user's niche."""
+    import json as _json
+    from src.config import get_env
+    try:
+        from google import genai
+    except ImportError:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Gemini SDK not available")
+
+    with db.session() as ses:
+        u = _user(ses, cu)
+        taste = dict(u.taste or {})
+
+    niche = taste.get("niche") or "Software Engineering & Dev"
+    content_type = taste.get("content_type") or "Educational & How-To"
+    audience = taste.get("target_audience") or ""
+
+    prompt = (
+        f"You are a social media content strategist.\n\n"
+        f"Creator profile:\n"
+        f"- Niche: {niche}\n"
+        f"- Content type: {content_type}\n"
+        f"- Target audience: {audience or 'general'}\n\n"
+        f"Suggest exactly 5 distinct content categories for this Instagram account. "
+        f"Each category should be a short label (1-3 words) that represents a recurring theme "
+        f"or content pillar for the niche. They should be different enough that content can be "
+        f"spread evenly across them.\n\n"
+        f"Return ONLY valid JSON: "
+        f'{{ "categories": ["Cat1", "Cat2", "Cat3", "Cat4", "Cat5"], "reasoning": "one sentence" }}'
+    )
+
+    api_key = get_env("GEMINI_API_KEY", required=False)
+    if not api_key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "GEMINI_API_KEY not configured")
+
+    try:
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config={"response_mime_type": "application/json"},
+        )
+        result: dict = _json.loads(resp.text)
+    except Exception as e:
+        log.error("suggest-categories: Gemini failed: %s", e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not get category suggestions; try again.")
+
+    cats = result.get("categories", [])
+    if not isinstance(cats, list) or len(cats) < 2:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Unexpected response from Gemini; try again.")
+    return {"categories": [str(c).strip() for c in cats[:8]], "reasoning": result.get("reasoning", "")}
+
+
 # --------------------------------------------------------------------------- #
 # Picture (the browser crops and resizes; we accept a small JPEG/PNG/WebP as raw bytes)
 # --------------------------------------------------------------------------- #
