@@ -92,12 +92,6 @@ class Review(BaseModel):
     issues: list[str] = Field(description="Each concrete error or misleading claim, with the fix")
 
 
-SYSTEM = """You are the content writer for a tech education Instagram account.
-You write clear, technically accurate, beginner-friendly content. You never invent
-statistics, benchmarks, quotes or release details. If unsure of a fact, leave it out.
-No clickbait, no exaggeration, no emojis in slide text."""
-
-
 def slugify(text: str, maxlen: int = 50) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     if len(s) > maxlen:
@@ -105,56 +99,104 @@ def slugify(text: str, maxlen: int = 50) -> str:
     return s or "post"
 
 
-def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "") -> str:
+def _build_system(taste) -> str:
+    """Build the Gemini system prompt from the user's taste settings."""
+    accuracy_note = (
+        "You never invent statistics, benchmarks, quotes or release details. If unsure of a fact, leave it out."
+        if taste.is_tech() else
+        "You never invent facts, claims, statistics or quotes. If unsure, leave it out."
+    )
+    emoji_note = ", no emojis in slide text" if taste.is_tech() else ""
+    tone_lower = taste.tone.lower()
+    return (
+        f"You are the content writer for an Instagram account focused on {taste.niche}.\n"
+        f"You write {tone_lower} content for {taste.target_audience}.\n"
+        f"{accuracy_note}\n"
+        f"No clickbait, no exaggeration{emoji_note}."
+    )
+
+
+def _demo_block(is_tech: bool) -> str:
+    if not is_tech:
+        return "DEMO: Always set demo to null (animated algorithm demos are for tech topics only).\n"
+    return """DEMO (animated walkthrough of a concrete example):
+- If the topic is an algorithm or data structure working on data (array, string, linked list,
+  stack), include `demo`: a SMALL concrete input traced step by step. It is animated in the reel
+  right after point 1 (pointers slide between cells, cells light up) and shown on carousel
+  visual slides. Otherwise set demo to null.
+- 4-7 steps. Each step is the state AFTER the action its narration describes.
+- pointers = variable names at indices; highlight = elements being compared/used now;
+  done = elements finalized/visited; values = full new list only when data changes.
+- The trace MUST exactly follow the algorithm. Simulate it step by step before writing.
+- When there is a demo, keep each of the 3 reel points' narration to ONE sentence.
+"""
+
+
+def _carousel_block(car: dict, is_tech: bool, handle: str) -> str:
+    code_note = (
+        "- Use code where it genuinely helps (at least one code slide if the topic is technical). Code must be correct and runnable."
+        if is_tech else
+        "- No code snippets unless the topic is explicitly about programming or technical commands."
+    )
+    demo_note = (
+        "- If there is a demo: include 1-2 slides type=visual whose `steps` lists exactly 2 demo step indices showing the key moments."
+        if is_tech else
+        "- type=visual slides (which require a demo) should not be used for non-tech topics."
+    )
+    return f"""CAROUSEL ({car['slides']} slides, {car['size']} portrait):
+- Slide 1 type=title: a compelling but honest heading + short body subtitle.
+- Middle slides type=content: one idea per slide. Each slide should be independently valuable.
+{code_note}
+{demo_note}
+- Last slide type=cta: call to action heading, body mentions following {handle}.
+"""
+
+
+def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "", taste=None) -> str:
+    if taste is None:
+        from src.user_taste import get_user_taste
+        taste = get_user_taste()
     reel = brand["reel"]
     car = brand["carousel"]
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
+    instructions = taste.prompt_instructions
+    custom_note = f"\n\nAdditional creator instructions: {instructions}" if instructions else ""
     return f"""Create one Instagram reel and one carousel for {brand['handle']}.
 
 Topic: {topic.title}
 Category: {topic.category}
 Angle: {topic.angle}
 Source (for context only, may be empty): {topic.source_url}
+Niche: {taste.niche}
+Content type: {taste.content_type}
+Target audience: {taste.target_audience}
 Language: {brand['language']}
 
 REEL ({reel['duration_sec']} seconds spoken, structure: {reel['structure']}):
-- Total narration 55-70 words (65-75 including the demo); the reel must NEVER exceed 30 seconds. Short sentences, easy to speak aloud.
-- Spell out symbols in NARRATION only (say "O of n" not "O(n)"); on-screen text uses normal notation like O(n).
+- Total narration 55-70 words; the reel must NEVER exceed 30 seconds. Short sentences, easy to speak aloud.
 - CTA narration should invite the viewer to follow {brand['handle']}.
 
-DEMO (animated walkthrough of a concrete example):
-- If the topic is an algorithm or data structure working on data (array, string, linked list,
-  stack), include `demo`: a SMALL concrete input traced step by step. It is animated in the reel
-  right after point 1 (pointers slide between cells, cells light up) and shown on carousel
-  visual slides. Otherwise set demo to null.
-- 4-7 steps. Each step is the state AFTER the action its narration describes. The first step is
-  usually the starting state.
-- pointers = variable names at indices; highlight = elements being compared/used now;
-  done = elements finalized/visited; values = full new list only when data changes.
-- The trace MUST be exactly what the algorithm (and the carousel code, if any) does. Simulate it
-  carefully, one step at a time, before writing it.
-- When there is a demo, keep each of the 3 reel points' narration to ONE sentence.
-
-CAROUSEL ({car['slides']} slides, {car['size']} portrait):
-- Slide 1 type=title: a curiosity-building but honest heading + short body subtitle.
-- Middle slides type=content: one idea per slide. Use code where it genuinely helps
-  (at least one code slide if the topic is technical). Code must be correct and runnable.
-- If there is a demo: include 1-2 slides type=visual whose `steps` lists exactly 2 demo step indices
-  showing the key moments (heading says what we are watching; body empty or one short line).
-- Last slide type=cta: heading like "Save this for later" style, body mentions following {brand['handle']}.
-
+{_demo_block(taste.is_tech())}
+{_carousel_block(car, taste.is_tech(), brand['handle'])}
 CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: 10-15 relevant tags; include a few of: {' '.join(brand['hashtags'])}.{extra}"""
+HASHTAGS: 10-15 relevant tags for {taste.niche}; include a few of: {' '.join(brand['hashtags'])}.{custom_note}{extra}"""
 
 
-def _review_prompt(content: Content) -> str:
-    return f"""You are a strict senior engineer reviewing a social media post for technical accuracy.
-Check every claim, complexity, definition and code snippet (does the code run and do what the
-text says?). Ignore style. Flag only real errors or misleading statements.
-
-If there is a `demo`, re-simulate the algorithm yourself on demo.values, step by step, and
+def _review_prompt(content: Content, taste=None) -> str:
+    if taste is None:
+        from src.user_taste import get_user_taste
+        taste = get_user_taste()
+    if taste.is_tech():
+        review_focus = """Check every claim, complexity, definition and code snippet (does the code run and do what the
+text says?). If there is a `demo`, re-simulate the algorithm yourself on demo.values, step by step, and
 compare EVERY step's pointers, highlight, done, values and caption against your simulation.
-Flag any mismatch with the exact correct state for that step.
+Flag any mismatch with the exact correct state for that step."""
+    else:
+        review_focus = f"""Check every factual claim in this {taste.niche} post.
+Flag any invented statistics, false health/safety claims, or factually incorrect statements.
+Ignore style. Flag only real factual errors."""
+    return f"""You are a strict fact-checker reviewing a social media post for accuracy.
+{review_focus} Ignore style.
 
 {content.model_dump_json(indent=2)}"""
 
@@ -255,8 +297,13 @@ def validate_demo(c: Content) -> list[str]:
 
 
 def generate(topic: RankedTopic, feedback: str = "") -> Content:
+    from src.user_taste import get_user_taste
+    taste = get_user_taste()
+    system = _build_system(taste)
+
     from src.reel_v2 import pipeline as v2
-    if v2.uses_v2(topic.category):
+    # v2 animated diagrams only make sense for tech niches
+    if taste.is_tech() and v2.uses_v2(topic.category):
         try:
             from src.reel_v2.spec import generate as generate_scene
             spec = generate_scene(topic.title, topic.category, topic.angle, feedback)
@@ -266,13 +313,13 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
         except Exception:  # never lose the day's post to the new engine
             log.exception("v2 scene generation failed; falling back to the classic format")
     brand = load_brand()
-    content = generate_json(_write_prompt(topic, brand, feedback), Content, system=SYSTEM)
+    content = generate_json(_write_prompt(topic, brand, feedback, taste), Content, system=system)
     attempts = 3
     for attempt in range(1, attempts + 1):
         content = normalize(content)
         blocking = validate_shape(content, brand)
         if not blocking:  # only spend a review call on structurally valid drafts
-            review = generate_json(_review_prompt(content), Review, temperature=0.1)
+            review = generate_json(_review_prompt(content, taste), Review, temperature=0.1)
             blocking = [] if review.ok else review.issues
         cosmetic = cosmetic_problems(content)
         problems = blocking + cosmetic
@@ -289,7 +336,7 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
         # Revise the previous draft (keeps what was right) instead of starting over.
         fb = ("\n".join(f"- {p}" for p in problems) + (f"\n- {feedback}" if feedback else "")
               + "\n\nPrevious draft to revise:\n" + content.model_dump_json())
-        content = generate_json(_write_prompt(topic, brand, fb), Content, system=SYSTEM)
+        content = generate_json(_write_prompt(topic, brand, fb, taste), Content, system=system)
     content.hashtags = [h if h.startswith("#") else f"#{h}" for h in content.hashtags][:15]
     content.topic, content.category = topic.title, topic.category
     return content

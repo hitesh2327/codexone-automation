@@ -161,6 +161,11 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
             current_taste = dict(u.taste or {})
             current_taste.update(data["taste"])
             u.taste = current_taste
+            try:
+                from src.user_taste import invalidate as _inv
+                _inv(cu.id)
+            except Exception:  # noqa: BLE001
+                pass
         if "cadence" in data and data["cadence"] is not None:
             current_cadence = dict(u.cadence or {})
             current_cadence.update(data["cadence"])

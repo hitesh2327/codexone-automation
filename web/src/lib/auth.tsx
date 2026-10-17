@@ -18,7 +18,9 @@ export type User = {
   taste?: {
     niche?: string;
     tone?: string;
+    content_type?: string;
     aesthetic?: string;
+    template_style?: string;
     target_audience?: string;
     prompt_instructions?: string;
     default_targets?: string[];

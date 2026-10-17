@@ -17,9 +17,26 @@ from src.config import TEMPLATES_DIR, load_brand
 env = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=select_autoescape(["html"]))
 
 
+TEMPLATE_THEMES: dict[str, dict] = {
+    "Technical Dark": {"bg": "#0D1117", "primary": "#00E5FF", "accent": "#FFB800", "text": "#FFFFFF"},
+    "Minimal Clean": {"bg": "#F8F9FA", "primary": "#1A1A2E", "accent": "#E94560", "text": "#1A1A2E"},
+    "Vibrant Lifestyle": {"bg": "#FFF8F0", "primary": "#E86B2C", "accent": "#27AE60", "text": "#2D1B00"},
+    "Playful Colorful": {"bg": "#F0F4FF", "primary": "#6366F1", "accent": "#EC4899", "text": "#1E1B4B"},
+}
+
+
 def brand_context() -> dict:
     b = load_brand()
-    return {"colors": b["colors"], "fonts": b["fonts"], "handle": b["handle"]}
+    colors = dict(b["colors"])
+    # Override colors with the active user's template style if set.
+    try:
+        from src.user_taste import get_user_taste
+        taste = get_user_taste()
+        if taste.template_style in TEMPLATE_THEMES:
+            colors = TEMPLATE_THEMES[taste.template_style]
+    except Exception:  # noqa: BLE001
+        pass
+    return {"colors": colors, "fonts": b["fonts"], "handle": b["handle"]}
 
 
 # --------------------------------------------------------------------------- #

@@ -100,10 +100,11 @@ class GenerateBody(BaseModel):
     @field_validator("category")
     @classmethod
     def _category(cls, v):
+        import re as _re
         if v in (None, "", "auto"):
             return None
-        if v not in generation.CATEGORIES:
-            raise ValueError(f"Category must be one of {', '.join(generation.CATEGORIES)}")
+        if not _re.match(r"^[A-Za-z0-9 &/_-]{1,64}$", v):
+            raise ValueError("Category contains invalid characters")
         return v
 
     @model_validator(mode="after")
@@ -124,6 +125,23 @@ def _github_state(ok: bool) -> dict:
     return {"ok": ok, "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
+def _user_categories(cu: CurrentUser) -> list[dict]:
+    try:
+        from src.user_taste import get_user_taste
+        from src.credentials import active_user_id
+        tok = active_user_id.set(cu.id)
+        try:
+            taste = get_user_taste(cu.id)
+        finally:
+            active_user_id.reset(tok)
+        cats = taste.categories
+        if cats:
+            return [{"name": c, "weight": 1} for c in cats]
+    except Exception:  # noqa: BLE001
+        pass
+    return [{"name": c, "weight": w} for c, w in load_brand()["topics_weight"].items()]
+
+
 @router.get("/config")
 def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
     now = datetime.now(IST)
@@ -133,7 +151,7 @@ def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
     return {
         "dispatch_configured": github_actions.configured(),
         "slots": _user_slots(cu),
-        "categories": [{"name": c, "weight": w} for c, w in load_brand()["topics_weight"].items()],
+        "categories": _user_categories(cu),
         "daily_cap": cap, "used_today": generation.used_today(_day_start(now)), "resets_at": tomorrow.isoformat(),
         "quota_cooldown_until": (quota_at + generation.QUOTA_COOLDOWN).isoformat() if quota_at else None,
         "late_limit_hours": generation.LATE_LIMIT_HOURS,

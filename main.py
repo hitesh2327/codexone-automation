@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -46,8 +47,9 @@ def _generate_input_error(args) -> str | None:
     if args.slot and (not generation.valid_slot(args.slot)
                       or args.slot not in {f"{t:%H:%M}" for t in approve_bot.post_times()}):
         return f"--slot {args.slot!r} is not one of the posting slots"
-    if args.category and args.category not in generation.CATEGORIES:
-        return f"--category {args.category!r} is not one of {', '.join(generation.CATEGORIES)}"
+    # Allow any non-empty category (user-defined categories are not in the hardcoded list)
+    if args.category and not re.match(r"^[A-Za-z0-9 &/_-]{1,64}$", args.category):
+        return f"--category {args.category!r} contains invalid characters"
     try:
         args.topic = generation.clean_topic(args.topic)
         args.source_url = generation.clean_source_url(args.source_url)

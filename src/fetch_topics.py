@@ -37,6 +37,34 @@ REDDIT_SUBS = [
     "ExperiencedDevs", "leetcode", "systemdesign", "osdev", "linux",
 ]
 
+# Subreddit presets for common non-tech niches. Keys are lowercase niche keyword fragments.
+NICHE_REDDIT_MAP: dict[str, list[str]] = {
+    "food": ["food", "cooking", "recipes", "Cooking", "AskCulinary", "MealPrepSunday"],
+    "cooking": ["cooking", "recipes", "food", "Cooking", "AskCulinary"],
+    "travel": ["travel", "solotravel", "backpacking", "digitalnomad", "TravelHacks"],
+    "fashion": ["femalefashionadvice", "malefashionadvice", "streetwear", "fashionadvice"],
+    "beauty": ["MakeupAddiction", "SkincareAddiction", "beauty", "HalfMagicBeauty"],
+    "fitness": ["fitness", "xxfitness", "weightlifting", "running", "bodyweightfitness"],
+    "health": ["health", "nutrition", "Supplements", "loseit", "HealthyFood"],
+    "gaming": ["gaming", "pcgaming", "indiegaming", "gamedev", "truegaming"],
+    "kids": ["Parenting", "daddit", "Mommit", "education", "ChildDevelopment"],
+    "education": ["education", "learnprogramming", "languagelearning", "math", "science"],
+    "finance": ["personalfinance", "investing", "financialindependence", "StockMarket", "CryptoCurrency"],
+    "business": ["Entrepreneur", "smallbusiness", "startups", "marketing", "growmybusiness"],
+    "music": ["WeAreTheMusicMakers", "musictheory", "Guitar", "learnmusic", "audiophile"],
+    "photography": ["photography", "photocritique", "analog", "AskPhotography"],
+    "anime": ["anime", "animesuggest", "manga", "OnePiece", "Naruto"],
+    "movies": ["movies", "television", "Letterboxd", "flicks", "TrueFilm"],
+    "sports": ["sports", "soccer", "nba", "Cricket", "formula1"],
+    "real estate": ["realestate", "FirstTimeHomeBuyer", "REBubble", "investing"],
+    "marketing": ["marketing", "digital_marketing", "SEO", "socialmedia", "PPC"],
+    "career": ["cscareerquestions", "jobs", "resumes", "careerguidance", "jobs"],
+    "productivity": ["productivity", "selfimprovement", "gtd", "nosurf", "digitalminimalism"],
+    "science": ["science", "Physics", "biology", "chemistry", "space"],
+    "history": ["history", "AskHistorians", "worldhistory", "todayilearned"],
+    "language": ["languagelearning", "linguistics", "duolingo", "LearnJapanese"],
+}
+
 # Keyword → category hints. Word-boundary, case-insensitive. Order matters only
 # for tie-breaking (first category with the most hits wins).
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
@@ -77,6 +105,20 @@ _CATEGORY_RE = {
     cat: re.compile(r"\b(?:" + "|".join(words) + r")\b", re.IGNORECASE)
     for cat, words in CATEGORY_KEYWORDS.items()
 }
+
+
+def _niche_reddit_subs(niche: str) -> list[str]:
+    """Return Reddit subs for a given niche, falling back to the default tech subs."""
+    niche_lower = niche.lower()
+    for key, subs in NICHE_REDDIT_MAP.items():
+        if key in niche_lower:
+            return subs
+    # Tech-related niches use the default set
+    tech_words = {"software", "engineering", "dev", "ai", "machine", "algorithm", "system", "cyber", "linux", "os"}
+    if any(w in niche_lower for w in tech_words):
+        return REDDIT_SUBS
+    # Unknown niche: return default (will mostly find evergreen topics)
+    return REDDIT_SUBS
 
 
 @dataclass
@@ -141,9 +183,14 @@ def fetch_hackernews(s: requests.Session, limit: int) -> list[Topic]:
     return out
 
 
-def fetch_reddit(s: requests.Session, limit: int) -> list[Topic]:
+def fetch_reddit(s: requests.Session, limit: int, niche: str | None = None) -> list[Topic]:
     # One combined multireddit request (r/a+b+c) — per-sub requests get 429'd fast.
-    multi = "+".join(REDDIT_SUBS)
+    if niche:
+        subs = _niche_reddit_subs(niche)
+        log.info("reddit subs for niche %r: %s", niche, ", ".join(subs[:5]))
+    else:
+        subs = REDDIT_SUBS
+    multi = "+".join(subs)
     try:
         return _reddit_json(s, multi, limit)
     except requests.RequestException as e:
@@ -279,7 +326,7 @@ SOURCES = {
 # --------------------------------------------------------------------------- #
 # Tagging + dedupe
 # --------------------------------------------------------------------------- #
-def categorize(t: Topic) -> None:
+def categorize(t: Topic, niche: str | None = None) -> None:
     text = " ".join([t.title, t.summary, " ".join(map(str, t.extra.get("tags", []))),
                      " ".join(map(str, t.extra.get("topics", [])))])
     hits = {cat: len(rx.findall(text)) for cat, rx in _CATEGORY_RE.items()}
@@ -292,6 +339,15 @@ def categorize(t: Topic) -> None:
     if hits:
         # Prefer specific categories over the generic "Dev" on ties.
         t.category = max(hits, key=lambda c: (hits[c], c != "Dev"))
+    elif niche:
+        # For non-tech niches, label unmatched topics with the user's first category.
+        try:
+            from src.user_taste import get_user_taste
+            cats = get_user_taste().categories
+            if cats:
+                t.category = cats[0]
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def normalize_scores(topics: list[Topic]) -> None:
@@ -345,18 +401,27 @@ def dedupe(topics: list[Topic]) -> list[Topic]:
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
-def fetch_all(limit: int = 30, sources: list[str] | None = None) -> list[Topic]:
+def fetch_all(limit: int = 30, sources: list[str] | None = None, niche: str | None = None) -> list[Topic]:
+    if niche is None:
+        try:
+            from src.user_taste import get_user_taste
+            niche = get_user_taste().niche
+        except Exception:  # noqa: BLE001
+            pass
     s = _session()
     raw: list[Topic] = []
     for name in sources or SOURCES:
         try:
-            got = SOURCES[name](s, limit)
+            if name == "reddit":
+                got = fetch_reddit(s, limit, niche=niche)
+            else:
+                got = SOURCES[name](s, limit)
             log.info("%-10s %3d items", name, len(got))
             raw.extend(got)
         except Exception as e:  # one broken source must not kill the run
             log.error("%-10s FAILED: %s", name, e)
     for t in raw:
-        categorize(t)
+        categorize(t, niche=niche)
     normalize_scores(raw)
     topics = dedupe(raw)
     log.info("total %d raw → %d after dedupe", len(raw), len(topics))

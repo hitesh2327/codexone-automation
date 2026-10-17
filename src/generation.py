@@ -28,7 +28,7 @@ WORKFLOW = "daily-generate.yml"
 ACTIVE = ("queued", "running")
 TERMINAL = ("succeeded", "failed", "skipped", "cancelled")
 PHASES = ("starting", "fetching_topics", "ranking", "writing", "rendering", "uploading", "sending_previews", "done")
-CATEGORIES = ("AI", "SystemDesign", "DSA", "Interview", "OS", "Dev")
+CATEGORIES = ("AI", "SystemDesign", "DSA", "Interview", "OS", "Dev")  # default tech set; user-defined categories accepted too
 RETENTION_DAYS = 90
 RUN_LIMIT = timedelta(minutes=45)          # the workflow's own timeout is 40
 QUEUE_LIMIT = timedelta(minutes=90)        # a run may legitimately wait behind another generate run

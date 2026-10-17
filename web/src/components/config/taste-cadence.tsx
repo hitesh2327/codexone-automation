@@ -38,14 +38,66 @@ function YoutubeIcon({ className }: { className?: string }) {
   );
 }
 
-const NICHES = [
-  "AI & Machine Learning",
-  "Software Engineering & Dev",
-  "Fintech & Crypto",
-  "Startup & Entrepreneurship",
-  "Productivity & Tech Tools",
-  "Cybersecurity & Cloud",
-  "Design & UI/UX",
+const NICHE_GROUPS: { label: string; niches: string[] }[] = [
+  {
+    label: "Tech & Dev",
+    niches: [
+      "AI & Machine Learning",
+      "Software Engineering & Dev",
+      "Cybersecurity & Cloud",
+      "Fintech & Crypto",
+      "Startup & Entrepreneurship",
+      "Productivity & Tech Tools",
+      "Design & UI/UX",
+    ],
+  },
+  {
+    label: "Food & Lifestyle",
+    niches: [
+      "Food & Cooking",
+      "Travel & Adventure",
+      "Fashion & Beauty",
+      "Health & Wellness",
+      "Fitness & Workout",
+      "Home Decor & DIY",
+      "Parenting & Family",
+    ],
+  },
+  {
+    label: "Education & Knowledge",
+    niches: [
+      "Science & Research",
+      "History & Culture",
+      "Mathematics & Logic",
+      "Language Learning",
+      "Kids & Education",
+      "Books & Literature",
+      "Personal Development",
+    ],
+  },
+  {
+    label: "Entertainment",
+    niches: [
+      "Gaming & Esports",
+      "Movies & TV",
+      "Music & Audio",
+      "Comedy & Memes",
+      "Sports & Athletes",
+      "Photography & Art",
+      "Animation & Cartoons",
+    ],
+  },
+  {
+    label: "Business & Finance",
+    niches: [
+      "Business & Entrepreneurship",
+      "Personal Finance & Investing",
+      "Marketing & Growth",
+      "Real Estate",
+      "Career & Job Search",
+      "Freelancing & Creators",
+    ],
+  },
 ];
 
 const TONES = [
@@ -55,15 +107,37 @@ const TONES = [
   "Conversational & Friendly",
   "Provocative & Thought-Provoking",
   "Storytelling & Narrative",
+  "Entertaining & Fun",
+  "Inspirational & Motivational",
+];
+
+const CONTENT_TYPES = [
+  "Educational & How-To",
+  "Entertainment & Fun",
+  "Inspirational & Motivational",
+  "Tutorial & Walkthrough",
+  "News & Commentary",
+  "Product & Review",
+  "Behind the Scenes",
 ];
 
 const AESTHETICS = [
   "Dark Minimalist Luxury",
   "Cyberpunk Neon Glow",
+  "Bright & Vibrant Energy",
   "Clean Modern Pastel",
+  "Natural & Organic Warm",
   "High-Contrast Cinematic",
+  "Playful & Colorful",
   "Retro Pixel / Terminal",
   "Editorial Typography",
+];
+
+const TEMPLATE_STYLES = [
+  { value: "Technical Dark", label: "Animated Diagrams", desc: "Code & system diagrams — best for tech" },
+  { value: "Minimal Clean", label: "Minimal Clean", desc: "Light cards, any niche" },
+  { value: "Vibrant Lifestyle", label: "Vibrant Lifestyle", desc: "Warm & bright — food, travel, wellness" },
+  { value: "Playful Colorful", label: "Playful & Colorful", desc: "Bold colors — kids, entertainment, gaming" },
 ];
 
 const DEFAULT_SLOTS = ["10:00", "18:00", "14:00", "21:00"];
@@ -89,11 +163,13 @@ export function TasteCadenceConfig({
   const { user, patchUser } = useAuth();
   const navigate = useNavigate();
 
-  const [niche, setNiche] = useState(user?.taste?.niche || "AI & Machine Learning");
+  const [niche, setNiche] = useState(user?.taste?.niche || "");
   const [tone, setTone] = useState(user?.taste?.tone || "Educational & Insightful");
+  const [contentType, setContentType] = useState(user?.taste?.content_type || "Educational & How-To");
   const [aesthetic, setAesthetic] = useState(user?.taste?.aesthetic || "Dark Minimalist Luxury");
+  const [templateStyle, setTemplateStyle] = useState(user?.taste?.template_style || "Technical Dark");
   const [targetAudience, setTargetAudience] = useState(
-    user?.taste?.target_audience || "Developers & Tech Founders"
+    user?.taste?.target_audience || ""
   );
   const [promptInstructions, setPromptInstructions] = useState(
     user?.taste?.prompt_instructions || ""
@@ -127,7 +203,9 @@ export function TasteCadenceConfig({
     if (user?.taste) {
       if (user.taste.niche) setNiche(user.taste.niche);
       if (user.taste.tone) setTone(user.taste.tone);
+      if (user.taste.content_type) setContentType(user.taste.content_type);
       if (user.taste.aesthetic) setAesthetic(user.taste.aesthetic);
+      if (user.taste.template_style) setTemplateStyle(user.taste.template_style);
       if (user.taste.target_audience) setTargetAudience(user.taste.target_audience);
       if (user.taste.prompt_instructions !== undefined) setPromptInstructions(user.taste.prompt_instructions);
       if (user.taste.default_targets) setPlatforms(user.taste.default_targets);
@@ -218,7 +296,9 @@ export function TasteCadenceConfig({
       taste: {
         niche,
         tone,
+        content_type: contentType,
         aesthetic,
+        template_style: templateStyle,
         target_audience: targetAudience,
         prompt_instructions: promptInstructions,
         default_targets: platforms,
@@ -295,29 +375,62 @@ export function TasteCadenceConfig({
             <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Primary Niche / Subject
             </label>
-            <div className="flex flex-wrap gap-1.5">
-              {NICHES.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setNiche(n)}
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                    niche === n
-                      ? "border-primary bg-primary/10 font-medium text-foreground"
-                      : "border-border bg-background/50 text-muted-foreground hover:bg-raised hover:text-foreground"
-                  )}
-                >
-                  {n}
-                </button>
+            <div className="grid gap-2">
+              {NICHE_GROUPS.map((group) => (
+                <div key={group.label} className="grid gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60">
+                    {group.label}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {group.niches.map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setNiche(n)}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                          niche === n
+                            ? "border-primary bg-primary/10 font-medium text-foreground"
+                            : "border-border bg-background/50 text-muted-foreground hover:bg-raised hover:text-foreground"
+                        )}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
             <Input
               value={niche}
               onChange={(e) => setNiche(e.target.value)}
-              placeholder="Or enter custom niche..."
+              placeholder="Or type a custom niche (e.g. Vegan Recipes, Anime, Real Estate India)"
               className="mt-1 h-9 text-sm"
             />
+          </div>
+
+          {/* Content Type */}
+          <div className="grid gap-2">
+            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Content Type
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {CONTENT_TYPES.map((ct) => (
+                <button
+                  key={ct}
+                  type="button"
+                  onClick={() => setContentType(ct)}
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                    contentType === ct
+                      ? "border-primary bg-primary/10 font-medium text-foreground"
+                      : "border-border bg-background/50 text-muted-foreground hover:bg-raised hover:text-foreground"
+                  )}
+                >
+                  {ct}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Tone */}
@@ -374,6 +487,33 @@ export function TasteCadenceConfig({
             </div>
           </div>
 
+          {/* Template Style */}
+          <div className="grid gap-2">
+            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Slide & Reel Template Style
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {TEMPLATE_STYLES.map((ts) => (
+                <button
+                  key={ts.value}
+                  type="button"
+                  onClick={() => setTemplateStyle(ts.value)}
+                  className={cn(
+                    "flex flex-col items-start gap-0.5 rounded-lg border p-3 text-left transition-colors",
+                    templateStyle === ts.value
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background/50 hover:bg-raised"
+                  )}
+                >
+                  <span className={cn("text-xs font-semibold", templateStyle === ts.value ? "text-foreground" : "text-muted-foreground")}>
+                    {ts.label}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground/70">{ts.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Target Audience */}
           <div className="grid gap-2">
             <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -382,7 +522,7 @@ export function TasteCadenceConfig({
             <Input
               value={targetAudience}
               onChange={(e) => setTargetAudience(e.target.value)}
-              placeholder="e.g. High school & university students learning Python"
+              placeholder="e.g. Home cooks aged 25-40 who want quick weeknight meals"
               className="h-9 text-sm"
             />
           </div>

@@ -24,7 +24,7 @@ from src.logger import get_logger
 
 log = get_logger("rank_topics")
 
-CATEGORY_DESCRIPTIONS = {
+TECH_CATEGORY_DESCRIPTIONS = {
     "AI": "AI/ML/LLMs: how models, agents, RAG, embeddings, inference work; notable releases",
     "SystemDesign": "System design: scalability, databases, caching, queues, distributed systems",
     "DSA": "Data structures & algorithms: patterns, complexity, classic interview problems",
@@ -32,6 +32,19 @@ CATEGORY_DESCRIPTIONS = {
     "OS": "Operating systems: processes, threads, memory, scheduling, file systems, Linux",
     "Dev": "General software development: languages, tools, practices, open source",
 }
+
+
+def _category_descriptions(categories: list[str], niche: str) -> dict[str, str]:
+    """Return category name → description for the active user's niche."""
+    # For tech categories that match the built-in set, use the detailed descriptions.
+    result = {}
+    for cat in categories:
+        if cat in TECH_CATEGORY_DESCRIPTIONS:
+            result[cat] = TECH_CATEGORY_DESCRIPTIONS[cat]
+        else:
+            # Generic description for custom categories (Gemini fills in the rest from context).
+            result[cat] = f"{cat}: trending and evergreen topics in {niche}"
+    return result
 
 
 class RankedTopic(BaseModel):
@@ -81,8 +94,15 @@ def load_candidates(day: str) -> list[dict]:
 
 def rank(day: str, category: str | None = None, seed: str | None = None) -> RankedTopic:
     """seed: makes the category pick stable per run; use a different seed per daily slot."""
+    from src.user_taste import get_user_taste
+    taste = get_user_taste()
+
     brand = load_brand()
-    weights = brand["topics_weight"]
+    # Use user-defined categories if available; fall back to brand config weights.
+    user_cats = taste.categories
+    weights = {c: 1 for c in user_cats} if user_cats else brand["topics_weight"]
+    cat_descs = _category_descriptions(list(weights.keys()), taste.niche)
+
     category = category or pick_category(weights, seed or day, last_category())
     covered = recent_titles()
     candidates = [c for c in load_candidates(day) if c["category"] == category]
@@ -95,23 +115,23 @@ def rank(day: str, category: str | None = None, seed: str | None = None) -> Rank
         for c in candidates[:25]
     ) or "(none)"
 
-    prompt = f"""You choose today's Instagram post topic for {brand['handle']}, a tech education
-account. Audience: students and junior developers in India. Language: {brand['language']}.
+    prompt = f"""You choose today's Instagram post topic for {brand['handle']}.
+Niche: {taste.niche}. Target audience: {taste.target_audience}. Language: {brand['language']}.
 
-Category: {category} -- {CATEGORY_DESCRIPTIONS.get(category, category)}
+Category: {category} -- {cat_descs.get(category, category)}
 
 Trending candidates in this category (title | source | popularity 0-1 | url):
 {lines}
 
 Pick ONE topic that:
-- teaches a real, durable concept (explainable in a 45s reel and a 6-slide carousel),
-- is technically accurate and not hype or clickbait,
-- is relevant to the audience (not niche product drama, not non-English repos, not company news with no lesson).
+- is genuinely useful or entertaining for {taste.target_audience},
+- can be explained in a short reel and a 6-slide carousel,
+- is factually accurate and not hype or clickbait,
+- is relevant to the {taste.niche} niche.
 
-Prefer a trending candidate if one is genuinely teachable; you may reframe it into the
-underlying concept (e.g. a trending agent repo -> "How AI coding agents use tools").
-If no candidate is suitable, propose a classic evergreen {category} topic instead and set
-evergreen=true with source_url="". Set category to "{category}".
+Prefer a trending candidate if one is genuinely useful; you may reframe it.
+If no candidate is suitable, propose an evergreen {category} topic and set evergreen=true.
+Set category to "{category}".
 
 Already covered recently -- do NOT pick any of these or a near-duplicate:
 {chr(10).join("- " + t for t in covered) or "(none)"}"""
@@ -124,7 +144,7 @@ Already covered recently -- do NOT pick any of these or a near-duplicate:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Pick today's topic with Gemini")
     ap.add_argument("--date", default=date.today().isoformat())
-    ap.add_argument("--category", choices=list(CATEGORY_DESCRIPTIONS))
+    ap.add_argument("--category")
     ap.add_argument("--dry-run", action="store_true", help="print only; write nothing")
     args = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
