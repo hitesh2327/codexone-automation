@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { CheckList, GuideSheet, ResultNote, StateDot, StateTag } from "@/components/config/parts";
 import { TasteCadenceConfig } from "@/components/config/taste-cadence";
+import { UserIntegrations } from "@/components/config/user-integrations";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -419,6 +420,7 @@ export default function ConfigPage() {
   const [confirm, setConfirm] = useState<Confirm>(null);
   const location = useLocation();
   const isOnboarding = user?.config_completed === false || !!(location.state as { onboarding?: boolean })?.onboarding;
+  const isAdmin = user?.role === "admin" || !user?.role;
 
   const load = useCallback(() => getOverview().then((d) => { setData(d); setError(null); }).catch((x) => setError(errText(x, "Couldn't load the configuration."))), []);
   useEffect(() => { load(); }, [load]);
@@ -469,10 +471,12 @@ export default function ConfigPage() {
 
         <TasteCadenceConfig isOnboarding={isOnboarding} onComplete={load} />
 
-        {error && <p role="alert" className="rounded-md border border-bad/40 bg-bad/10 p-4 text-sm text-bad">{error}</p>}
-        {!data && !error && <div className="grid gap-4" role="status" aria-label="Loading configuration"><div className="shimmer h-28 rounded-md" /><div className="shimmer h-72 rounded-md" /></div>}
+        {!isAdmin && <UserIntegrations />}
 
-        {data && (
+        {error && <p role="alert" className="rounded-md border border-bad/40 bg-bad/10 p-4 text-sm text-bad">{error}</p>}
+        {!data && !error && isAdmin && <div className="grid gap-4" role="status" aria-label="Loading configuration"><div className="shimmer h-28 rounded-md" /><div className="shimmer h-72 rounded-md" /></div>}
+
+        {data && isAdmin && (
           <>
             <ReadinessBanner r={data.readiness} steps={steps} />
             {data.precedence === "env" && tier1.some((i) => i.fields.some((f) => f.source === "env")) && (

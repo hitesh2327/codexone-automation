@@ -12,6 +12,7 @@ export type User = {
   has_password?: boolean;
   avatar_v?: number | null;
   config_completed?: boolean;
+  role?: "admin" | "client";
   subscription_tier?: string;
   subscription_status?: string;
   taste?: {

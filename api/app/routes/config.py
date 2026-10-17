@@ -83,7 +83,7 @@ class SaveBody(Values):
 
 
 def _clean(integration: str, raw: dict[str, str]) -> tuple[dict[str, str], dict[str, list[str]]]:
-    allowed = {f.name for f in fields_of(integration)}
+    allowed = {f.name for f in fields_of(integration) if not f.per_user}
     bad = sorted(set(raw) - allowed)
     if bad:
         raise _fail(422, "unknown_field", f"Not a {BY_NAME[integration].title} setting: {', '.join(bad)}")
@@ -149,9 +149,10 @@ def schema() -> dict:
     """Static description of the integrations, fields and error codes (for the UI's copy and links)."""
     return {
         "integrations": [{"name": i.name, "title": i.title, "tier": i.tier, "blurb": i.blurb, "minutes": i.minutes,
-                          "implemented": i.implemented, "editable": i.editable} for i in BY_NAME.values()],
+                          "implemented": i.implemented, "editable": i.editable, "per_user": i.per_user} for i in BY_NAME.values()],
         "fields": [{"name": f.name, "integration": f.integration, "label": f.label, "secret": f.secret,
-                    "required": f.required, "shape": f.shape, "help": f.help, "advanced": f.advanced} for f in FIELDS],
+                    "required": f.required, "shape": f.shape, "help": f.help, "advanced": f.advanced,
+                    "per_user": f.per_user} for f in FIELDS],
         "error_classes": list(ERROR_CLASSES),
         "codes": {k: {"error_class": c.error_class, "message": c.message, "hint": c.hint} for k, c in CODES.items()},
     }

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, text
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -129,6 +129,7 @@ class User(Base):
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(100))
     # Config completion gate flag (QA Task 2)
     config_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    role: Mapped[str] = mapped_column(String(16), default="admin", server_default="admin")
 
 
 class OtpCode(Base):
@@ -293,3 +294,23 @@ class ConfigMeta(Base):
     canary_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
     config_version: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserConfigValue(Base):
+    """Per-user encrypted config values (TG chat ID, IG/YT credentials)."""
+    __tablename__ = "user_config_values"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_config_values_user_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(64))
+    is_secret: Mapped[bool] = mapped_column(Boolean, default=True)
+    ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    value_plain: Mapped[str | None] = mapped_column(Text)
+    dek_version: Mapped[int | None] = mapped_column(Integer)
+    fingerprint: Mapped[str | None] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(12), default="ui", server_default="ui")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str | None] = mapped_column(String(254))
