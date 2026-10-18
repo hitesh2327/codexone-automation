@@ -20,7 +20,7 @@ PROFILE = os.environ.get("AWS_PROFILE", "shhh")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 # What the API reads (api/app/settings.py, src/actions.py, src/approve_bot.py). DATABASE_URL is the direct
-# Neon URL, deliberately not DATABASE_URL_POOLED (pgbouncer + prepared statements).
+# connection string (not a pooler/pgbouncer URL — prepared statements break on those).
 REQUIRED = ["DATABASE_URL", "JWT_SECRET", "SESSION_SECRET", "ADMIN_USERNAME", "ADMIN_PASSWORD"]
 OPTIONAL = ["GOOGLE_WEB_CLIENT_ID", "GOOGLE_WEB_CLIENT_SECRET", "ALLOWED_GOOGLE_EMAILS",
             "TG_BOT_TOKEN", "TG_CHAT_ID", "MAIL_DRIVER", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE",

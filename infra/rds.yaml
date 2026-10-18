@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  codexone RDS PostgreSQL — replaces Neon.
+  Lambda stays outside the VPC (no NAT Gateway needed); RDS has a public endpoint
+  protected by credentials + SSL, exactly the same security model as Neon.
+
+Parameters:
+  DatabasePassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    MaxLength: 128
+    Description: >
+      Master password for the RDS instance. Save it in a password manager —
+      it is stored in SSM after deploy but cannot be recovered from there (SecureString).
+
+  DatabaseName:
+    Type: String
+    Default: codexone
+    AllowedPattern: "[a-z][a-z0-9_]{0,62}"
+    Description: Initial database name
+
+  DatabaseUsername:
+    Type: String
+    Default: codexone
+    AllowedPattern: "[a-z][a-z0-9_]{0,62}"
+    Description: Master username
+
+  InstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t4g.micro
+      - db.t4g.small
+    Description: "db.t3.micro = ~$13/month (us-east-1). Use db.t4g.micro for arm64 regions (~$10/month)."
+
+  AllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+    Description: Storage in GB (gp3, min 20)
+
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+
+Resources:
+  # ── VPC (two public subnets, two AZs — RDS subnet group needs ≥ 2 AZs) ──────────────────────
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.99.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-vpc"}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-igw"}
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.99.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false        # RDS gets a public DNS name, not a public IP per-subnet
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-a"}
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.99.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-b"}
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref RouteTable
+
+  SubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref RouteTable
+
+  # ── Security group ────────────────────────────────────────────────────────────────────────────
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PostgreSQL inbound (Lambda connects from internet, like Neon)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0    # Lambda runs outside the VPC; same open-internet model as Neon
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-db-sg"}
+
+  # ── RDS subnet group ──────────────────────────────────────────────────────────────────────────
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "${AWS::StackName} public subnets"
+      SubnetIds:
+        - !Ref SubnetA
+        - !Ref SubnetB
+
+  # ── RDS PostgreSQL ────────────────────────────────────────────────────────────────────────────
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot        # creates a final snapshot before delete — prevents accidental loss
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "${AWS::StackName}-pg"
+      DBName: !Ref DatabaseName
+      DBInstanceClass: !Ref InstanceClass
+      Engine: postgres
+      EngineVersion: "16"
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !Ref DatabasePassword
+      AllocatedStorage: !Ref AllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: true        # public endpoint, same model as Neon
+      VPCSecurityGroups:
+        - !GetAtt DbSecurityGroup.GroupId
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      PreferredBackupWindow: "02:00-03:00"    # 02:00 UTC = 07:30 IST, low-traffic
+      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: true        # must be disabled in console before stack delete
+      EnablePerformanceInsights: false
+      CopyTagsToSnapshot: true
+
+Outputs:
+  DbEndpoint:
+    Description: RDS hostname
+    Value: !GetAtt DbInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-endpoint"
+
+  DbPort:
+    Description: RDS port
+    Value: !GetAtt DbInstance.Endpoint.Port
+    Export:
+      Name: !Sub "${AWS::StackName}-port"
+
+  DatabaseUrlTemplate:
+    Description: >
+      DATABASE_URL template — replace PASSWORD with the actual password, then put this in SSM
+      with: aws ssm put-parameter --name /codexone/DATABASE_URL --type SecureString --overwrite --value "..."
+    Value: !Sub
+      - "postgresql://${DatabaseUsername}:PASSWORD@${Endpoint}:${Port}/${DatabaseName}?sslmode=require"
+      - Endpoint: !GetAtt DbInstance.Endpoint.Address
+        Port: !GetAtt DbInstance.Endpoint.Port
