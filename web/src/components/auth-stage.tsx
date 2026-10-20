@@ -1,24 +1,38 @@
 import type { ReactNode } from "react";
 
-import { Logo } from "@/components/logo";
+import { Logo, Wordmark } from "@/components/logo";
+
+/** The leaf from the logo, drawn large and faint behind the editorial panel. */
+function Leaf({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 120 120" aria-hidden className={className}>
+      <path d="M12 108 C12 52 58 12 108 12 C108 68 68 108 12 108 Z" fill="currentColor" />
+      <path d="M26 94 L94 26" stroke="var(--brand-bg)" strokeWidth="0.8" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
 
 /**
- * Shared frame for the signed-out screens: an editorial panel on the left (a ruled grid, a big
- * statement, something specific to the screen) and the actual form, with no card around it, on the right.
+ * Shared frame for the signed-out screens, in Mintly's own palette (.mintly, index.css) rather than the
+ * channel brand: an editorial panel on the left (a mint-ruled grid, a big statement, something specific
+ * to the screen) and the actual form, with no card around it, on the right.
  */
 export function AuthStage({ handle, aside, children }: { handle?: string; aside: ReactNode; children: ReactNode }) {
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-      <aside className="relative hidden overflow-hidden border-r bg-[color-mix(in_srgb,var(--brand-text)_2.5%,var(--brand-bg))] lg:flex lg:flex-col lg:justify-between lg:p-12">
-        {/* ruled paper: a fine grid that fades toward the corner the text sits in */}
+    <div className="mintly min-h-dvh lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <aside className="relative hidden overflow-hidden border-r bg-[color-mix(in_srgb,var(--mint)_3%,var(--brand-bg))] lg:flex lg:flex-col lg:justify-between lg:p-12">
+        {/* ruled paper in mint, fading toward the corner the text sits in */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-70 [background-image:linear-gradient(var(--border)_1px,transparent_1px),linear-gradient(90deg,var(--border)_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(120%_90%_at_100%_0%,black,transparent_70%)]"
+          className="pointer-events-none absolute inset-0 [background-image:linear-gradient(color-mix(in_srgb,var(--mint)_10%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_srgb,var(--mint)_10%,transparent)_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(120%_90%_at_0%_0%,black,transparent_70%)]"
         />
-        <span aria-hidden className="absolute top-0 right-12 h-28 w-1.5 bg-[var(--brand-accent)]" />
-        <div className="relative flex items-center gap-3">
-          <Logo className="size-9 text-xs" />
-          <span className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">{handle ?? "codexone"}</span>
+        <Leaf className="pointer-events-none absolute -right-28 -bottom-32 size-[36rem] text-[var(--mint)] opacity-[0.07]" />
+        <div className="relative flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Logo className="size-10" />
+            <Wordmark className="text-2xl" />
+          </div>
+          {handle && <span className="font-mono text-xs tracking-[0.14em] text-muted-foreground">{handle}</span>}
         </div>
         <div className="relative">{aside}</div>
       </aside>
@@ -26,8 +40,8 @@ export function AuthStage({ handle, aside, children }: { handle?: string; aside:
       <main className="grid min-h-dvh place-items-center px-5 py-10 lg:min-h-0">
         <div className="w-full max-w-[22rem]">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <Logo className="size-9 text-xs" />
-            <span className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">{handle ?? "codexone"}</span>
+            <Logo className="size-9" />
+            <Wordmark className="text-xl" />
           </div>
           {children}
         </div>

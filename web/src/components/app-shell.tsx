@@ -175,10 +175,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* desktop sidebar: the column carries the surface so it runs the full page height */}
       <div className="hidden border-r border-sidebar-border bg-sidebar md:block">
         <aside className="sticky top-0 flex h-dvh flex-col gap-7 overflow-y-auto px-4 pt-5 pb-4">
-          <Link to="/dashboard" className="flex items-center gap-3 rounded-md px-2 py-1" aria-label="codexone, go to Dashboard">
+          <Link to="/dashboard" className="flex items-center gap-3 rounded-md px-2 py-1" aria-label="Mintly, go to Dashboard">
             <Logo className="size-8 rounded-[9px] text-[11px]" />
             <span className="grid leading-tight">
-              <span className="font-heading text-[15px] font-semibold tracking-tight">codexone</span>
+              <span className="font-heading text-[15px] font-semibold tracking-tight">mintly</span>
               <span className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">content desk</span>
             </span>
           </Link>
@@ -208,7 +208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* mobile top bar: where you are, and who you are */}
       <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur md:hidden">
-        <Link to="/dashboard" aria-label="codexone, go to Dashboard" className="rounded-[9px]">
+        <Link to="/dashboard" aria-label="Mintly, go to Dashboard" className="rounded-[9px]">
           <Logo className="size-8 rounded-[9px] text-[11px]" />
         </Link>
         {here ? (
@@ -217,7 +217,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="truncate font-heading font-semibold tracking-tight">{here.label}</span>
           </span>
         ) : (
-          <span className="font-heading font-semibold tracking-tight">codexone</span>
+          <span className="font-heading font-semibold tracking-tight">mintly</span>
         )}
         <NavLink to="/profile" aria-label="Your profile" className="ml-auto grid size-10 place-items-center rounded-[30%]">
           <UserAvatar name={user?.name} email={user?.email} version={user?.avatar_v} className="size-8" text="text-xs" />

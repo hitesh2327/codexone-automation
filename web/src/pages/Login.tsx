@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError, googleLoginUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { slotName, slotsHeadline, type Brand } from "@/lib/brand";
+import { slotName, type Brand } from "@/lib/brand";
+import { cn } from "@/lib/utils";
 
 const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_cancelled: "Google sign-in was cancelled. You can try again or sign in with your password.",
   no_verified_email: "Your Google account doesn't have a verified email address.",
-  not_allowed: "That Google account isn't linked to a @codexonebyhitesh account.",
+  not_allowed: "That Google account isn't linked to a Mintly account.",
   disabled: "Your account has been disabled. Contact the account owner.",
 };
 
@@ -32,12 +33,31 @@ function GoogleIcon() {
   );
 }
 
+const STEPS = ["Trends", "Drafts", "You approve", "Publish"];
+
+/** How Mintly works, as a row of steps; the human step is the one in mint. */
+function Pipeline() {
+  return (
+    <ol className="mt-10 flex flex-wrap items-center gap-1.5 font-mono text-xs" aria-label="How Mintly works">
+      {STEPS.map((step, i) => (
+        <li key={step} className="flex items-center gap-2">
+          <span className={cn("rounded-full border px-3 py-1.5",
+            i === 2 ? "border-[var(--mint)] bg-[color-mix(in_srgb,var(--mint)_12%,transparent)] text-[var(--mint)]" : "border-border text-foreground/80")}>
+            {step}
+          </span>
+          {i < STEPS.length - 1 && <span aria-hidden className="h-px w-3 bg-border" />}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** The daily slots from the brand config, set like a menu: name, a dotted leader, the time. */
 function Slots({ times }: { times: string[] }) {
   if (!times.length) return null;
   const names = times.map(slotName);
   return (
-    <ul className="mt-10 grid max-w-sm gap-3 font-mono text-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300" aria-label="Daily posting slots">
+    <ul className="mt-8 grid max-w-sm gap-3 font-mono text-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300" aria-label="Daily posting slots">
       {times.map((time, i) => {
         // two slots in the same part of the day get numbered ("Evening slot 2"), so names stay unique
         const same = names.filter((n) => n === names[i]).length > 1;
@@ -126,24 +146,26 @@ export default function Login({ brand }: { brand: Brand | null }) {
       handle={brand?.handle}
       aside={
         <>
-          <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">Content desk</p>
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--mint)]">Content on autopilot</p>
           <h1 className="mt-5 max-w-lg font-heading text-[3.4rem] leading-[1.02] font-semibold tracking-tight">
-            {slotsHeadline(brand?.post_times_ist)}
+            Fresh posts,
             <br />
             <span className="relative inline-block">
-              One desk.
-              <span aria-hidden className="absolute -bottom-1 left-0 h-[5px] w-full bg-[var(--brand-accent)]" />
+              minted daily.
+              <span aria-hidden className="absolute -bottom-1 left-0 h-[5px] w-full rounded-full bg-[var(--mint)]" />
             </span>
           </h1>
           <p className="mt-6 max-w-md text-base leading-relaxed text-muted-foreground">
-            Review what was written, approve what's good, and watch it go live. Nothing posts until you say so.
+            Mintly spots what's trending, drafts reels and carousels, and sends each one to you on Telegram.
+            Nothing goes live until you approve it.
           </p>
+          <Pipeline />
           <Slots times={brand?.post_times_ist ?? []} />
         </>
       }
     >
-      <h2 className="font-heading text-3xl font-semibold tracking-tight">Sign in</h2>
-      <p className="mt-2 text-sm text-muted-foreground">Use your username or email.</p>
+      <h2 className="font-heading text-3xl font-semibold tracking-tight">Welcome back</h2>
+      <p className="mt-2 text-sm text-muted-foreground">Sign in to Mintly with your username or email.</p>
 
       {notice && <p role="status" className="mt-6 border-l-[3px] border-ok bg-ok/10 px-3 py-2 text-sm text-ok">{notice}</p>}
       {error && (

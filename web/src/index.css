@@ -125,6 +125,15 @@
     color-scheme: dark;
 }
 
+/* Mintly, the product brand: fixed, unlike the channel palette above. Used by the signed-out screens. */
+.mintly {
+    --mint: #34E3A4;
+    --mint-deep: #0FA37A;
+    --primary: var(--mint);
+    --primary-foreground: #0D1117;
+    --ring: var(--mint);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
