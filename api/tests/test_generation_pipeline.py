@@ -284,7 +284,7 @@ def test_custom_topic_with_shell_text_stays_text(stages):
 
 @pytest.mark.parametrize("args", [
     ["--topic", "Valid topic here"],                                       # needs a category
-    ["--category", "Cooking"], ["--category", "DSA", "--topic", "abc"],
+    ["--category", "Cooking<script>"],["--category", "DSA", "--topic", "abc"],
     ["--category", "DSA", "--topic", "Valid topic here", "--source-url", "http://example.com"],
     ["--category", "DSA", "--source-url", "https://example.com"],           # link without a topic
 ])

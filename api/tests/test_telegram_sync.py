@@ -60,6 +60,14 @@ def telegram(monkeypatch):
     return install
 
 
+def test_item_carries_owner_and_never_nulls_it(telegram):
+    item = q.get("c")
+    assert item.user_id == 1  # column default; send_preview/publish read item.user_id
+    item.user_id = None
+    q.save([item])
+    assert q.get("c").user_id == 1
+
+
 def test_telegram_approve_updates_db_and_offset(telegram):
     telegram([tap(100, "approve:r", 20)])
     assert approve_bot.poll() == [("r", "approved")]

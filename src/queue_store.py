@@ -71,6 +71,7 @@ class Item(BaseModel):
     targets: list[str] | None = None       # platforms to publish to; None = DEFAULT_TARGETS[kind]
     yt_title: str | None = None            # YouTube overrides (else built from the caption)
     yt_description: str | None = None
+    user_id: int | None = None             # owner; None = the DB default (the original single user)
 
     def model_post_init(self, _ctx) -> None:
         if not self.group_id:
@@ -112,6 +113,8 @@ def _iso(value: datetime | None, tz: timezone = timezone.utc) -> str | None:
 
 def _to_row_values(item: Item) -> dict:
     d = item.model_dump()
+    if d["user_id"] is None:
+        d.pop("user_id")  # never overwrite a stored owner with NULL; new rows get the column default
     d["date"] = date_cls.fromisoformat(item.date)
     d["publish_at"] = _parse_ts(item.publish_at)
     for f in _TS_FIELDS:

@@ -148,7 +148,7 @@ def test_double_submit_is_one_job_one_dispatch(authed, gh):
 
 
 @pytest.mark.parametrize("patch", [
-    {"category": "Cooking"}, {"topic": "abcd", "category": "DSA"}, {"topic": "x" * 121, "category": "DSA"},
+    {"category": "Cooking<script>"},{"topic": "abcd", "category": "DSA"}, {"topic": "x" * 121, "category": "DSA"},
     {"topic": "A fine topic"},                                                   # topic without category
     {"topic": "Bad\x00topic here", "category": "DSA"},
     {"category": "DSA", "topic": "A fine topic", "source_url": "http://example.com/a"},

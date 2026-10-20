@@ -262,6 +262,7 @@ def cmd_regenerate(args) -> int:
                 old = by_kind[new.kind]
                 new.feedback = old.feedback        # shown on the new preview as "Applied feedback"
                 new.targets = old.targets          # keep the platforms chosen in the dashboard
+                new.user_id = old.user_id
                 new.yt_title, new.yt_description = old.yt_title, old.yt_description
                 approve_bot.send_preview(new)
                 _log_generated(new, regenerated=True)
