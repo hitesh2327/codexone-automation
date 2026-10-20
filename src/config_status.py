@@ -165,7 +165,8 @@ def integration_state(name: str, *, entries: dict | None = None, checking: bool 
     values = effective_values(name)
     fp = values_fp(values) if values else None
     current, last = latest(name, fp)
-    required_set = all(f["is_set"] for f in fields if f["required"]) if fields else bool(values)
+    # per-user fields (e.g. TG_CHAT_ID) are set by each user on the Integrations page, never globally
+    required_set = all(f["is_set"] for f in fields if f["required"] and not FIELDS_BY_NAME[f["name"]].per_user)         if fields else bool(values)
     if checking:
         state = "checking"
     elif not values:
@@ -226,7 +227,8 @@ def readiness(states: dict[str, dict] | None = None) -> dict:
         "Until then a first generation can still fail on rendering or upload problems that no credential check sees.",
         None, blocking=False)
 
-    conflicts = [f["name"] for n in TIER1 for f in states[n]["fields"] if f["required"] and f["conflict"]]
+    conflicts = [f["name"] for n in TIER1 for f in states[n]["fields"]
+                 if f["required"] and f["conflict"] and not FIELDS_BY_NAME[f["name"]].per_user]
     gh = states["github"]["check"] or {}
     expiring = False
     if gh.get("expires_at"):

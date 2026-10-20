@@ -82,10 +82,11 @@ def check_format(values: dict[str, str], run: Run, need_chat: bool = True) -> tu
 def verify(values: dict[str, str], depth: str = "live") -> Result:
     run = Run(INTEGRATION, depth)
     token, chat = check_format(values, run)
-    if not token or not chat:
-        if not token and not chat:
+    # The bot token is global; the chat ID is per user (Integrations page), so a global check may have none.
+    if not token:
+        if not chat:
             return run.finish(not_set=True)
-        run.fail("value", "Bot token and chat ID are both set", "verify.not_set", depth="format")
+        run.fail("value", "Bot token is set", "verify.not_set", depth="format")
         return run.finish()
     if run.failed or depth == "format":
         return run.finish()
@@ -108,6 +109,12 @@ def verify(values: dict[str, str], depth: str = "live") -> Result:
         else:
             run.ok("no_webhook", "No webhook blocks approvals", "polling (getUpdates) can work")
 
+        if not chat:
+            run.skip("chat_reachable", "The bot can see the approval chat",
+                     "Each user sets their own chat ID under Integrations.")
+            if depth == "deep":
+                run.skip("delivery", "A test message arrives", "No chat ID to send to.", depth="deep")
+            return run.finish()
         info, err = _call(token, "getChat", chat_id=int(chat))
         if err:
             run.fail("chat_reachable", "The bot can see the approval chat", err)

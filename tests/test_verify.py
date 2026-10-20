@@ -187,7 +187,16 @@ def test_telegram_format_blocks_path_injection(http):
     r = telegram.verify({"TG_BOT_TOKEN": TG_TOKEN, "TG_CHAT_ID": "@channel"})
     assert r.code == "telegram.chat_format"
     assert http.calls == []
-    assert telegram.verify({"TG_BOT_TOKEN": TG_TOKEN}).code == "verify.not_set"
+    assert telegram.verify({"TG_CHAT_ID": "-1001"}).code == "verify.not_set"   # a chat ID without a bot token
+
+
+def test_telegram_token_only_is_valid(http):
+    # the chat ID is per user, so the global check verifies the bot token alone
+    tg_ok(http)
+    r = telegram.verify({"TG_BOT_TOKEN": TG_TOKEN}, depth="deep")
+    assert r.status == "valid"
+    assert next(c for c in r.checks if c.name == "chat_reachable").ok is None
+    assert not any(u.endswith(("/getChat", "/sendMessage")) for u in http.urls())
 
 
 def test_telegram_deep_sends_plain_message_without_buttons(http):

@@ -303,12 +303,22 @@ def test_config_version_bumps_only_on_required_changes():
 # Verify endpoint
 # --------------------------------------------------------------------------- #
 def test_verify_candidate_merges_with_current_values(authed, fake):
-    put(authed, "telegram", {"TG_BOT_TOKEN": "111:SENTINELtokentokentokentoken", "TG_CHAT_ID": "42"})
-    r = authed.post("/api/config/telegram/verify", json={"values": {"TG_CHAT_ID": " -100 "}})
+    put(authed, "gemini", {"GEMINI_API_KEY": "good-key-123456"})
+    r = authed.post("/api/config/gemini/verify", json={"values": {"GEMINI_MODEL": " gemini-pro "}})
     assert r.status_code == 200
     _, values, _ = fake.seen[-1]
-    assert values == {"TG_BOT_TOKEN": "111:SENTINELtokentokentokentoken", "TG_CHAT_ID": "-100"}
-    assert "SENTINELtoken" not in r.text
+    assert values == {"GEMINI_API_KEY": "good-key-123456", "GEMINI_MODEL": "gemini-pro"}
+    assert "good-key-123456" not in r.text
+
+
+def test_per_user_fields_are_not_global_settings(authed, fake):
+    # TG_CHAT_ID belongs to each user (PUT /api/integrations/TG_CHAT_ID), not to the global config
+    assert put(authed, "telegram", {"TG_BOT_TOKEN": "111:tokentokentokentokentok"}).status_code == 200
+    for r in (authed.post("/api/config/telegram/verify", json={"values": {"TG_CHAT_ID": "42"}}),
+              put(authed, "telegram", {"TG_CHAT_ID": "42"})):
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "unknown_field"
+    tg = next(i for i in authed.get("/api/config").json()["integrations"] if i["name"] == "telegram")
+    assert tg["state"] == "valid" and tg["required_set"] is True    # the bot token alone makes Telegram ready
 
 
 def test_deep_check_needs_consent_and_has_a_cooldown(authed, fake):
@@ -346,7 +356,7 @@ def test_history_lists_results_without_values(authed, fake):
 # --------------------------------------------------------------------------- #
 def make_ready(c):
     assert put(c, "gemini", {"GEMINI_API_KEY": "good-key-123456"}).status_code == 200
-    assert put(c, "telegram", {"TG_BOT_TOKEN": "111:tokentokentokentokentok", "TG_CHAT_ID": "42"}).status_code == 200
+    assert put(c, "telegram", {"TG_BOT_TOKEN": "111:tokentokentokentokentok"}).status_code == 200
     assert put(c, "cloudinary", {"CLOUDINARY_URL": "cloudinary://1:secretsecret@demo"}).status_code == 200
     assert put(c, "github", {"GITHUB_REPOSITORY": "acme/automation", "GITHUB_DISPATCH_TOKEN": "github_pat_123456789"}).status_code == 200
     assert config_store.report_runner()["key"] == "ok"   # a GitHub Actions run with the same master key reported
@@ -462,12 +472,13 @@ def test_unused_data_key_can_be_reset_but_never_one_in_use(authed, fake, monkeyp
 def test_failed_check_blocks_readiness(authed, fake):
     make_ready(authed)
     fake.status["telegram"] = "invalid"
-    authed.post("/api/config/telegram/verify", json={"values": {"TG_CHAT_ID": "43"}})   # different values: no reuse
-    put(authed, "telegram", {"TG_CHAT_ID": "43"}, expected={"TG_CHAT_ID": 1})          # rejected, nothing stored
+    other = "222:othertokenothertokenother"
+    authed.post("/api/config/telegram/verify", json={"values": {"TG_BOT_TOKEN": other}})  # different values: no reuse
+    put(authed, "telegram", {"TG_BOT_TOKEN": other}, expected={"TG_BOT_TOKEN": 1})       # rejected, nothing stored
     r = authed.get("/api/config/readiness").json()
     assert r["ready_to_generate"] is True   # the stored (working) values are still verified
     with db.session() as s:
-        s.get(ConfigValue, "TG_CHAT_ID").value_plain = "44"                             # changed behind our back
+        s.get(ConfigValue, "GITHUB_REPOSITORY").value_plain = "acme/other"               # changed behind our back
     config_store.invalidate()
     assert authed.get("/api/config/readiness").json()["ready_to_generate"] is False
 
