@@ -199,8 +199,13 @@ def test_add_period_keeps_the_day_where_it_exists():
 def test_public_subscription_plans(client, monkeypatch):
     monkeypatch.setenv("SELLER_GSTIN", SELLER)
     data = client.get("/api/subscription/plans").json()
-    creator = next(p for p in data["plans"] if p["id"] == "creator")
-    assert creator["price_inr_monthly"] == 3999 and creator["popular"] is True
+    assert [p["id"] for p in data["plans"]] == ["lite", "starter", "creator", "pro"]
+    by = {p["id"]: p for p in data["plans"]}
+    assert [by[i]["price_inr_monthly"] for i in by] == [699, 1499, 2999, 5999]
+    assert all(p["price_inr_yearly"] == 10 * p["price_inr_monthly"] for p in data["plans"])
+    assert by["lite"]["quota"] == {"reels": 0, "carousels": 30} and by["lite"]["platforms"] == ["ig"]
+    assert "yt" in by["starter"]["platforms"] and by["starter"]["quota"] == {"reels": 30, "carousels": 30}
+    assert by["creator"]["popular"] is True
     assert data["currency"] == "INR" and data["gst"] == {"enabled": True, "rate": 18}
     assert len(client.get("/api/subscription/states").json()["states"]) == len(billing.STATES)
 
@@ -260,21 +265,21 @@ def test_gateway_error_never_upgrades(authed, rzp):
 def test_new_subscription_in_the_sellers_state_shows_cgst_and_sgst(authed, rzp):
     _details(authed, state="27")
     q = _quote(authed, "creator")
-    assert q["kind"] == "new" and q["taxable"] == 399900
-    assert [(t["name"], t["amount"]) for t in q["taxes"]] == [("CGST", 35991), ("SGST", 35991)]
-    assert q["total_now"] == 471882 and q["renewal_total"] == 471882          # ₹4,718.82 incl. 18% GST
+    assert q["kind"] == "new" and q["taxable"] == 299900
+    assert [(t["name"], t["amount"]) for t in q["taxes"]] == [("CGST", 26991), ("SGST", 26991)]
+    assert q["total_now"] == 353882 and q["renewal_total"] == 353882          # ₹3,538.82 incl. 18% GST
     assert _tier(authed) == ("free", "active") and not rzp.subs              # a quote charges nothing
 
 
 def test_new_subscription_in_another_state_shows_igst(authed, rzp):
     _details(authed, state="29")
-    assert [(t["name"], t["amount"]) for t in _quote(authed, "creator")["taxes"]] == [("IGST", 71982)]
+    assert [(t["name"], t["amount"]) for t in _quote(authed, "creator")["taxes"]] == [("IGST", 53982)]
 
 
 def test_customer_abroad_pays_no_gst(authed, rzp):
     _details(authed, country="US")
     q = _quote(authed, "creator")
-    assert q["taxes"] == [] and q["total_now"] == 399900 and q["gst_rate"] == 0
+    assert q["taxes"] == [] and q["total_now"] == 299900 and q["gst_rate"] == 0
 
 
 def test_checkout_charges_exactly_the_quote_and_the_plan_includes_gst(authed, rzp):
@@ -282,7 +287,7 @@ def test_checkout_charges_exactly_the_quote_and_the_plan_includes_gst(authed, rz
     q = _quote(authed, "creator")
     co = _checkout(authed, q)
     sub = rzp.subs[co["subscription_id"]]
-    assert rzp.amount(co["subscription_id"]) == q["total_now"] == 471882     # Razorpay plan amount incl. GST
+    assert rzp.amount(co["subscription_id"]) == q["total_now"] == 353882     # Razorpay plan amount incl. GST
     assert sub["start_at"] is None and not sub["addons"] and sub["notes"]["change"] == "new"
     assert _tier(authed) == ("free", "active")                                # not paid yet
     rzp.authorise(co["subscription_id"])
@@ -329,7 +334,7 @@ def test_upgrade_credits_the_unused_time_and_charges_the_difference_with_gst(aut
     q = _quote(authed, "creator")
     assert q["kind"] == "upgrade"
     full, unused = q["lines"]
-    assert full["amount"] == 399900 and -unused["amount"] == pytest.approx(159900 * 0.5, rel=0.02)
+    assert full["amount"] == 299900 and -unused["amount"] == pytest.approx(149900 * 0.5, rel=0.02)
     assert q["taxable"] == full["amount"] + unused["amount"]
     assert q["total_now"] == q["taxable"] + sum(t["amount"] for t in q["taxes"])
     co = _checkout(authed, q)

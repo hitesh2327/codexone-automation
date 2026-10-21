@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, ApiError } from "@/lib/api";
 
@@ -221,7 +222,13 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
         )}
 
         {step === "review" && !quote && (
-          <div className="grid h-40 place-items-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+          <div role="status" aria-label="Working out the price" className="grid gap-2.5">
+            <Skeleton className="h-3 w-24" />
+            <div className="flex justify-between gap-4"><Skeleton className="h-4 w-56" /><Skeleton className="h-4 w-20" /></div>
+            <div className="flex justify-between gap-4"><Skeleton className="h-4 w-40" /><Skeleton className="h-4 w-16" /></div>
+            <div className="flex justify-between gap-4 border-t border-border pt-2.5"><Skeleton className="h-5 w-28" /><Skeleton className="h-5 w-24" /></div>
+            <Skeleton className="h-3 w-64" />
+          </div>
         )}
 
         {step === "review" && quote && (

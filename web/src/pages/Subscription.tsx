@@ -6,7 +6,6 @@ import {
   HelpCircle,
   Loader2,
   Lock,
-  Sparkles,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +25,7 @@ type Plan = {
   price_inr_monthly: number;
   price_inr_yearly: number;
   posts_per_day: number;
+  quota: { reels: number; carousels: number };
   features: string[];
   popular: boolean;
 };
@@ -44,6 +44,17 @@ type StatusResponse = {
   change_scheduled: boolean;
   payments_enabled: boolean;
   billing: BillingDetails;
+};
+
+/** Squared status tag colours by role (docs/design/design-system.md, "Status colours"). */
+const TAG: Record<string, { tag: string; dot: string }> = {
+  active: { tag: "text-ok border-ok/35 bg-ok/10", dot: "bg-ok" },
+  past_due: { tag: "text-wait border-wait/35 bg-wait/10", dot: "bg-wait" },
+  canceling: { tag: "text-wait border-wait/35 bg-wait/10", dot: "bg-wait" },
+  changing: { tag: "text-go border-go/35 bg-go/10", dot: "bg-go" },
+  halted: { tag: "text-bad border-bad/40 bg-bad/10", dot: "bg-bad" },
+  canceled: { tag: "text-muted-foreground border-border", dot: "bg-muted-foreground/60" },
+  paused: { tag: "text-muted-foreground border-border", dot: "bg-muted-foreground/60" },
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -147,25 +158,26 @@ export default function SubscriptionPage() {
       <div className="mx-auto grid max-w-[72rem] gap-8 px-4 py-6 md:px-8 md:py-9">
         <PageHeader
           index="06"
-          eyebrow="Billing & Scaling"
-          title="Plans & Subscription"
-          lead="Supercharge your automated content engine. Select the volume and publishing capabilities that match your growth strategy."
+          eyebrow="Billing"
+          title="Plans and subscription"
+          lead="Choose how many reels and carousels Mintly makes and posts for you each month."
         />
 
         {/* Current status banner */}
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-raised/50 p-5 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card/40 p-5">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Crown className="size-5" />
+              <Crown className="size-5" aria-hidden />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Current Plan:</span>
+                <span className="text-sm text-muted-foreground">Current plan</span>
                 <span className="font-heading font-semibold uppercase tracking-wider text-foreground">
                   {currentTier}
                 </span>
-                <span className={cn("rounded-full px-2 py-0.5 font-mono text-[10px] uppercase",
-                  statusKey === "active" ? "bg-ok/20 text-ok" : "bg-wait/20 text-wait")}>
+                <span className={cn("inline-flex h-5 items-center gap-1.5 rounded-[4px] border px-1.5 text-[11px] leading-none font-medium",
+                  TAG[statusKey]?.tag ?? TAG.canceled.tag)}>
+                  <span aria-hidden className={cn("size-1.5 rounded-[1px]", TAG[statusKey]?.dot ?? TAG.canceled.dot)} />
                   {STATUS_LABEL[statusKey] ?? statusKey}
                 </span>
               </div>
@@ -176,14 +188,14 @@ export default function SubscriptionPage() {
                     : statusKey === "changing"
                       ? `Your new plan starts on ${renews}, when this paid period ends.`
                       : `Renews on ${renews}.`
-                  : "All generation jobs, render pipelines, and publishing slots reflect your current tier."}
+                  : "Choose a plan below to start posting automatically."}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {paymentsEnabled ? (
               <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <Lock className="size-3.5 text-ok" />
+                <Lock className="size-3.5 text-ok" aria-hidden />
                 <span>Payments by Razorpay</span>
               </div>
             ) : (
@@ -204,27 +216,27 @@ export default function SubscriptionPage() {
               type="button"
               onClick={() => setInterval("month")}
               className={cn(
-                "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+                "rounded-md px-4 py-1.5 text-sm font-medium transition-colors duration-(--dur-fast) touch:h-10",
                 interval === "month"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Monthly Billing
+              Monthly
             </button>
             <button
               type="button"
               onClick={() => setInterval("year")}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+                "flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-medium transition-colors duration-(--dur-fast) touch:h-10",
                 interval === "year"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Annual Billing
-              <span className="rounded-full bg-signal/20 px-1.5 py-0.5 font-mono text-[10px] text-signal font-semibold uppercase">
-                Save 20%
+              Yearly
+              <span className="rounded-[4px] border border-ok/35 bg-ok/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-ok">
+                2 months free
               </span>
             </button>
           </div>
@@ -232,13 +244,13 @@ export default function SubscriptionPage() {
 
         {/* Plan Cards Grid */}
         {loading ? (
-          <div className="grid gap-6 md:grid-cols-3">
-            {[1, 2, 3].map((i) => (
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
               <div key={i} className="shimmer h-96 rounded-xl border border-border" />
             ))}
           </div>
         ) : (
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {plans.map((plan) => {
               const isCurrent = currentTier.toLowerCase() === plan.id.toLowerCase();
               const price = interval === "year" ? Math.round(plan.price_inr_yearly / 12) : plan.price_inr_monthly;
@@ -248,16 +260,13 @@ export default function SubscriptionPage() {
                 <div
                   key={plan.id}
                   className={cn(
-                    "relative flex flex-col justify-between rounded-2xl border p-6 transition-all duration-200",
-                    plan.popular
-                      ? "border-primary/60 bg-gradient-to-b from-primary/10 via-raised to-background shadow-lg shadow-primary/5"
-                      : "border-border bg-raised/30 hover:border-border/80"
+                    "relative flex flex-col justify-between rounded-xl border p-6 transition-colors duration-(--dur-fast)",
+                    plan.popular ? "border-primary/60 bg-selected" : "border-border bg-card/40 hover:border-rule"
                   )}
                 >
                   {plan.popular && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-0.5 font-mono text-[11px] font-semibold text-primary-foreground shadow">
-                        <Sparkles className="size-3" />
+                      <span className="inline-flex h-5 items-center rounded-[4px] bg-primary px-2 text-[11px] font-medium leading-none text-primary-foreground">
                         {plan.badge}
                       </span>
                     </div>
@@ -287,14 +296,14 @@ export default function SubscriptionPage() {
                     <div className="my-6 border-t border-rule" />
 
                     <div className="mb-3 flex items-center gap-2 font-mono text-xs font-semibold text-foreground">
-                      <Zap className="size-4 text-signal" />
-                      <span>{plan.posts_per_day} {plan.posts_per_day === 1 ? "Post" : "Posts"} / Day Automated</span>
+                      <Zap className="size-4 text-muted-foreground" aria-hidden />
+                      <span>{plan.quota.reels ? `${plan.quota.reels} reels + ` : ""}{plan.quota.carousels} carousels / month</span>
                     </div>
 
                     <ul className="grid gap-2.5 text-sm text-muted-foreground">
                       {plan.features.map((f, i) => (
                         <li key={i} className="flex items-start gap-2">
-                          <Check className="mt-0.5 size-4 shrink-0 text-ok" />
+                          <Check className="mt-0.5 size-4 shrink-0 text-ok" aria-hidden />
                           <span>{f}</span>
                         </li>
                       ))}
@@ -311,7 +320,7 @@ export default function SubscriptionPage() {
                       {isBusy ? (
                         <Loader2 className="size-4 animate-spin" />
                       ) : isCurrent ? (
-                        "Current Plan"
+                        "Your current plan"
                       ) : (
                         `Choose ${plan.name}`
                       )}
@@ -346,9 +355,9 @@ export default function SubscriptionPage() {
           <div className="flex items-start gap-3">
             <HelpCircle className="mt-1 size-5 text-muted-foreground" />
             <div>
-              <h4 className="text-sm font-semibold">Cancel or Switch Anytime</h4>
+              <h4 className="text-sm font-semibold">Cancel anytime</h4>
               <p className="mt-1 text-xs text-muted-foreground">
-                Flexible subscription management with no lock-ins. Switch plans whenever your cadence grows.
+                No lock-in. Cancel and keep your plan until the end of the period you've paid for.
               </p>
             </div>
           </div>
