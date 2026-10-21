@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Check,
   CreditCard,
@@ -43,32 +44,10 @@ type StatusResponse = {
 };
 
 type CheckoutResponse =
-  | { mode: "razorpay"; key_id: string; subscription_id: string; plan: string; email: string; name: string }
+  | { mode: "stripe"; url: string; session_id: string }
   | { mode: "instant"; ok: boolean; tier: string; status: string; message: string };
 
-type VerifyResponse = { ok: boolean; outcome: string; tier: string; status: string };
-
-type RazorpaySuccess = { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string };
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
-
-const CHECKOUT_JS = "https://checkout.razorpay.com/v1/checkout.js";
-
-/** Razorpay's checkout script, loaded once, the first time someone buys. */
-function loadRazorpay(): Promise<void> {
-  if (window.Razorpay) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = CHECKOUT_JS;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Couldn't load the payment window. Check your connection and try again."));
-    document.body.appendChild(s);
-  });
-}
+type VerifyResponse = { ok: boolean; outcome: string; tier?: string; status?: string; pending?: boolean };
 
 const STATUS_LABEL: Record<string, string> = {
   active: "Active",
@@ -81,6 +60,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function SubscriptionPage() {
   const { user, patchUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentTier, setCurrentTier] = useState<string>(user?.subscription_tier || "free");
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -118,24 +98,34 @@ export default function SubscriptionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  /** After Razorpay says the payment went through: the server checks it with Razorpay and updates the plan. */
-  async function confirmPayment(resp: RazorpaySuccess, planName: string) {
-    try {
-      const v = await api<VerifyResponse>("/api/subscription/verify", { method: "POST", body: resp });
-      if (v.outcome === "activated" || v.status === "active") {
-        await refreshStatus();
-        toast.success(`You're on ${planName} now.`);
-      } else {
-        // paid, but Razorpay is still settling the first charge: the webhook switches the plan shortly
-        toast.info("Payment received. Your plan switches as soon as Razorpay confirms it, usually within a minute.");
-        setTimeout(() => { refreshStatus().catch(() => undefined); }, 15000);
-      }
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't confirm the payment. Refresh in a minute to check your plan.");
-    } finally {
-      setBusyPlan(null);
+  // Back from Stripe Checkout: the server re-reads the session from Stripe and updates the plan.
+  useEffect(() => {
+    const sessionId = searchParams.get("session_id");
+    const cancelled = searchParams.get("checkout") === "cancelled";
+    if (!sessionId && !cancelled) return;
+    setSearchParams({}, { replace: true });   // a reload must not confirm the same checkout twice
+    if (cancelled) {
+      toast.info("Checkout cancelled. Nothing was charged and your plan didn't change.");
+      return;
     }
-  }
+    api<VerifyResponse>("/api/subscription/verify", { method: "POST", body: { session_id: sessionId } })
+      .then(async (v) => {
+        if (v.outcome === "activated" || v.outcome === "updated") {
+          const st = await refreshStatus();
+          toast.success(`Payment received. You're on the ${st.tier} plan now.`);
+        } else if (v.pending) {
+          // paid, but Stripe is still settling the first charge: the webhook switches the plan shortly
+          toast.info("Payment is processing. Your plan switches as soon as Stripe confirms it, usually within a minute.");
+          setTimeout(() => { refreshStatus().catch(() => undefined); }, 15000);
+        } else {
+          await refreshStatus();
+        }
+      })
+      .catch((err) => {
+        toast.error(err instanceof ApiError ? err.message : "Couldn't confirm the payment. Refresh in a minute to check your plan.");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSelectPlan(planId: string) {
     if (planId === currentTier) {
@@ -157,27 +147,9 @@ export default function SubscriptionPage() {
         setBusyPlan(null);
         return;
       }
-
-      await loadRazorpay();
-      const Razorpay = window.Razorpay;
-      if (!Razorpay) throw new Error("Couldn't load the payment window.");
-      new Razorpay({
-        key: res.key_id,
-        subscription_id: res.subscription_id,
-        name: "Mintly",
-        description: `${res.plan} plan (${interval === "year" ? "yearly" : "monthly"})`,
-        prefill: { email: res.email, name: res.name },
-        theme: { color: "#34E3A4" },
-        handler: (resp: RazorpaySuccess) => { void confirmPayment(resp, res.plan); },
-        modal: {
-          ondismiss: () => {
-            setBusyPlan(null);
-            toast.info("Payment cancelled. Your plan didn't change.");
-          },
-        },
-      }).open();
+      window.location.href = res.url;   // Stripe-hosted Checkout; it sends the browser back here when done
     } catch (err) {
-      toast.error(err instanceof ApiError || err instanceof Error ? err.message : "Failed to start checkout");
+      toast.error(err instanceof ApiError ? err.message : "Failed to start checkout");
       setBusyPlan(null);
     }
   }
@@ -239,7 +211,7 @@ export default function SubscriptionPage() {
             {paymentsEnabled ? (
               <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                 <Lock className="size-3.5 text-ok" />
-                <span>Payments by Razorpay</span>
+                <span>Payments by Stripe</span>
               </div>
             ) : (
               <span className="font-mono text-xs text-wait">Payments aren't set up yet</span>
@@ -380,9 +352,9 @@ export default function SubscriptionPage() {
           <div className="flex items-start gap-3">
             <CreditCard className="mt-1 size-5 text-muted-foreground" />
             <div>
-              <h4 className="text-sm font-semibold">Secure payments by Razorpay</h4>
+              <h4 className="text-sm font-semibold">Secure payments by Stripe</h4>
               <p className="mt-1 text-xs text-muted-foreground">
-                Pay with UPI, cards or netbanking. Card details go straight to Razorpay; Mintly never sees them.
+                Card details go straight to Stripe; Mintly never sees or stores them.
               </p>
             </div>
           </div>

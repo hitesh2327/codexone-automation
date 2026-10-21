@@ -122,14 +122,12 @@ class User(Base):
     taste: Mapped[dict | None] = mapped_column(JSONType, default=dict)
     # Cadence: custom posts per day & slot times (QA Task 4)
     cadence: Mapped[dict | None] = mapped_column(JSONType, default=dict)
-    # Subscription status & Stripe customer details (QA Task 3)
+    # Subscription status & Stripe customer/subscription (src/billing.py; the current subscription sets the plan)
     subscription_tier: Mapped[str] = mapped_column(String(32), default="free", server_default="free")
     subscription_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
     stripe_customer_id: Mapped[str | None] = mapped_column(String(100))
-    stripe_subscription_id: Mapped[str | None] = mapped_column(String(100))
-    # Razorpay (src/billing.py): the subscription that sets the plan, and one being paid for a plan switch
-    razorpay_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
-    razorpay_pending_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    # End of the period paid for (src/billing.py): the renewal date, or when a cancelled plan ends
     subscription_renews_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Config completion gate flag (QA Task 2)
     config_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
