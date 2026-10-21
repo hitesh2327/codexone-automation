@@ -27,7 +27,8 @@ OPTIONAL = ["GOOGLE_WEB_CLIENT_ID", "GOOGLE_WEB_CLIENT_SECRET", "ALLOWED_GOOGLE_
             "SMTP_USER", "SMTP_PASS", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_NAME",
             "MAIL_FROM", "MAIL_FROM_NAME",   # Telegram & SMTP optional settings
             "CONFIG_MASTER_KEY", "GITHUB_REPOSITORY", "GITHUB_DISPATCH_TOKEN",
-            "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]   # subscriptions (src/billing.py)
+            # subscriptions (src/billing.py); SELLER_GSTIN switches GST on
+            "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET", "SELLER_GSTIN"]
 # Optional for the API to start, but features are silently off without them (QA-M-01).
 NEEDED_BY = {
     "CONFIG_MASTER_KEY": "the Config page can't save secrets (python -m src.config_store generate-key; put the SAME "

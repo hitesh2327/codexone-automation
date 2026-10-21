@@ -129,6 +129,14 @@ class User(Base):
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(100), index=True)
     # End of the period paid for (src/billing.py): the renewal date, or when a cancelled plan ends
     subscription_renews_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Razorpay (src/billing.py): the subscription that sets the plan, and a plan change being paid or scheduled
+    razorpay_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    razorpay_pending_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    # Billing details for GST: country (ISO 3166 alpha-2), Indian state (GST state code), GSTIN for businesses
+    billing_name: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    billing_country: Mapped[str | None] = mapped_column(String(2))
+    billing_state: Mapped[str | None] = mapped_column(String(2))
+    billing_gstin: Mapped[str | None] = mapped_column(String(15))
     # Config completion gate flag (QA Task 2)
     config_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     role: Mapped[str] = mapped_column(String(16), default="admin", server_default="admin")

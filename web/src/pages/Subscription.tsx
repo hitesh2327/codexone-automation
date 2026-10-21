@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import {
   Check,
   CreditCard,
@@ -14,6 +13,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { PageHeader } from "@/components/page-header";
+import { PlanReviewDialog, type BillingDetails } from "@/components/plan-review-dialog";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -23,8 +23,8 @@ type Plan = {
   id: string;
   name: string;
   badge: string;
-  price_monthly: number;
-  price_yearly: number;
+  price_inr_monthly: number;
+  price_inr_yearly: number;
   posts_per_day: number;
   features: string[];
   popular: boolean;
@@ -33,6 +33,7 @@ type Plan = {
 type PlansResponse = {
   plans: Plan[];
   payments_enabled: boolean;
+  gst: { enabled: boolean; rate: number };
 };
 
 type StatusResponse = {
@@ -40,57 +41,35 @@ type StatusResponse = {
   status: string;
   renews_at: string | null;
   has_subscription: boolean;
+  change_scheduled: boolean;
   payments_enabled: boolean;
+  billing: BillingDetails;
 };
-
-type CheckoutResponse =
-  | { mode: "stripe"; url: string; session_id: string }
-  | { mode: "instant"; ok: boolean; tier: string; status: string; message: string }
-  | { mode: "switch"; plan: string; interval: "month" | "year"; proration_date: number; currency: string;
-      charge_now: number; credit: number };
-
-type SwitchResponse = { ok: boolean; outcome: string; tier: string; status: string; renews_at: string | null };
-
-function money(cents: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
-}
-
-/** What a prorated switch does, in one sentence for the confirmation. */
-function switchSummary(q: Extract<CheckoutResponse, { mode: "switch" }>): string {
-  const per = q.interval === "year" ? "yearly" : "monthly";
-  if (q.charge_now > 0) {
-    return `Switch to ${q.plan} (${per})? Your card on file is charged ${money(q.charge_now, q.currency)} now: ` +
-      "the new plan's price minus the unused time on your current plan.";
-  }
-  if (q.credit > 0) {
-    return `Switch to ${q.plan} (${per})? Nothing is charged now. The unused time on your current plan, ` +
-      `${money(q.credit, q.currency)}, is credited to your next invoices.`;
-  }
-  return `Switch to ${q.plan} (${per})? Nothing is charged now.`;
-}
-
-type VerifyResponse = { ok: boolean; outcome: string; tier?: string; status?: string; pending?: boolean };
 
 const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   past_due: "Payment retrying",
   halted: "Payment failed",
   canceling: "Ends at period end",
+  changing: "Change scheduled",
   canceled: "Cancelled",
   paused: "Paused",
 };
 
+const inr = (n: number) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+
 export default function SubscriptionPage() {
   const { user, patchUser } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentTier, setCurrentTier] = useState<string>(user?.subscription_tier || "free");
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [paymentsEnabled, setPaymentsEnabled] = useState(false);
+  const [gst, setGst] = useState<{ enabled: boolean; rate: number }>({ enabled: false, rate: 18 });
   const [interval, setInterval] = useState<"month" | "year">("month");
   const [loading, setLoading] = useState(true);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [canceling, setCanceling] = useState(false);
+  const [reviewing, setReviewing] = useState<Plan | null>(null);
 
   async function refreshStatus() {
     const st = await api<StatusResponse>("/api/subscription/status");
@@ -109,6 +88,7 @@ export default function SubscriptionPage() {
       .then(([plansRes, statusRes]) => {
         setPlans(plansRes.plans);
         setPaymentsEnabled(plansRes.payments_enabled);
+        setGst(plansRes.gst);
         if (statusRes) {
           setStatus(statusRes);
           setCurrentTier(statusRes.tier);
@@ -120,80 +100,29 @@ export default function SubscriptionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Back from Stripe Checkout: the server re-reads the session from Stripe and updates the plan.
-  useEffect(() => {
-    const sessionId = searchParams.get("session_id");
-    const cancelled = searchParams.get("checkout") === "cancelled";
-    if (!sessionId && !cancelled) return;
-    setSearchParams({}, { replace: true });   // a reload must not confirm the same checkout twice
-    if (cancelled) {
-      toast.info("Checkout cancelled. Nothing was charged and your plan didn't change.");
+  async function handleSelectPlan(plan: Plan) {
+    if (status?.change_scheduled) {
+      toast.info("A plan change is already scheduled for your renewal date.");
       return;
     }
-    api<VerifyResponse>("/api/subscription/verify", { method: "POST", body: { session_id: sessionId } })
-      .then(async (v) => {
-        if (v.outcome === "activated" || v.outcome === "updated") {
-          const st = await refreshStatus();
-          toast.success(`Payment received. You're on the ${st.tier} plan now.`);
-        } else if (v.pending) {
-          // paid, but Stripe is still settling the first charge: the webhook switches the plan shortly
-          toast.info("Payment is processing. Your plan switches as soon as Stripe confirms it, usually within a minute.");
-          setTimeout(() => { refreshStatus().catch(() => undefined); }, 15000);
-        } else {
-          await refreshStatus();
-        }
-      })
-      .catch((err) => {
-        toast.error(err instanceof ApiError ? err.message : "Couldn't confirm the payment. Refresh in a minute to check your plan.");
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function handleSelectPlan(planId: string) {
-    if (planId === currentTier) {
-      toast.info(`You are currently on the ${planId} plan.`);
-      return;
-    }
-
-    setBusyPlan(planId);
-    try {
-      const res = await api<CheckoutResponse>("/api/subscription/checkout", {
-        method: "POST",
-        body: { plan_id: planId, interval },
-      });
-
-      if (res.mode === "instant") {
+    if (!paymentsEnabled) {
+      // local development can still switch instantly (BILLING_DEV_INSTANT); elsewhere this explains why not
+      setBusyPlan(plan.id);
+      try {
+        const res = await api<{ tier: string; status: string; message: string }>("/api/subscription/checkout", {
+          method: "POST", body: { plan_id: plan.id, interval },
+        });
         setCurrentTier(res.tier);
         patchUser({ subscription_tier: res.tier, subscription_status: res.status });
         toast.success(res.message);
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : "Failed to start checkout");
+      } finally {
         setBusyPlan(null);
-        return;
       }
-      if (res.mode === "switch") {
-        // already subscribed: change the plan in place, prorated, after showing exactly what it costs
-        if (!window.confirm(switchSummary(res))) {
-          setBusyPlan(null);
-          return;
-        }
-        const done = await api<SwitchResponse>("/api/subscription/switch", {
-          method: "POST",
-          body: { plan_id: planId, interval: res.interval, proration_date: res.proration_date },
-        });
-        await refreshStatus();
-        toast.success(res.charge_now > 0
-          ? `You're on ${res.plan} now. ${money(res.charge_now, res.currency)} was charged to your card.`
-          : res.credit > 0
-            ? `You're on ${res.plan} now. ${money(res.credit, res.currency)} credit goes toward your next invoices.`
-            : `You're on ${res.plan} now.`);
-        setCurrentTier(done.tier);
-        setBusyPlan(null);
-        return;
-      }
-      window.location.href = res.url;   // Stripe-hosted Checkout; it sends the browser back here when done
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed to start checkout");
-      setBusyPlan(null);
+      return;
     }
+    setReviewing(plan);   // billing details, then the itemised quote with GST, then Razorpay
   }
 
   async function handleCancel() {
@@ -211,7 +140,7 @@ export default function SubscriptionPage() {
   }
 
   const statusKey = status?.status ?? "active";
-  const renews = status?.renews_at ? new Date(status.renews_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : null;
+  const renews = status?.renews_at ? new Date(status.renews_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : null;
 
   return (
     <AppShell>
@@ -244,7 +173,9 @@ export default function SubscriptionPage() {
                 {renews
                   ? statusKey === "canceling"
                     ? `Your plan stays active until ${renews}, then moves to Free.`
-                    : `Renews on ${renews}.`
+                    : statusKey === "changing"
+                      ? `Your new plan starts on ${renews}, when this paid period ends.`
+                      : `Renews on ${renews}.`
                   : "All generation jobs, render pipelines, and publishing slots reflect your current tier."}
               </p>
             </div>
@@ -253,12 +184,12 @@ export default function SubscriptionPage() {
             {paymentsEnabled ? (
               <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                 <Lock className="size-3.5 text-ok" />
-                <span>Payments by Stripe</span>
+                <span>Payments by Razorpay</span>
               </div>
             ) : (
               <span className="font-mono text-xs text-wait">Payments aren't set up yet</span>
             )}
-            {status?.has_subscription && statusKey !== "canceling" && (
+            {status?.has_subscription && statusKey !== "canceling" && statusKey !== "changing" && (
               <Button variant="ghost" size="sm" onClick={handleCancel} disabled={canceling}>
                 {canceling ? <Loader2 className="size-4 animate-spin" /> : "Cancel subscription"}
               </Button>
@@ -310,7 +241,7 @@ export default function SubscriptionPage() {
           <div className="grid gap-6 md:grid-cols-3">
             {plans.map((plan) => {
               const isCurrent = currentTier.toLowerCase() === plan.id.toLowerCase();
-              const price = interval === "year" ? Math.round(plan.price_yearly / 12) : plan.price_monthly;
+              const price = interval === "year" ? Math.round(plan.price_inr_yearly / 12) : plan.price_inr_monthly;
               const isBusy = busyPlan === plan.id;
 
               return (
@@ -341,13 +272,16 @@ export default function SubscriptionPage() {
                     </div>
 
                     <div className="mt-4 flex items-baseline gap-1">
-                      <span className="font-heading text-4xl font-extrabold tracking-tight">${price}</span>
-                      <span className="text-xs text-muted-foreground">/ month</span>
+                      <span className="font-heading text-4xl font-extrabold tracking-tight">₹{inr(price)}</span>
+                      <span className="text-xs text-muted-foreground">/ month{gst.enabled ? " + GST" : ""}</span>
                     </div>
                     {interval === "year" && (
                       <p className="mt-1 font-mono text-[11px] text-signal">
-                        Billed ${plan.price_yearly}/yr annually
+                        Billed ₹{inr(plan.price_inr_yearly)}/yr annually{gst.enabled ? " + GST" : ""}
                       </p>
+                    )}
+                    {gst.enabled && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{gst.rate}% GST for customers in India</p>
                     )}
 
                     <div className="my-6 border-t border-rule" />
@@ -372,14 +306,14 @@ export default function SubscriptionPage() {
                       variant={isCurrent ? "outline" : plan.popular ? "default" : "secondary"}
                       className="w-full py-5 text-sm font-semibold"
                       disabled={isCurrent || isBusy}
-                      onClick={() => handleSelectPlan(plan.id)}
+                      onClick={() => handleSelectPlan(plan)}
                     >
                       {isBusy ? (
                         <Loader2 className="size-4 animate-spin" />
                       ) : isCurrent ? (
                         "Current Plan"
                       ) : (
-                        `Upgrade to ${plan.name}`
+                        `Choose ${plan.name}`
                       )}
                     </Button>
                   </div>
@@ -394,18 +328,18 @@ export default function SubscriptionPage() {
           <div className="flex items-start gap-3">
             <CreditCard className="mt-1 size-5 text-muted-foreground" />
             <div>
-              <h4 className="text-sm font-semibold">Secure payments by Stripe</h4>
+              <h4 className="text-sm font-semibold">Secure payments by Razorpay</h4>
               <p className="mt-1 text-xs text-muted-foreground">
-                Card details go straight to Stripe; Mintly never sees or stores them.
+                Pay with UPI, card or netbanking. Payment details go straight to Razorpay; Mintly never sees them.
               </p>
             </div>
           </div>
           <div className="flex items-start gap-3">
             <Zap className="mt-1 size-5 text-muted-foreground" />
             <div>
-              <h4 className="text-sm font-semibold">Instant Volume Upgrades</h4>
+              <h4 className="text-sm font-semibold">Fair plan changes</h4>
               <p className="mt-1 text-xs text-muted-foreground">
-                Upgrading unlocks additional daily slots and high-priority render queue immediately.
+                Upgrades start now and you pay only the difference for the time left. Downgrades start when your paid period ends.
               </p>
             </div>
           </div>
@@ -420,6 +354,13 @@ export default function SubscriptionPage() {
           </div>
         </div>
       </div>
+      <PlanReviewDialog
+        plan={reviewing}
+        interval={interval}
+        open={reviewing !== null}
+        onOpenChange={(o) => { if (!o) setReviewing(null); }}
+        onDone={() => { refreshStatus().catch(() => undefined); }}
+      />
     </AppShell>
   );
 }

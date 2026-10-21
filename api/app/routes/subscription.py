@@ -1,23 +1,24 @@
-"""Subscription plans and Stripe checkout (src/billing.py holds the gateway logic).
+"""Subscription plans, billing details, GST quotes and Razorpay checkout (src/billing.py holds the gateway logic).
 
-A plan changes only from a subscription Stripe itself confirms: the return from Checkout (/verify, which
-re-fetches the session and subscription with our secret key), the signed webhook, or an in-place switch of a
-subscription the user already pays for (/switch: prorated, the difference charged or credited now; /checkout
-returns the exact amount first so the page can ask). All go through billing.adopt / billing.apply, with the
-user's row locked (SELECT ... FOR UPDATE) so two Stripe events arriving together are handled one after the other. Without STRIPE_SECRET_KEY, checkout refuses (503); a gateway error returns 502;
-neither ever changes a plan. BILLING_DEV_INSTANT=true allows instant activation for local development only: it is
-ignored on a real deployment (SSM_PREFIX set or COOKIE_SECURE on), so it can't be switched on in production.
+The page asks for a quote first (/quote: itemised, with GST, nothing charged), shows it, and only then starts
+checkout (/checkout recomputes the same quote and refuses if the total changed). A plan changes only from a
+subscription Razorpay itself confirms: the signed checkout callback (/verify, which re-fetches it with our key)
+or the signed webhook. Both go through billing.apply with the user's row locked (SELECT ... FOR UPDATE), so two
+events arriving together are handled one after the other. Without Razorpay keys, checkout refuses (503); a
+gateway error returns 502; neither ever changes a plan. BILLING_DEV_INSTANT=true allows instant activation for
+local development only: it is ignored on a real deployment (SSM_PREFIX set or COOKIE_SECURE on).
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from api.app.deps import CurrentUser, current_user, require_csrf
 from api.app.settings import settings
@@ -28,6 +29,7 @@ log = logging.getLogger("codexone.api.subscription")
 public_router = APIRouter(prefix="/subscription", tags=["subscription"])
 router = APIRouter(prefix="/subscription", tags=["subscription"])
 
+# Prices are before GST. price_inr_* is what Razorpay charges (INR); price_monthly/yearly (USD) is for reference.
 PLANS = [
     {
         "id": "starter",
@@ -35,6 +37,8 @@ PLANS = [
         "badge": "For Solopreneurs",
         "price_monthly": 19,
         "price_yearly": 190,
+        "price_inr_monthly": 1599,
+        "price_inr_yearly": 15990,
         "posts_per_day": 1,
         "features": [
             "1 automated post per day",
@@ -51,6 +55,8 @@ PLANS = [
         "badge": "Most Popular",
         "price_monthly": 49,
         "price_yearly": 490,
+        "price_inr_monthly": 3999,
+        "price_inr_yearly": 39990,
         "posts_per_day": 2,
         "features": [
             "2 automated posts per day (10:00 & 18:00 IST)",
@@ -68,6 +74,8 @@ PLANS = [
         "badge": "Maximum Reach",
         "price_monthly": 99,
         "price_yearly": 990,
+        "price_inr_monthly": 7999,
+        "price_inr_yearly": 79990,
         "posts_per_day": 4,
         "features": [
             "Up to 4 posts per day",
@@ -84,11 +92,9 @@ PLANS = [
 _UNAVAILABLE = "Payments aren't set up yet, so plans can't be changed right now."
 _GATEWAY = ("Couldn't reach the payment provider. Nothing was charged and your plan didn't change. "
             "Try again in a few minutes.")
-_DECLINED = "Your card was declined, so your plan didn't change. Update your card and try again."
-PRORATION_MAX_AGE = 30 * 60      # a switch must be confirmed within 30 minutes of seeing its price
-# Stripe events that can change a plan; anything else is acknowledged and ignored
-_SUB_EVENTS = {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted",
-               "customer.subscription.paused", "customer.subscription.resumed"}
+_SCHEDULED = "A plan change is already scheduled for your renewal date."
+QUOTE_MAX_AGE = 30 * 60          # a quote must be paid within 30 minutes of seeing it
+_COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
 
 
 def _dev_instant() -> bool:
@@ -104,8 +110,6 @@ def _fail(code: int, error: str, message: str) -> HTTPException:
 def _billing_fail(e: billing.BillingError) -> HTTPException:
     if e.code == "payments_unavailable":
         return _fail(status.HTTP_503_SERVICE_UNAVAILABLE, e.code, _UNAVAILABLE)
-    if e.code == "card_declined":
-        return _fail(status.HTTP_402_PAYMENT_REQUIRED, e.code, _DECLINED)
     return _fail(status.HTTP_502_BAD_GATEWAY, "payment_error", _GATEWAY)
 
 
@@ -115,6 +119,13 @@ def _user(s, cu: CurrentUser, lock: bool = False) -> User:
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
     return user
+
+
+def _plan(plan_id: str) -> dict:
+    plan = next((p for p in PLANS if p["id"] == plan_id), None)
+    if not plan:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown plan: {plan_id}")
+    return plan
 
 
 def _change(user: User, before: tuple[str, str], via: str) -> dict | None:
@@ -138,39 +149,49 @@ def _renews(user: User) -> str | None:
     return user.subscription_renews_at.isoformat() if user.subscription_renews_at else None
 
 
-class CheckoutBody(BaseModel):
+def _details(user: User) -> dict:
+    return {"name": user.billing_name or user.name or "", "country": user.billing_country,
+            "state": user.billing_state, "gstin": user.billing_gstin, "complete": bool(user.billing_country)}
+
+
+class PlanBody(BaseModel):
     plan_id: str = Field(min_length=1, max_length=32)
     interval: str = Field(default="month", pattern="^(month|year)$")
 
 
+class CheckoutBody(PlanBody):
+    quote_at: int = Field(default=0, ge=0)        # from /quote, so the charge is exactly what was shown
+    expected_total: int = Field(default=0, ge=0)  # paise the page showed; a different total is refused
+
+
 class VerifyBody(BaseModel):
-    session_id: str = Field(min_length=1, max_length=255)
+    razorpay_payment_id: str = Field(min_length=1, max_length=64)
+    razorpay_subscription_id: str = Field(min_length=1, max_length=64)
+    razorpay_signature: str = Field(min_length=1, max_length=128)
 
 
-class SwitchBody(CheckoutBody):
-    proration_date: int = Field(gt=0)      # from /checkout's quote, so the charge matches what was shown
+class DetailsBody(BaseModel):
+    name: str = Field(default="", max_length=120)
+    country: str = Field(min_length=2, max_length=2)
+    state: str | None = Field(default=None, max_length=2)
+    gstin: str | None = Field(default=None, max_length=15)
 
 
-def _plan(plan_id: str) -> dict:
-    plan = next((p for p in PLANS if p["id"] == plan_id), None)
-    if not plan:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown plan: {plan_id}")
-    return plan
-
-
-def _live_subscription(user: User) -> dict | None:
-    """The user's current Stripe subscription when it can be switched in place, else None (start a Checkout)."""
-    if not user.stripe_subscription_id:
-        return None
-    sub = billing.fetch_subscription(user.stripe_subscription_id)
-    return sub if sub.get("status") in billing.LIVE else None
-
-
+# --------------------------------------------------------------------------- #
+# Catalogue, status, billing details
+# --------------------------------------------------------------------------- #
 @public_router.get("/plans")
 @router.get("/plans")
 def get_plans() -> dict:
     """Public subscription plans catalogue."""
-    return {"plans": PLANS, "payments_enabled": billing.configured()}
+    return {"plans": PLANS, "currency": billing.CURRENCY, "payments_enabled": billing.configured(),
+            "gst": {"enabled": billing.gst_enabled(), "rate": billing.GST_RATE}}
+
+
+@public_router.get("/states")
+def get_states() -> dict:
+    """Indian states and union territories with their GST state codes (for the billing details form)."""
+    return {"states": [{"code": c, "name": n} for c, n in sorted(billing.STATES.items(), key=lambda kv: kv[1])]}
 
 
 @router.get("/status")
@@ -182,43 +203,87 @@ def get_subscription_status(cu: CurrentUser = Depends(current_user)) -> dict:
             "tier": user.subscription_tier or "free",
             "status": user.subscription_status or "active",
             "renews_at": _renews(user),
-            "has_subscription": bool(user.stripe_subscription_id),
+            "has_subscription": bool(user.razorpay_subscription_id),
+            "change_scheduled": user.subscription_status == "changing",
             "payments_enabled": billing.configured(),
+            "billing": _details(user),
         }
 
 
-@router.post("/checkout")
-def create_checkout_session(body: CheckoutBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
-    """For a new subscriber, a Stripe Checkout page the browser goes to; the plan changes once Stripe confirms the
-    payment (/verify on the way back, or the webhook). For someone already subscribed, nothing is charged here:
-    the answer is a quote (mode "switch": what changing plan costs or credits right now) for /switch."""
-    plan = _plan(body.plan_id)
+@router.put("/billing-details")
+def put_billing_details(body: DetailsBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
+    country = body.country.strip().upper()
+    if not _COUNTRY_RE.match(country):
+        raise _fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "bad_country", "Choose your country.")
+    state = (body.state or "").strip() or None
+    gstin = (body.gstin or "").strip().upper() or None
+    if country == "IN":
+        if state not in billing.STATES:
+            raise _fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "bad_state", "Choose your state.")
+        if gstin and not billing.valid_gstin(gstin, state):
+            raise _fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "bad_gstin",
+                        "That GSTIN isn't valid for the state you chose. Check it, or leave it empty.")
+    else:
+        state, gstin = None, None
+    with db.session() as s:
+        user = _user(s, cu, lock=True)
+        user.billing_name = " ".join(body.name.split())
+        user.billing_country, user.billing_state, user.billing_gstin = country, state, gstin
+        return _details(user)
 
+
+# --------------------------------------------------------------------------- #
+# Quote -> checkout -> verify
+# --------------------------------------------------------------------------- #
+def _quote(user: User, plan: dict, interval: str, now: int) -> dict:
+    if not user.billing_country:
+        raise _fail(status.HTTP_409_CONFLICT, "billing_details_required", "Add your billing details first.")
+    try:
+        q = billing.quote(user, plan, interval, now)
+    except ValueError:
+        raise _fail(status.HTTP_400_BAD_REQUEST, "same_plan", "You're already on this plan.") from None
+    except billing.BillingError as e:
+        raise _billing_fail(e) from None
+    return {**q, "plan": plan["id"], "plan_name": plan["name"], "interval": interval, "quote_at": now}
+
+
+@router.post("/quote")
+def quote_change(body: PlanBody, cu: CurrentUser = Depends(current_user)) -> dict:
+    """What choosing this plan costs right now, itemised with GST. Nothing is charged."""
+    plan = _plan(body.plan_id)
+    if not billing.configured():
+        raise _fail(status.HTTP_503_SERVICE_UNAVAILABLE, "payments_unavailable", _UNAVAILABLE)
     with db.session() as s:
         user = _user(s, cu)
+        if user.subscription_status == "changing":
+            raise _fail(status.HTTP_409_CONFLICT, "change_scheduled", _SCHEDULED)
+        return _quote(user, plan, body.interval, int(time.time()))
+
+
+@router.post("/checkout")
+def create_checkout(body: CheckoutBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
+    """Start the Razorpay subscription for a quote the user has seen. The browser opens Razorpay Checkout with it;
+    the plan changes only once Razorpay confirms (/verify or the webhook)."""
+    plan = _plan(body.plan_id)
+    with db.session() as s:
+        user = _user(s, cu, lock=True)
         if billing.configured():
+            if not 0 <= time.time() - body.quote_at <= QUOTE_MAX_AGE:
+                raise _fail(status.HTTP_409_CONFLICT, "quote_expired", "That price is out of date. Choose the plan again.")
+            if user.subscription_status == "changing":
+                raise _fail(status.HTTP_409_CONFLICT, "change_scheduled", _SCHEDULED)
+            q = _quote(user, plan, body.interval, body.quote_at)
+            if q["total_now"] != body.expected_total:
+                raise _fail(status.HTTP_409_CONFLICT, "quote_changed",
+                            "The price changed since you looked. Review it again.")
             try:
-                sub = _live_subscription(user)
-                if sub:
-                    meta = sub.get("metadata") or {}
-                    if (meta.get("plan"), meta.get("interval")) == (plan["id"], body.interval):
-                        raise _fail(status.HTTP_400_BAD_REQUEST, "same_plan", "You're already on this plan.")
-                    when = int(time.time())
-                    quote = billing.preview_switch(sub, plan, body.interval, when)
-                    return {"mode": "switch", "plan": plan["name"], "interval": body.interval,
-                            "proration_date": when, "currency": quote["currency"],
-                            "charge_now": quote["amount_due"], "credit": max(0, -quote["total"])}
+                sub = billing.start(user, plan, body.interval, q)
             except billing.BillingError as e:
                 raise _billing_fail(e) from None
-            base = settings().public_url.rstrip("/")
-            try:
-                session = billing.create_checkout(
-                    plan, body.interval, user_id=user.id, customer=user.stripe_customer_id, email=user.email,
-                    success_url=f"{base}/subscription?session_id={{CHECKOUT_SESSION_ID}}",
-                    cancel_url=f"{base}/subscription?checkout=cancelled")
-            except billing.BillingError as e:
-                raise _billing_fail(e) from None
-            return {"mode": "stripe", "url": session["url"], "session_id": session["id"]}
+            user.razorpay_pending_subscription_id = sub["id"]
+            return {"mode": "razorpay", "key_id": billing.key_id(), "subscription_id": sub["id"],
+                    "kind": q["kind"], "plan": plan["name"], "total_now": q["total_now"],
+                    "email": user.email or "", "name": user.billing_name or user.name or ""}
 
         if not _dev_instant():
             raise _fail(status.HTTP_503_SERVICE_UNAVAILABLE, "payments_unavailable", _UNAVAILABLE)
@@ -233,56 +298,23 @@ def create_checkout_session(body: CheckoutBody, cu: CurrentUser = Depends(requir
 
 
 @router.post("/verify")
-def verify_checkout(body: VerifyBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
-    """The return from Stripe Checkout. Everything is re-read from Stripe with our secret key; the browser only
-    says which session to look at, and it must be this user's."""
-    try:
-        session = billing.fetch_session(body.session_id)
-    except billing.BillingError as e:
-        if str(e).startswith("HTTP 4"):         # Stripe doesn't know that session (a typo or another account's)
-            raise _fail(status.HTTP_400_BAD_REQUEST, "bad_session", "That checkout couldn't be found.") from None
-        raise _billing_fail(e) from None
-    if str(session.get("client_reference_id") or "") != str(cu.id) or session.get("mode") != "subscription":
-        raise _fail(status.HTTP_400_BAD_REQUEST, "bad_session", "That checkout isn't for this account.")
-    sub_id = session.get("subscription")
-    if session.get("status") != "complete" or not sub_id:
-        return {"ok": True, "outcome": "ignored", "pending": True}     # not paid (yet): nothing changes
-    try:
-        sub = billing.fetch_subscription(sub_id)
-    except billing.BillingError as e:
-        raise _billing_fail(e) from None
+def verify_payment(body: VerifyBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
+    """Razorpay Checkout's success callback. The signature proves Razorpay issued it; the plan then comes from
+    the subscription as Razorpay reports it, not from anything the browser sent."""
+    if not billing.payment_signature_ok(body.razorpay_payment_id, body.razorpay_subscription_id,
+                                        body.razorpay_signature):
+        raise _fail(status.HTTP_400_BAD_REQUEST, "bad_signature", "That payment confirmation isn't valid.")
     with db.session() as s:
         user = _user(s, cu, lock=True)
-        before = (user.subscription_tier, user.subscription_status)
-        outcome = billing.adopt(user, sub)
-        change = _change(user, before, "checkout")
-        out = {"ok": True, "outcome": outcome, "tier": user.subscription_tier, "status": user.subscription_status,
-               "pending": outcome == "ignored" and sub.get("status") == "incomplete"}
-    _log(change)
-    return out
-
-
-@router.post("/switch")
-def switch_plan(body: SwitchBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
-    """Change the plan of the subscription the user already pays for, prorated: Stripe charges the difference to
-    the card on file now, or credits the unused time to future invoices. A declined card changes nothing."""
-    plan = _plan(body.plan_id)
-    when = body.proration_date
-    if not 0 <= time.time() - when <= PRORATION_MAX_AGE:
-        raise _fail(status.HTTP_409_CONFLICT, "quote_expired", "That price is out of date. Choose the plan again.")
-    with db.session() as s:
-        user = _user(s, cu, lock=True)
+        if body.razorpay_subscription_id not in (user.razorpay_pending_subscription_id, user.razorpay_subscription_id):
+            raise _fail(status.HTTP_400_BAD_REQUEST, "bad_signature", "That payment isn't for this account.")
         try:
-            sub = _live_subscription(user)
-            if not sub:
-                raise _fail(status.HTTP_409_CONFLICT, "no_subscription",
-                            "There's no active subscription to change. Choose the plan again to subscribe.")
-            updated = billing.switch(sub, plan, body.interval, when)
+            sub = billing.fetch_subscription(body.razorpay_subscription_id)
         except billing.BillingError as e:
             raise _billing_fail(e) from None
         before = (user.subscription_tier, user.subscription_status)
-        outcome = billing.apply(user, updated)
-        change = _change(user, before, "switch")
+        outcome = billing.apply(user, sub)
+        change = _change(user, before, "checkout")
         out = {"ok": True, "outcome": outcome, "tier": user.subscription_tier, "status": user.subscription_status,
                "renews_at": _renews(user)}
     _log(change)
@@ -294,63 +326,45 @@ def cancel_subscription(cu: CurrentUser = Depends(require_csrf)) -> dict:
     """Cancel at the end of the period already paid for; the webhook downgrades the plan when it ends."""
     with db.session() as s:
         user = _user(s, cu, lock=True)
-        if not user.stripe_subscription_id:
+        if not user.razorpay_subscription_id:
             raise _fail(status.HTTP_400_BAD_REQUEST, "no_subscription", "There's no paid subscription to cancel.")
+        if user.subscription_status == "changing":
+            raise _fail(status.HTTP_409_CONFLICT, "change_scheduled", _SCHEDULED)
         try:
-            sub = billing.cancel_at_period_end(user.stripe_subscription_id)
+            billing.cancel_subscription(user.razorpay_subscription_id, at_cycle_end=True)
         except billing.BillingError as e:
             raise _billing_fail(e) from None
         before = (user.subscription_tier, user.subscription_status)
-        billing.apply(user, sub)
+        user.subscription_status = "canceling"
         change = _change(user, before, "cancel")
         out = {"ok": True, "tier": user.subscription_tier, "status": user.subscription_status, "renews_at": _renews(user)}
     _log(change)
     return out
 
 
-@public_router.post("/stripe/webhook", include_in_schema=False)
-async def stripe_webhook(request: Request) -> dict:
-    """Stripe events. Public (Stripe calls it), so the signature is the only authority."""
+@public_router.post("/razorpay/webhook", include_in_schema=False)
+async def razorpay_webhook(request: Request) -> dict:
+    """Razorpay subscription events. Public (Razorpay calls it), so the signature is the only authority."""
     raw = await request.body()
-    if not billing.webhook_event_ok(raw, request.headers.get("stripe-signature", "")):
+    if not billing.webhook_signature_ok(raw, request.headers.get("x-razorpay-signature", "")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad signature")
     try:
         event = json.loads(raw)
-        kind, obj = event["type"], event["data"]["object"]
+        sub = event["payload"]["subscription"]["entity"]
+        sub_id = sub["id"]
     except (ValueError, KeyError, TypeError):
-        return {"ok": True, "outcome": "ignored"}
-
-    if kind == "checkout.session.completed":
-        if obj.get("mode") != "subscription" or not obj.get("subscription"):
-            return {"ok": True, "outcome": "ignored"}
-        try:
-            sub = billing.fetch_subscription(obj["subscription"])
-        except billing.BillingError:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Stripe unavailable") from None   # Stripe retries
-        uid = str(obj.get("client_reference_id") or "")
-    elif kind in _SUB_EVENTS:
-        sub, uid = obj, ""
-    else:
-        return {"ok": True, "outcome": "ignored"}
-
+        return {"ok": True, "outcome": "ignored"}       # signed, but not a subscription event: nothing to do
     with db.session() as s:
-        # FOR UPDATE: Stripe often sends checkout.session.completed and customer.subscription.created together;
-        # the second waits here for the first to finish, then finds nothing left to change (one activity entry)
-        user = s.scalars(select(User).where(User.stripe_subscription_id == sub.get("id")).with_for_update()).first()
-        if user:
-            how = billing.apply
-        else:
-            # not anyone's current subscription: a new one, for the user our checkout wrote into it
-            owner = int(uid) if uid.isdigit() else billing.owner_id(sub)
-            if owner and billing.owner_id(sub) not in (None, owner):
-                owner = None                    # the checkout and the subscription disagree on whose it is
-            user = s.get(User, owner, with_for_update=True) if owner else None
-            how = billing.adopt
+        # FOR UPDATE: Razorpay often sends several events for one change together; the next one waits here for
+        # the previous to finish, then finds nothing left to change (one activity entry per change)
+        user = s.scalars(select(User).where(or_(User.razorpay_subscription_id == sub_id,
+                                                User.razorpay_pending_subscription_id == sub_id))
+                         .with_for_update()).first()
         if not user:
-            log.info("stripe %s for an unknown subscription", kind)
+            log.info("razorpay %s for an unknown subscription", event.get("event"))
             return {"ok": True, "outcome": "ignored"}
         before = (user.subscription_tier, user.subscription_status)
-        outcome = how(user, sub)
-        change = _change(user, before, f"webhook:{kind}")
+        outcome = billing.apply(user, sub)
+        change = _change(user, before, f"webhook:{event.get('event')}")
     _log(change)
     return {"ok": True, "outcome": outcome}
