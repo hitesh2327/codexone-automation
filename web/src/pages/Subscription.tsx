@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import {
   Check,
   CreditCard,
@@ -32,34 +31,73 @@ type Plan = {
 
 type PlansResponse = {
   plans: Plan[];
-  stripe_publishable_key: string;
+  payments_enabled: boolean;
 };
 
 type StatusResponse = {
   tier: string;
   status: string;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  stripe_publishable_key: string;
+  renews_at: string | null;
+  has_subscription: boolean;
+  payments_enabled: boolean;
+};
+
+type CheckoutResponse =
+  | { mode: "razorpay"; key_id: string; subscription_id: string; plan: string; email: string; name: string }
+  | { mode: "instant"; ok: boolean; tier: string; status: string; message: string };
+
+type VerifyResponse = { ok: boolean; outcome: string; tier: string; status: string };
+
+type RazorpaySuccess = { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string };
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+  }
+}
+
+const CHECKOUT_JS = "https://checkout.razorpay.com/v1/checkout.js";
+
+/** Razorpay's checkout script, loaded once, the first time someone buys. */
+function loadRazorpay(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = CHECKOUT_JS;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Couldn't load the payment window. Check your connection and try again."));
+    document.body.appendChild(s);
+  });
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  past_due: "Payment retrying",
+  halted: "Payment failed",
+  canceling: "Ends at period end",
+  canceled: "Cancelled",
+  paused: "Paused",
 };
 
 export default function SubscriptionPage() {
   const { user, patchUser } = useAuth();
-  const [searchParams] = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentTier, setCurrentTier] = useState<string>(user?.subscription_tier || "free");
-  const [stripeKey, setStripeKey] = useState<string>("");
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [paymentsEnabled, setPaymentsEnabled] = useState(false);
   const [interval, setInterval] = useState<"month" | "year">("month");
   const [loading, setLoading] = useState(true);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
 
-  useEffect(() => {
-    if (searchParams.get("success")) {
-      toast.success("Payment successful! Your subscription is now active.");
-    } else if (searchParams.get("cancelled")) {
-      toast.info("Payment session was cancelled.");
-    }
-  }, [searchParams]);
+  async function refreshStatus() {
+    const st = await api<StatusResponse>("/api/subscription/status");
+    setStatus(st);
+    setCurrentTier(st.tier);
+    setPaymentsEnabled(st.payments_enabled);
+    patchUser({ subscription_tier: st.tier, subscription_status: st.status });
+    return st;
+  }
 
   useEffect(() => {
     Promise.all([
@@ -67,17 +105,11 @@ export default function SubscriptionPage() {
       api<StatusResponse>("/api/subscription/status").catch(() => null),
     ])
       .then(([plansRes, statusRes]) => {
-        if (plansRes) {
-          setPlans(plansRes.plans);
-          if (plansRes.stripe_publishable_key) {
-            setStripeKey(plansRes.stripe_publishable_key);
-          }
-        }
+        setPlans(plansRes.plans);
+        setPaymentsEnabled(plansRes.payments_enabled);
         if (statusRes) {
+          setStatus(statusRes);
           setCurrentTier(statusRes.tier);
-          if (statusRes.stripe_publishable_key && !stripeKey) {
-            setStripeKey(statusRes.stripe_publishable_key);
-          }
         }
       })
       .catch((err) => {
@@ -85,6 +117,25 @@ export default function SubscriptionPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  /** After Razorpay says the payment went through: the server checks it with Razorpay and updates the plan. */
+  async function confirmPayment(resp: RazorpaySuccess, planName: string) {
+    try {
+      const v = await api<VerifyResponse>("/api/subscription/verify", { method: "POST", body: resp });
+      if (v.outcome === "activated" || v.status === "active") {
+        await refreshStatus();
+        toast.success(`You're on ${planName} now.`);
+      } else {
+        // paid, but Razorpay is still settling the first charge: the webhook switches the plan shortly
+        toast.info("Payment received. Your plan switches as soon as Razorpay confirms it, usually within a minute.");
+        setTimeout(() => { refreshStatus().catch(() => undefined); }, 15000);
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't confirm the payment. Refresh in a minute to check your plan.");
+    } finally {
+      setBusyPlan(null);
+    }
+  }
 
   async function handleSelectPlan(planId: string) {
     if (planId === currentTier) {
@@ -94,30 +145,59 @@ export default function SubscriptionPage() {
 
     setBusyPlan(planId);
     try {
-      const res = await api<{
-        ok?: boolean;
-        tier?: string;
-        checkout_url?: string;
-        mode?: string;
-        message?: string;
-      }>("/api/subscription/checkout", {
+      const res = await api<CheckoutResponse>("/api/subscription/checkout", {
         method: "POST",
         body: { plan_id: planId, interval },
       });
 
-      if (res.checkout_url) {
-        window.location.href = res.checkout_url;
-      } else if (res.ok) {
-        setCurrentTier(res.tier || planId);
-        patchUser({ subscription_tier: res.tier || planId, subscription_status: "active" });
-        toast.success(res.message || "Subscription activated successfully!");
+      if (res.mode === "instant") {
+        setCurrentTier(res.tier);
+        patchUser({ subscription_tier: res.tier, subscription_status: res.status });
+        toast.success(res.message);
+        setBusyPlan(null);
+        return;
       }
+
+      await loadRazorpay();
+      const Razorpay = window.Razorpay;
+      if (!Razorpay) throw new Error("Couldn't load the payment window.");
+      new Razorpay({
+        key: res.key_id,
+        subscription_id: res.subscription_id,
+        name: "Mintly",
+        description: `${res.plan} plan (${interval === "year" ? "yearly" : "monthly"})`,
+        prefill: { email: res.email, name: res.name },
+        theme: { color: "#34E3A4" },
+        handler: (resp: RazorpaySuccess) => { void confirmPayment(resp, res.plan); },
+        modal: {
+          ondismiss: () => {
+            setBusyPlan(null);
+            toast.info("Payment cancelled. Your plan didn't change.");
+          },
+        },
+      }).open();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed to initiate checkout");
-    } finally {
+      toast.error(err instanceof ApiError || err instanceof Error ? err.message : "Failed to start checkout");
       setBusyPlan(null);
     }
   }
+
+  async function handleCancel() {
+    if (!window.confirm("Cancel your subscription? You keep your plan until the end of the period you've paid for.")) return;
+    setCanceling(true);
+    try {
+      await api("/api/subscription/cancel", { method: "POST" });
+      await refreshStatus();
+      toast.success("Subscription cancelled. You keep your plan until the end of this period.");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't cancel. Try again in a minute.");
+    } finally {
+      setCanceling(false);
+    }
+  }
+
+  const statusKey = status?.status ?? "active";
+  const renews = status?.renews_at ? new Date(status.renews_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : null;
 
   return (
     <AppShell>
@@ -141,21 +221,35 @@ export default function SubscriptionPage() {
                 <span className="font-heading font-semibold uppercase tracking-wider text-foreground">
                   {currentTier}
                 </span>
-                <span className="rounded-full bg-ok/20 px-2 py-0.5 font-mono text-[10px] text-ok uppercase">
-                  Active
+                <span className={cn("rounded-full px-2 py-0.5 font-mono text-[10px] uppercase",
+                  statusKey === "active" ? "bg-ok/20 text-ok" : "bg-wait/20 text-wait")}>
+                  {STATUS_LABEL[statusKey] ?? statusKey}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                All generation jobs, render pipelines, and publishing slots reflect your current tier.
+                {renews
+                  ? statusKey === "canceling"
+                    ? `Your plan stays active until ${renews}, then moves to Free.`
+                    : `Renews on ${renews}.`
+                  : "All generation jobs, render pipelines, and publishing slots reflect your current tier."}
               </p>
             </div>
           </div>
-          {stripeKey && (
-            <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-              <Lock className="size-3.5 text-ok" />
-              <span>Stripe Gateway Connected</span>
-            </div>
-          )}
+          <div className="flex items-center gap-4">
+            {paymentsEnabled ? (
+              <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <Lock className="size-3.5 text-ok" />
+                <span>Payments by Razorpay</span>
+              </div>
+            ) : (
+              <span className="font-mono text-xs text-wait">Payments aren't set up yet</span>
+            )}
+            {status?.has_subscription && statusKey !== "canceling" && (
+              <Button variant="ghost" size="sm" onClick={handleCancel} disabled={canceling}>
+                {canceling ? <Loader2 className="size-4 animate-spin" /> : "Cancel subscription"}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Monthly vs Yearly Switch */}
@@ -286,9 +380,9 @@ export default function SubscriptionPage() {
           <div className="flex items-start gap-3">
             <CreditCard className="mt-1 size-5 text-muted-foreground" />
             <div>
-              <h4 className="text-sm font-semibold">Stripe Secure Payments</h4>
+              <h4 className="text-sm font-semibold">Secure payments by Razorpay</h4>
               <p className="mt-1 text-xs text-muted-foreground">
-                All transactions are encrypted with bank-grade 256-bit security via Stripe.
+                Pay with UPI, cards or netbanking. Card details go straight to Razorpay; Mintly never sees them.
               </p>
             </div>
           </div>

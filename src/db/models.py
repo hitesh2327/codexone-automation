@@ -127,6 +127,10 @@ class User(Base):
     subscription_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
     stripe_customer_id: Mapped[str | None] = mapped_column(String(100))
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(100))
+    # Razorpay (src/billing.py): the subscription that sets the plan, and one being paid for a plan switch
+    razorpay_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    razorpay_pending_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    subscription_renews_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Config completion gate flag (QA Task 2)
     config_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     role: Mapped[str] = mapped_column(String(16), default="admin", server_default="admin")
