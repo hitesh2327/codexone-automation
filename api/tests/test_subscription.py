@@ -26,14 +26,28 @@ class FakeStripe:
     def __init__(self):
         self.sessions: dict[str, dict] = {}
         self.subs: dict[str, dict] = {}
+        self.prices: dict[str, dict] = {}       # id -> {"id", "unit_amount", "lookup_key", "recurring"}
         self.calls: list[tuple[str, str, dict | None]] = []
         self.fail = False
+        self.decline = False
 
     def __call__(self, method, path, data=None):
         self.calls.append((method, path, data))
         if self.fail:
             raise billing.BillingError("payment_error", "HTTP 500")
         parts = path.strip("/").split("/")
+        if path == "/prices":
+            if method == "GET":
+                return {"data": [p for p in self.prices.values() if p["lookup_key"] in data["lookup_keys"]]}
+            pid = f"price_{next(_ids)}"
+            self.prices[pid] = {"id": pid, "unit_amount": data["unit_amount"], "lookup_key": data["lookup_key"],
+                                "recurring": data["recurring"]}
+            return dict(self.prices[pid])
+        if path == "/invoices/create_preview":
+            sub = self.subs[data["subscription"]]
+            new = self.prices[data["subscription_details"]["items"][0]["price"]]["unit_amount"]
+            total = new - sub["items"]["data"][0]["price"]["unit_amount"]   # "unused time" = the whole old price
+            return {"amount_due": max(0, total), "total": total, "currency": "usd"}
         if method == "POST" and path == "/checkout/sessions":
             sid = f"cs_test_{next(_ids)}"
             self.sessions[sid] = {"id": sid, "url": f"https://checkout.stripe.com/c/{sid}", "mode": "subscription",
@@ -47,6 +61,13 @@ class FakeStripe:
         sub = self.subs[parts[1]]
         if method == "DELETE":
             sub["status"] = "canceled"
+        elif method == "POST" and "items" in (data or {}):       # in-place switch
+            if self.decline:
+                raise billing.BillingError("card_declined", "HTTP 402")
+            assert data["proration_behavior"] == "always_invoice" and data["payment_behavior"] == "error_if_incomplete"
+            sub["items"]["data"][0]["price"] = dict(self.prices[data["items"][0]["price"]])
+            sub["metadata"].update(data["metadata"])
+            sub["cancel_at_period_end"] = False
         elif method == "POST":
             sub["cancel_at_period_end"] = True
         return dict(sub)
@@ -56,9 +77,11 @@ class FakeStripe:
         s = self.sessions[session_id]
         meta = s["data"]["metadata"]
         sub_id = f"sub_{next(_ids)}"
+        price = dict(self.prices[s["data"]["line_items"][0]["price"]])
         self.subs[sub_id] = {"id": sub_id, "status": status, "metadata": dict(meta), "customer": "cus_1",
                              "created": int(time.time()) + next(_ids), "cancel_at_period_end": False,
-                             "items": {"data": [{"current_period_end": 1893456000}]}}
+                             "items": {"data": [{"id": f"si_{next(_ids)}", "price": price,
+                                                 "current_period_end": 1893456000}]}}
         s.update(status="complete", subscription=sub_id)
         return dict(self.subs[sub_id])
 
@@ -186,8 +209,10 @@ def test_checkout_sends_the_browser_to_stripe_without_changing_the_plan(authed, 
     assert r["mode"] == "stripe" and r["url"].startswith("https://checkout.stripe.com/")
     sent = stripe.sessions[r["session_id"]]["data"]
     assert sent["mode"] == "subscription" and sent["metadata"]["plan"] == "creator"
-    item = sent["line_items"][0]["price_data"]
-    assert item["unit_amount"] == 49000 and item["recurring"] == {"interval": "year"}   # $490/yr in cents
+    price = stripe.prices[sent["line_items"][0]["price"]]
+    assert price["unit_amount"] == 49000 and price["recurring"] == {"interval": "year"}   # $490/yr in cents
+    authed.post("/api/subscription/checkout", json={"plan_id": "creator", "interval": "year"})
+    assert len(stripe.prices) == 1                            # the Stripe price is reused, not made per checkout
     assert "{CHECKOUT_SESSION_ID}" in sent["success_url"]
     assert _tier(authed) == before                          # nothing changes until Stripe confirms payment
 
@@ -278,27 +303,80 @@ def test_cancel_runs_to_the_end_of_the_paid_period(authed, stripe):
     assert authed.post("/api/subscription/cancel").status_code == 400   # nothing left to cancel
 
 
-def test_switching_plans_cancels_the_old_subscription_once_the_new_one_is_paid(authed, stripe):
-    old = _subscribe(authed, stripe, "creator")
-    cs = _checkout(authed, "pro")
-    assert _tier(authed) == ("creator", "active")              # unpaid switch: old plan untouched
-    assert not any(m == "DELETE" for m, _, _ in stripe.calls)
-    stripe.pay(cs)
-    assert authed.post("/api/subscription/verify", json={"session_id": cs}).json()["outcome"] == "activated"
-    assert _tier(authed) == ("pro", "active")
-    assert ("DELETE", f"/subscriptions/{old}", None) in stripe.calls
-    # the old subscription's own deletion event must not downgrade the new plan
-    assert _webhook(authed, "customer.subscription.deleted", stripe.subs[old]).json()["outcome"] == "ignored"
-    assert _tier(authed) == ("pro", "active")
+def _quote(authed, plan, interval="month") -> dict:
+    r = authed.post("/api/subscription/checkout", json={"plan_id": plan, "interval": interval})
+    assert r.status_code == 200, r.text
+    q = r.json()
+    assert q["mode"] == "switch"
+    return q
 
 
-def test_a_late_event_from_the_older_subscription_cant_take_over(authed, stripe):
+def _switch(authed, plan, q, interval="month"):
+    return authed.post("/api/subscription/switch", json={"plan_id": plan, "interval": interval,
+                                                         "proration_date": q["proration_date"]})
+
+
+def test_upgrade_while_subscribed_is_quoted_first_and_charges_only_the_difference(authed, stripe):
+    sid = _subscribe(authed, stripe, "starter")
+    n_sessions = len(stripe.sessions)
+    q = _quote(authed, "creator")
+    assert (q["charge_now"], q["credit"]) == (3000, 0)          # $49 - $19: the difference, not the full price
+    assert len(stripe.sessions) == n_sessions and _tier(authed) == ("starter", "active")   # a quote changes nothing
+    r = _switch(authed, "creator", q).json()
+    assert (r["tier"], r["status"]) == ("creator", "active")
+    assert stripe.subs[sid]["metadata"]["plan"] == "creator"    # same subscription, changed in place
+    assert len(stripe.subs) == 1 and not any(m == "DELETE" for m, _, _ in stripe.calls)
+    # Stripe's customer.subscription.updated for the same change: nothing more to do, nothing logged twice
+    assert _webhook(authed, "customer.subscription.updated", stripe.subs[sid]).json()["outcome"] == "ignored"
+
+
+def test_downgrade_while_subscribed_credits_the_unused_time(authed, stripe):
+    _subscribe(authed, stripe, "pro")
+    q = _quote(authed, "starter")
+    assert q["charge_now"] == 0 and q["credit"] == 8000         # $99 - $19 back as credit
+    assert _switch(authed, "starter", q).json()["tier"] == "starter"
+
+
+def test_switching_to_the_same_plan_is_refused(authed, stripe):
+    _subscribe(authed, stripe, "creator")
+    r = authed.post("/api/subscription/checkout", json={"plan_id": "creator", "interval": "month"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "same_plan"
+
+
+def test_declined_card_on_switch_changes_nothing(authed, stripe):
+    sid = _subscribe(authed, stripe, "starter")
+    q = _quote(authed, "pro")
+    stripe.decline = True
+    r = _switch(authed, "pro", q)
+    assert r.status_code == 402 and r.json()["detail"]["code"] == "card_declined"
+    assert _tier(authed) == ("starter", "active") and stripe.subs[sid]["metadata"]["plan"] == "starter"
+
+
+def test_an_old_quote_cant_be_used(authed, stripe):
+    _subscribe(authed, stripe, "starter")
+    q = _quote(authed, "pro")
+    q["proration_date"] -= 3600
+    assert _switch(authed, "pro", q).status_code == 409 and _tier(authed)[0] == "starter"
+
+
+def test_switch_without_a_subscription_is_refused(authed, stripe):
+    r = authed.post("/api/subscription/switch", json={"plan_id": "pro", "interval": "month",
+                                                       "proration_date": int(time.time())})
+    assert r.status_code == 409 and _tier(authed) == ("free", "active")
+
+
+def test_after_payment_failure_a_new_checkout_replaces_the_dead_subscription(authed, stripe):
     old = _subscribe(authed, stripe, "creator")
-    cs = _checkout(authed, "pro")
-    stripe.pay(cs)
-    authed.post("/api/subscription/verify", json={"session_id": cs})
-    stripe.set(old, status="active")                           # a delayed "still active" event for the old one
-    assert _webhook(authed, "customer.subscription.updated", stripe.subs[old]).json()["outcome"] == "ignored"
+    _webhook(authed, "customer.subscription.updated", stripe.set(old, status="unpaid"))
+    assert _tier(authed) == ("free", "halted")
+    r = authed.post("/api/subscription/checkout", json={"plan_id": "pro", "interval": "month"}).json()
+    assert r["mode"] == "stripe"                               # not switchable in place: a fresh Checkout
+    stripe.pay(r["session_id"])
+    assert authed.post("/api/subscription/verify", json={"session_id": r["session_id"]}).json()["outcome"] == "activated"
+    assert _tier(authed) == ("pro", "active") and ("DELETE", f"/subscriptions/{old}", None) in stripe.calls
+    # a late event from the replaced subscription can't take over or downgrade
+    assert _webhook(authed, "customer.subscription.updated", stripe.set(old, status="active")).json()["outcome"] == "ignored"
+    assert _webhook(authed, "customer.subscription.deleted", stripe.set(old, status="canceled")).json()["outcome"] == "ignored"
     assert _tier(authed) == ("pro", "active")
 
 

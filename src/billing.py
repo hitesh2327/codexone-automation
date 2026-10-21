@@ -5,6 +5,7 @@
     session = billing.create_checkout(plan, interval, ...)      # -> {"id", "url"}: send the browser to url
     billing.adopt(user, billing.fetch_subscription(sub_id))      # a paid subscription becomes the user's plan
     billing.apply(user, sub)                                     # later changes to the user's current subscription
+    billing.preview_switch(sub, plan, interval) / switch(...)    # change plan in place, prorated
 
 Server settings (environment; on AWS they come from SSM /codexone/):
     STRIPE_SECRET_KEY        sk_test_... while testing, sk_live_... in production
@@ -14,6 +15,10 @@ Calls Stripe's REST API with requests (no SDK in the Lambda image). A plan chang
 Stripe itself reports: fetched with our secret key, or delivered by a webhook whose signature checks out. The
 plan a subscription grants comes from the metadata our server wrote when it created the checkout, which only
 holders of the secret key can set.
+
+Changing plan while subscribed updates the existing subscription in place with proration billed immediately
+(proration_behavior=always_invoice): an upgrade charges only the difference to the card on file, a downgrade
+turns the unused time into a credit on the customer's balance that Stripe applies to the next invoices.
 """
 from __future__ import annotations
 
@@ -45,8 +50,11 @@ _STATUS = {
 }
 
 
+LIVE = ("active", "trialing", "past_due")   # a subscription that can be switched in place
+
+
 class BillingError(Exception):
-    """`code`: payments_unavailable | payment_error."""
+    """`code`: payments_unavailable | payment_error | card_declined."""
 
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
@@ -81,8 +89,9 @@ def _call(method: str, path: str, data: dict | None = None) -> dict:
     if not configured():
         raise BillingError("payments_unavailable")
     try:
-        r = requests.request(method, f"{API}{path}", auth=(_env("STRIPE_SECRET_KEY"), ""),
-                             data=_form(data) if data else None, timeout=20)
+        form = _form(data) if data else None
+        r = requests.request(method, f"{API}{path}", auth=(_env("STRIPE_SECRET_KEY"), ""), timeout=20,
+                             params=form if method == "GET" else None, data=None if method == "GET" else form)
     except requests.RequestException as e:
         raise BillingError("payment_error", type(e).__name__) from None
     if r.status_code >= 300:
@@ -92,6 +101,8 @@ def _call(method: str, path: str, data: dict | None = None) -> dict:
         except ValueError:
             msg = r.text[:200]
         log.error("Stripe %s %s -> HTTP %s: %s", method, path, r.status_code, msg)
+        if r.status_code == 402:                # Stripe's "request failed" for a declined card
+            raise BillingError("card_declined", "HTTP 402")
         raise BillingError("payment_error", f"HTTP {r.status_code}")
     return r.json()
 
@@ -99,18 +110,10 @@ def _call(method: str, path: str, data: dict | None = None) -> dict:
 def create_checkout(plan: dict, interval: str, *, user_id: int, customer: str | None, email: str | None,
                     success_url: str, cancel_url: str) -> dict:
     """A Stripe-hosted Checkout page for `plan` (an entry of the API's PLANS) billed every `interval`."""
-    amount = plan["price_yearly"] if interval == "year" else plan["price_monthly"]
     meta = {"user_id": str(user_id), "plan": plan["id"], "interval": interval}
     data = {
         "mode": "subscription",
-        "line_items": [{
-            "quantity": 1,
-            "price_data": {
-                "currency": "usd", "unit_amount": int(amount) * 100, "recurring": {"interval": interval},
-                "product_data": {"name": f"Mintly {plan['name']}",
-                                 "description": f"{plan['posts_per_day']} posts/day automated publishing"},
-            },
-        }],
+        "line_items": [{"quantity": 1, "price": price_for(plan, interval)}],
         "client_reference_id": str(user_id),
         "metadata": meta,
         "subscription_data": {"metadata": meta},
@@ -122,6 +125,53 @@ def create_checkout(plan: dict, interval: str, *, user_id: int, customer: str | 
     elif email:
         data["customer_email"] = email
     return _call("POST", "/checkout/sessions", data)
+
+
+def price_for(plan: dict, interval: str) -> str:
+    """The Stripe price id for `plan` billed every `interval`, created once and found again by its lookup key
+    (the key carries the amount, so changing a price in PLANS makes a new Stripe price)."""
+    cents = int(plan["price_yearly"] if interval == "year" else plan["price_monthly"]) * 100
+    key = f"mintly_{plan['id']}_{interval}_{cents}"
+    found = _call("GET", "/prices", {"lookup_keys": [key], "active": True, "limit": 1}).get("data") or []
+    if found:
+        return found[0]["id"]
+    return _call("POST", "/prices", {
+        "currency": "usd", "unit_amount": cents, "recurring": {"interval": interval}, "lookup_key": key,
+        "product_data": {"name": f"Mintly {plan['name']}"},
+        "metadata": {"plan": plan["id"], "interval": interval},
+    })["id"]
+
+
+def _item_id(sub: dict) -> str:
+    items = ((sub.get("items") or {}).get("data") or [])
+    if not items:
+        raise BillingError("payment_error", "subscription has no items")
+    return items[0]["id"]
+
+
+def preview_switch(sub: dict, plan: dict, interval: str, proration_date: int) -> dict:
+    """What switching `sub` to `plan`/`interval` would bill right now: {"amount_due", "total", "currency"} in
+    cents. A negative total is a credit (the unused time is worth more than the new plan's share)."""
+    inv = _call("POST", "/invoices/create_preview", {
+        "customer": sub["customer"], "subscription": sub["id"],
+        "subscription_details": {
+            "items": [{"id": _item_id(sub), "price": price_for(plan, interval)}],
+            "proration_behavior": "always_invoice", "proration_date": proration_date,
+        },
+    })
+    return {"amount_due": int(inv.get("amount_due") or 0), "total": int(inv.get("total") or 0),
+            "currency": inv.get("currency") or "usd"}
+
+
+def switch(sub: dict, plan: dict, interval: str, proration_date: int) -> dict:
+    """Move `sub` to `plan`/`interval` in place, prorated and invoiced now. If the card is declined nothing
+    changes (payment_behavior=error_if_incomplete). Returns the updated subscription."""
+    return _call("POST", f"/subscriptions/{sub['id']}", {
+        "items": [{"id": _item_id(sub), "price": price_for(plan, interval)}],
+        "proration_behavior": "always_invoice", "proration_date": proration_date,
+        "payment_behavior": "error_if_incomplete", "cancel_at_period_end": False,
+        "metadata": {"plan": plan["id"], "interval": interval},
+    })
 
 
 def fetch_session(session_id: str) -> dict:

@@ -45,7 +45,29 @@ type StatusResponse = {
 
 type CheckoutResponse =
   | { mode: "stripe"; url: string; session_id: string }
-  | { mode: "instant"; ok: boolean; tier: string; status: string; message: string };
+  | { mode: "instant"; ok: boolean; tier: string; status: string; message: string }
+  | { mode: "switch"; plan: string; interval: "month" | "year"; proration_date: number; currency: string;
+      charge_now: number; credit: number };
+
+type SwitchResponse = { ok: boolean; outcome: string; tier: string; status: string; renews_at: string | null };
+
+function money(cents: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
+
+/** What a prorated switch does, in one sentence for the confirmation. */
+function switchSummary(q: Extract<CheckoutResponse, { mode: "switch" }>): string {
+  const per = q.interval === "year" ? "yearly" : "monthly";
+  if (q.charge_now > 0) {
+    return `Switch to ${q.plan} (${per})? Your card on file is charged ${money(q.charge_now, q.currency)} now: ` +
+      "the new plan's price minus the unused time on your current plan.";
+  }
+  if (q.credit > 0) {
+    return `Switch to ${q.plan} (${per})? Nothing is charged now. The unused time on your current plan, ` +
+      `${money(q.credit, q.currency)}, is credited to your next invoices.`;
+  }
+  return `Switch to ${q.plan} (${per})? Nothing is charged now.`;
+}
 
 type VerifyResponse = { ok: boolean; outcome: string; tier?: string; status?: string; pending?: boolean };
 
@@ -144,6 +166,26 @@ export default function SubscriptionPage() {
         setCurrentTier(res.tier);
         patchUser({ subscription_tier: res.tier, subscription_status: res.status });
         toast.success(res.message);
+        setBusyPlan(null);
+        return;
+      }
+      if (res.mode === "switch") {
+        // already subscribed: change the plan in place, prorated, after showing exactly what it costs
+        if (!window.confirm(switchSummary(res))) {
+          setBusyPlan(null);
+          return;
+        }
+        const done = await api<SwitchResponse>("/api/subscription/switch", {
+          method: "POST",
+          body: { plan_id: planId, interval: res.interval, proration_date: res.proration_date },
+        });
+        await refreshStatus();
+        toast.success(res.charge_now > 0
+          ? `You're on ${res.plan} now. ${money(res.charge_now, res.currency)} was charged to your card.`
+          : res.credit > 0
+            ? `You're on ${res.plan} now. ${money(res.credit, res.currency)} credit goes toward your next invoices.`
+            : `You're on ${res.plan} now.`);
+        setCurrentTier(done.tier);
         setBusyPlan(null);
         return;
       }
