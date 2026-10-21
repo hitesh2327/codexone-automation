@@ -67,3 +67,36 @@ def test_real_errors_still_block():
     c = content()
     c.carousel = c.carousel[:2]                    # too few slides
     assert any("5-7 slides" in p for p in validate_shape(c, BRAND))
+
+
+# --------------------------------------------------------------------------- #
+# Hook selection (src/hookscore.py, vendored from instagram-agent-skill)
+# --------------------------------------------------------------------------- #
+def test_strongest_hook_is_spoken():
+    from src.gen_content import pick_hook
+    c = content()
+    c.reel.hook_narration = "Hey guys, today we talk about caching."
+    c.reel.hook_alternatives = ["90% of devs get Big-O wrong in interviews.", "Caching is a topic."]
+    assert pick_hook(c, BRAND).reel.hook_narration == "90% of devs get Big-O wrong in interviews."
+
+
+def test_hook_kept_when_it_already_scores_best():
+    from src.gen_content import pick_hook
+    c = content()
+    c.reel.hook_narration = "90% of devs get Big-O wrong in interviews."
+    c.reel.hook_alternatives = ["Hey guys, welcome back."]
+    assert pick_hook(c, BRAND).reel.hook_narration == "90% of devs get Big-O wrong in interviews."
+
+
+def test_hook_that_breaks_the_shape_rules_is_not_used(monkeypatch):
+    import src.gen_content as gc
+    c = content()
+    c.reel.hook_narration = "Hey guys, today we talk about caching."
+    c.reel.hook_alternatives = ["90% of devs get Big-O wrong in interviews."]
+    monkeypatch.setattr(gc, "validate_shape", lambda cc, b: ["too long"] if "90%" in cc.reel.hook_narration else [])
+    assert gc.pick_hook(c, BRAND).reel.hook_narration == "Hey guys, today we talk about caching."
+
+
+def test_older_content_without_alternatives_still_loads():
+    assert Reel(hook_on_screen="h", hook_narration="h", points=[], cta_on_screen="c",
+                cta_narration="c").hook_alternatives == []

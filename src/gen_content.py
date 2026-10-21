@@ -36,6 +36,11 @@ class ReelPoint(BaseModel):
 class Reel(BaseModel):
     hook_on_screen: str = Field(description="On-screen hook, max 7 words. Wrap the 1-2 key words in *asterisks*")
     hook_narration: str = Field(description="Spoken hook, 1 sentence, creates curiosity honestly")
+    hook_alternatives: list[str] = Field(
+        default_factory=list,
+        description="3 other spoken hooks for the same reel, each 5-12 words and true to the content, each a different "
+                    "formula: a specific number or result, what's at stake for the viewer, a direct 'you' statement. "
+                    "No greetings ('hey guys'), no 'in this video'")
     points: list[ReelPoint] = Field(description="Exactly 3 points")
     cta_on_screen: str = Field(description="On-screen CTA, max 6 words. Wrap the 1-2 key words in *asterisks*")
     cta_narration: str = Field(description="Spoken CTA, 1 sentence")
@@ -296,6 +301,26 @@ def validate_demo(c: Content) -> list[str]:
     return problems
 
 
+def pick_hook(c: Content, brand: dict) -> Content:
+    """Speak the strongest of the hook options (src/hookscore.py: length, specificity, stakes, front-loading,
+    addressing the viewer). An option is used only if the reel still passes validate_shape with it, so the
+    length rules hold. The options were part of the reviewed draft, so they were fact-checked with it."""
+    from src.hookscore import run as score
+    current = c.reel.hook_narration
+    options = [current] + [h.strip() for h in c.reel.hook_alternatives if h and h.strip()]
+    ranked = sorted(options, key=lambda h: score(h)[1], reverse=True)
+    for hook in ranked:
+        if hook == current:
+            break
+        c.reel.hook_narration = hook
+        if not validate_shape(c, brand):
+            log.info("hook: %r (score %.0f) over %r (score %.0f)", hook, score(hook)[1], current, score(current)[1])
+            return c
+    c.reel.hook_narration = current
+    log.info("hook: kept %r (score %.0f; %d option(s) considered)", current, score(current)[1], len(options))
+    return c
+
+
 def generate(topic: RankedTopic, feedback: str = "") -> Content:
     from src.user_taste import get_user_taste
     taste = get_user_taste()
@@ -337,6 +362,11 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
         fb = ("\n".join(f"- {p}" for p in problems) + (f"\n- {feedback}" if feedback else "")
               + "\n\nPrevious draft to revise:\n" + content.model_dump_json())
         content = generate_json(_write_prompt(topic, brand, fb, taste), Content, system=system)
+    if not blocking:
+        try:
+            content = pick_hook(content, brand)
+        except Exception:  # noqa: BLE001 -- the scorer is a nicety; never lose the day's post to it
+            log.exception("hook scoring failed; keeping the model's hook")
     content.hashtags = [h if h.startswith("#") else f"#{h}" for h in content.hashtags][:15]
     content.topic, content.category = topic.title, topic.category
     return content
