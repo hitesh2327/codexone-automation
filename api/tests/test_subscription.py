@@ -28,7 +28,49 @@ def test_user_subscription_status(authed):
     assert "status" in data
 
 
-def test_user_checkout_instant_activation(authed):
+def _tier(c) -> str:
+    return c.get("/api/profile").json()["subscription_tier"]
+
+
+def test_checkout_without_a_gateway_never_upgrades(authed, monkeypatch):
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("BILLING_DEV_INSTANT", raising=False)
+    before = _tier(authed)
+    r = authed.post("/api/subscription/checkout", json={"plan_id": "pro", "interval": "month"})
+    assert r.status_code == 503 and r.json()["detail"]["code"] == "payments_unavailable"
+    assert _tier(authed) == before
+
+
+def test_dev_instant_is_ignored_on_a_deployment(authed, monkeypatch):
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.setenv("BILLING_DEV_INSTANT", "true")
+    monkeypatch.setenv("SSM_PREFIX", "/codexone/")           # what every deployment sets
+    before = _tier(authed)
+    r = authed.post("/api/subscription/checkout", json={"plan_id": "pro", "interval": "month"})
+    assert r.status_code == 503
+    assert _tier(authed) == before
+
+
+def test_gateway_error_never_upgrades(authed, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    def boom(**_):
+        raise RuntimeError("card network down")
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("BILLING_DEV_INSTANT", "true")         # even with dev activation allowed
+    monkeypatch.setitem(sys.modules, "stripe", SimpleNamespace(checkout=SimpleNamespace(Session=SimpleNamespace(create=boom))))
+    before = _tier(authed)
+    r = authed.post("/api/subscription/checkout", json={"plan_id": "pro", "interval": "month"})
+    assert r.status_code == 502 and r.json()["detail"]["code"] == "payment_error"
+    assert _tier(authed) == before
+
+
+def test_user_checkout_instant_activation_in_local_dev(authed, monkeypatch):
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("SSM_PREFIX", raising=False)
+    monkeypatch.setenv("BILLING_DEV_INSTANT", "true")
     r = authed.post("/api/subscription/checkout", json={"plan_id": "creator", "interval": "month"})
     assert r.status_code == 200
     data = r.json()

@@ -1,6 +1,10 @@
 """Subscription tiers and Stripe payment gateway endpoints.
 
 Uses STRIPE_PUBLISHABLE_KEY and STRIPE_SECRET_KEY from the environment / settings.
+
+A plan only changes after a payment. Without a configured gateway, checkout refuses (503); it never activates
+a plan for free. BILLING_DEV_INSTANT=true allows instant activation for local development only: it is ignored
+on a real deployment (SSM_PREFIX set or COOKIE_SECURE on), so it can't be switched on in production by mistake.
 """
 from __future__ import annotations
 
@@ -73,6 +77,16 @@ PLANS = [
 ]
 
 
+def _dev_instant() -> bool:
+    """Instant plan activation without payment: local development only, never on a deployment."""
+    deployed = settings().cookie_secure or bool((os.getenv("SSM_PREFIX") or "").strip())
+    return (os.getenv("BILLING_DEV_INSTANT") or "").strip().lower() == "true" and not deployed
+
+
+def _fail(code: int, error: str, message: str) -> HTTPException:
+    return HTTPException(code, detail={"code": error, "message": message})
+
+
 class CheckoutBody(BaseModel):
     plan_id: str = Field(min_length=1, max_length=32)
     interval: str = Field(default="month", pattern="^(month|year)$")
@@ -108,7 +122,7 @@ def get_subscription_status(cu: CurrentUser = Depends(current_user)) -> dict:
 
 @router.post("/checkout")
 def create_checkout_session(body: CheckoutBody, cu: CurrentUser = Depends(require_csrf)) -> dict:
-    """Create a Stripe checkout session or activate test plan directly."""
+    """Create a Stripe checkout session. Plans change only after payment (dev-only instant activation aside)."""
     plan = next((p for p in PLANS if p["id"] == body.plan_id), None)
     if not plan:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown plan: {body.plan_id}")
@@ -146,11 +160,17 @@ def create_checkout_session(body: CheckoutBody, cu: CurrentUser = Depends(requir
                     metadata={"user_id": str(user.id), "plan_id": body.plan_id},
                 )
                 return {"checkout_url": session.url, "session_id": session.id, "mode": "stripe"}
-            except Exception as e:
-                log.exception("Stripe checkout error: %s", e)
-                # Fall back to local plan activation
+            except Exception as e:  # noqa: BLE001 -- a gateway failure must never become a free upgrade
+                log.error("Stripe checkout error: %s", type(e).__name__)
+                raise _fail(status.HTTP_502_BAD_GATEWAY, "payment_error",
+                            "Couldn't start the payment. Nothing was charged and your plan didn't change. "
+                            "Try again in a few minutes.") from None
 
-        # Local instant activation (for dev/demo or when direct payment simulated)
+        if not _dev_instant():
+            raise _fail(status.HTTP_503_SERVICE_UNAVAILABLE, "payments_unavailable",
+                        "Payments aren't set up yet, so plans can't be changed right now.")
+
+        # Local development only: activate without payment (see _dev_instant)
         user.subscription_tier = body.plan_id
         user.subscription_status = "active"
         if plan["posts_per_day"] > 0:
