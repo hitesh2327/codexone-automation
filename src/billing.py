@@ -24,6 +24,10 @@ e-mandate subscription in place, so every change is a new subscription:
 - downgrade: the unused time is worth more than the new plan's period, so the change waits for the end of the
              period already paid for: nothing is charged now, the new subscription starts on that date and the
              old one is cancelled at the end of its cycle. Nothing paid is lost and nothing needs refunding.
+- resume:    a cancelled plan that still runs to its period end is kept by choosing it again: like a downgrade,
+             a new subscription for the same plan starts when the paid period ends (Razorpay can't undo a cancel).
+A new subscription that replaces an old one that no longer bills (halted, paused) cancels the old one, so a
+recovered card can't revive it.
 """
 from __future__ import annotations
 
@@ -241,17 +245,23 @@ def quote(user, plan: dict, interval: str, now: int) -> dict:
     old = None
     if current:
         notes = current.get("notes") or {}
-        if notes.get("plan") == plan["id"] and notes.get("interval") == interval:
+        same = notes.get("plan") == plan["id"] and notes.get("interval") == interval
+        if same and getattr(user, "subscription_status", "") != "canceling":
             raise ValueError("same_plan")
         old_plan = (fetch_plan(current["plan_id"]).get("notes") or {}) if current.get("plan_id") else {}
-        start, end = int(current.get("current_start") or 0), int(current.get("current_end") or 0)
+        # After an upgrade the new subscription's regular charges start a period later (start_at), so until then
+        # it has no current period: the period paid upfront runs from its creation to that first charge.
+        start = int(current.get("current_start") or current.get("created_at") or 0)
+        end = int(current.get("current_end") or current.get("start_at") or current.get("charge_at") or 0)
         old_base = int(old_plan.get("base") or 0)
         left = max(0.0, min(1.0, (end - now) / (end - start))) if end > start else 0.0
         old = {"sub": current, "plan": notes.get("plan"), "end": end, "credit": int(old_base * left)}
 
     renew_total = with_gst(new_base, country)
-    if old and old["credit"] >= new_base:                # downgrade: waits for the paid period to end
-        return {"kind": "downgrade", "currency": CURRENCY, "lines": [], "taxable": 0, "taxes": [], "total_now": 0,
+    resume = bool(old) and (current.get("notes") or {}).get("plan") == plan["id"] \
+        and (current.get("notes") or {}).get("interval") == interval
+    if old and (resume or old["credit"] >= new_base):   # downgrade or resume: waits for the paid period to end
+        return {"kind": "resume" if resume else "downgrade", "currency": CURRENCY, "lines": [], "taxable": 0, "taxes": [], "total_now": 0,
                 "effective_at": old["end"], "renews_at": old["end"], "renewal_total": renew_total,
                 "renewal_taxes": taxes(new_base, country, state), "gst_rate": gst_rate(country),
                 "replaces": old["sub"]["id"]}
@@ -282,7 +292,7 @@ def start(user, plan: dict, interval: str, q: dict) -> dict:
         data["start_at"] = q["renews_at"]                 # regular charges begin after the period paid now
         data["addons"] = [{"item": {"name": f"Upgrade to {plan['name']} (prorated" + (", incl. GST)" if rate else ")"),
                                     "amount": q["total_now"], "currency": CURRENCY}}]
-    elif q["kind"] == "downgrade":
+    elif q["kind"] in ("downgrade", "resume"):
         data["start_at"] = q["effective_at"]
     return _call("POST", "/subscriptions", data)
 
@@ -329,23 +339,25 @@ def apply(user, sub: dict) -> str:
             if user.subscription_status == "changing":
                 user.subscription_status = "active"
             return "ignored"
-        if change == "downgrade":
+        if change in ("downgrade", "resume"):
             if status == "active":                         # the new period began
                 return _promote(user, sub, cancel_old=False)
             if status == "authenticated" and user.subscription_status != "changing":
-                try:
-                    cancel_subscription(user.razorpay_subscription_id, at_cycle_end=True)
-                except BillingError as e:
-                    log.error("could not schedule the end of %s for user %s: %s",
-                              user.razorpay_subscription_id, user.id, e.code)
-                    return "ignored"                       # retried on the next event
+                if user.subscription_status != "canceling":   # already ends at its cycle end: nothing to cancel
+                    try:
+                        cancel_subscription(user.razorpay_subscription_id, at_cycle_end=True)
+                    except BillingError as e:
+                        log.error("could not schedule the end of %s for user %s: %s",
+                                  user.razorpay_subscription_id, user.id, e.code)
+                        return "ignored"                   # retried on the next event
                 user.subscription_status = "changing"
                 return "scheduled"
             return "ignored"
         # new: paid with the first charge (active). upgrade: the prorated amount is paid when the customer
         # authorises, so authenticated already means paid.
         if status == "active" or (change == "upgrade" and status == "authenticated"):
-            return _promote(user, sub, cancel_old=change == "upgrade")
+            # upgrade: the old plan was credited; new: the old one (halted/paused) no longer bills, keep it that way
+            return _promote(user, sub, cancel_old=change in ("upgrade", "new"))
         return "ignored"
 
     # the current subscription

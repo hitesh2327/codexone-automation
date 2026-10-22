@@ -215,6 +215,20 @@ def create_checkout(body: CheckoutBody, cu: CurrentUser = Depends(require_csrf))
                 raise _fail(status.HTTP_409_CONFLICT, "quote_expired", "That price is out of date. Choose the plan again.")
             if user.subscription_status == "changing":
                 raise _fail(status.HTTP_409_CONFLICT, "change_scheduled", _SCHEDULED)
+            if user.razorpay_pending_subscription_id:
+                try:
+                    prev = billing.fetch_subscription(user.razorpay_pending_subscription_id)
+                except billing.BillingError as e:
+                    raise _billing_fail(e) from None
+                if prev.get("status") in ("authenticated", "active"):
+                    raise _fail(status.HTTP_409_CONFLICT, "payment_in_progress",
+                                "Your last payment is still being confirmed. Wait a minute, then reload.")
+                if prev.get("status") == "created":   # an unpaid checkout (another tab): close it before opening one
+                    try:
+                        billing.cancel_subscription(prev["id"], at_cycle_end=False)
+                    except billing.BillingError as e:
+                        raise _billing_fail(e) from None
+                user.razorpay_pending_subscription_id = None
             q = _quote(user, plan, body.interval, body.quote_at)
             if q["total_now"] != body.expected_total:
                 raise _fail(status.HTTP_409_CONFLICT, "quote_changed",
@@ -273,6 +287,9 @@ def cancel_subscription(cu: CurrentUser = Depends(require_csrf)) -> dict:
             raise _fail(status.HTTP_400_BAD_REQUEST, "no_subscription", "There's no paid subscription to cancel.")
         if user.subscription_status == "changing":
             raise _fail(status.HTTP_409_CONFLICT, "change_scheduled", _SCHEDULED)
+        if user.subscription_status == "canceling":
+            raise _fail(status.HTTP_400_BAD_REQUEST, "already_canceling",
+                        "Your subscription is already cancelled and ends at the end of this period.")
         try:
             billing.cancel_subscription(user.razorpay_subscription_id, at_cycle_end=True)
         except billing.BillingError as e:

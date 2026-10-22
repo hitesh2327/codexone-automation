@@ -47,6 +47,7 @@ class FakeRazorpay:
             self.subs[sid] = {"id": sid, "status": "created", "plan_id": data["plan_id"], "notes": dict(data["notes"]),
                               "start_at": data.get("start_at"), "addons": data.get("addons"),
                               "total_count": data["total_count"], "current_start": None, "current_end": None,
+                              "created_at": int(time.time()),
                               "charge_at": None}
             return dict(self.subs[sid])
         sub = self.subs[parts[1]]

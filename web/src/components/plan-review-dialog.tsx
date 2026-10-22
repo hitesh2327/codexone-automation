@@ -14,7 +14,7 @@ export type BillingDetails = { name: string; country: string | null; state: stri
 type Tax = { name: string; rate: number; amount: number };
 type Line = { label: string; from: number; to: number; amount: number };
 export type Quote = {
-  kind: "new" | "upgrade" | "downgrade";
+  kind: "new" | "upgrade" | "downgrade" | "resume";
   plan: string; plan_name: string; interval: "month" | "year"; quote_at: number; currency: string;
   lines: Line[]; taxable: number; taxes: Tax[]; total_now: number;
   effective_at: number; renews_at: number; renewal_total: number; renewal_taxes: Tax[]; gst_rate: number;
@@ -32,6 +32,11 @@ const COUNTRIES: [string, string][] = [
   ["AE", "United Arab Emirates"], ["SG", "Singapore"], ["DE", "Germany"], ["FR", "France"], ["NL", "Netherlands"],
   ["ZZ", "Another country"],
 ];
+
+/** Downgrades and resuming a cancelled plan start when the paid period ends; nothing is charged today. */
+function isScheduled(q: Quote): boolean {
+  return q.kind === "downgrade" || q.kind === "resume";
+}
 
 export function rupees(paise: number): string {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2 }).format(paise / 100);
@@ -143,7 +148,7 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
         key: co.key_id,
         subscription_id: co.subscription_id,
         name: "Mintly",
-        description: quote.kind === "downgrade" ? `${co.plan} from ${day(quote.effective_at)}` : `${co.plan} plan`,
+        description: isScheduled(quote) ? `${co.plan} from ${day(quote.effective_at)}` : `${co.plan} plan`,
         prefill: { email: co.email, name: co.name },
         theme: { color: "#34E3A4" },
         handler: (resp: RazorpaySuccess) => {
@@ -183,7 +188,7 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
           <DialogDescription>
             {step === "details"
               ? "Used for your GST invoice. Your state decides whether GST is split into CGST and SGST, or charged as IGST."
-              : quote && quote.kind === "downgrade"
+              : quote && isScheduled(quote)
                 ? `Your current plan stays until ${day(quote.effective_at)}, the end of the period you've paid for.`
                 : "Check the amount before you pay. Nothing is charged until you confirm."}
           </DialogDescription>
@@ -233,7 +238,7 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
 
         {step === "review" && quote && (
           <div className="grid gap-4 text-sm">
-            {quote.kind !== "downgrade" ? (
+            {!isScheduled(quote) ? (
               <div className="grid gap-1.5">
                 <p className="text-xs text-muted-foreground">Charged today</p>
                 {quote.lines.map((l) => (
@@ -284,7 +289,7 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
           ) : (
             <Button onClick={pay} disabled={busy || !quote}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : !quote ? "Pay"
-                : quote.kind === "downgrade" ? "Approve and schedule" : `Pay ${rupees(quote.total_now)}`}
+                : isScheduled(quote) ? "Approve and schedule" : `Pay ${rupees(quote.total_now)}`}
             </Button>
           )}
         </DialogFooter>
