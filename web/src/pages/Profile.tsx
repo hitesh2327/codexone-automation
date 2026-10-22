@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { AvatarCropper } from "@/components/avatar-cropper";
+import { ThemeSwitch } from "@/components/theme-control";
 import { OtpInput } from "@/components/otp-input";
 import { PasswordField, passwordAcceptable } from "@/components/password-field";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ const SECTIONS = [
   { id: "signin", n: "02", label: "Sign-in & contact" },
   { id: "security", n: "03", label: "Security" },
   { id: "record", n: "04", label: "Account record" },
+  { id: "appearance", n: "05", label: "Appearance" },
 ] as const;
 
 /** A section with a big outlined number, a title, and a line of purpose: each one is laid out for its job. */
@@ -550,6 +552,9 @@ export default function ProfilePage() {
                 </Section>
                 <Section id="record" n="04" title="Account record" lead="The facts on file. Read-only.">
                   <Record p={p} />
+                </Section>
+                <Section id="appearance" n="05" title="Appearance" lead="Light, dark, or follow your device.">
+                  <ThemeSwitch />
                 </Section>
               </div>
             </div>

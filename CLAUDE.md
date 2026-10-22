@@ -43,3 +43,15 @@ output/, logs/, data/
 - Log every run; handle API errors with retries + clear messages.
 - Build and test one module at a time; add a --dry-run flag everywhere.
 - Keep a README with setup + run steps.
+
+## Dashboard UI (web/)
+
+Product name: **Mintly**, by **Anjanex Labs** (the legal firm: invoices, legal pages, footers). Never "codexone" in new UI text.
+
+Before writing or changing any UI in `web/`:
+1. Use the `mintly-ui` skill (user-level, `~/.claude/skills/mintly-ui/`), and the `frontend-design` skill if installed.
+2. Follow `docs/design/design-system.md`. It is the rulebook: copy the closest existing pattern before inventing one.
+3. Brand assets: `brand/logo/` (Mintly icon and lockups). Visual references, if any: `docs/design/references/` (match
+   their layout, spacing and type; use at most two).
+4. After the change, run the screenshot loop: open the page in the browser preview, compare with the references and the
+   rulebook, fix the differences, and repeat at least twice. Check 390px width and keyboard focus too.

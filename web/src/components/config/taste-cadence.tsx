@@ -407,7 +407,7 @@ export function TasteCadenceConfig({
 
       <div className="grid gap-8 lg:grid-cols-2">
         {/* Card 1: Taste & Style */}
-        <div className="grid gap-6 rounded-xl border border-border bg-raised/40 p-6 backdrop-blur">
+        <div className="grid content-start gap-6 rounded-xl border border-border bg-raised/40 p-6 backdrop-blur">
           <div className="flex items-center gap-2.5 font-heading text-lg font-semibold">
             <Palette className="size-5 text-primary" />
             <span>Content Taste & Style Persona</span>
@@ -652,7 +652,7 @@ export function TasteCadenceConfig({
         </div>
 
         {/* Card 2: Destinations & Cadence */}
-        <div className="grid gap-6 rounded-xl border border-border bg-raised/40 p-6 backdrop-blur">
+        <div className="grid content-start gap-6 rounded-xl border border-border bg-raised/40 p-6 backdrop-blur">
           <div className="flex items-center gap-2.5 font-heading text-lg font-semibold">
             <Sliders className="size-5 text-signal" />
             <span>Target Platforms & Daily Cadence</span>

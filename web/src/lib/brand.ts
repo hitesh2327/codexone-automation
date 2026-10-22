@@ -36,8 +36,10 @@ export async function applyBrand(): Promise<Brand | null> {
   }
   const root = document.documentElement.style;
   const { colors = {}, fonts = {} } = brand;
+  // The channel colours style the slides and reels, not the app (the app has its own light/dark palette,
+  // index.css); they stay available as --channel-* for previews of those assets.
   for (const [key, value] of Object.entries(colors)) {
-    if (value && HEX.test(value)) root.setProperty(`--brand-${key}`, value);
+    if (value && HEX.test(value)) root.setProperty(`--channel-${key}`, value);
   }
   const families: string[] = [];
   for (const [key, value] of Object.entries(fonts)) {

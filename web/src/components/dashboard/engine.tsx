@@ -8,7 +8,7 @@ function Row({ label, tone, word, children, hint }: { label: string; tone: Tone;
     <li className="flex items-baseline gap-2.5 py-2.5">
       <span aria-hidden className={cn("relative top-px size-2 shrink-0 self-center rounded-full", BG[tone])} />
       <span className="sr-only">{word}:</span>
-      <span className="shrink-0 font-mono text-xs tracking-wide uppercase">{label}</span>
+      <span className="shrink-0 text-sm font-medium">{label}</span>
       <span aria-hidden className="leader min-w-4 flex-1" />
       <span className="text-right font-mono text-sm">{children}</span>
       {hint && <span className="sr-only">{hint}</span>}

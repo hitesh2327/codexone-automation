@@ -1,4 +1,4 @@
-# codexone admin: design system
+# Mintly dashboard: design system
 
 The rulebook for the dashboard in `web/`. It describes what already ships. Read it before you build a screen, and
 when you are unsure, copy the closest existing pattern rather than inventing one. Tokens live in
@@ -52,7 +52,14 @@ Rules:
 
 ## 4. Colour roles
 
-Always use the token, never the hex. Brand values can be re-themed from Config.
+Always use the token, never the hex.
+
+**Themes.** Light is the default; Dark and System (follows the device, live) are chosen in Profile > Appearance
+or with the sidebar toggle (`src/lib/theme.ts`; `index.html` applies it before first paint). Each theme sets only
+the four bases (`--brand-bg`, `--brand-text`, `--brand-primary`, `--brand-accent`) plus the status colours in
+`index.css` (`:root` = light, `.dark` = dark); every surface is mixed from those, so new UI must use the tokens
+and will work in both. The channel brand (`brand/config.yaml`, edited on Config) styles slides and reels, not the
+app; it is exposed as `--channel-*`. Check every UI change in both themes. The table below shows dark values.
 
 | Token | Default | Role |
 |---|---|---|
@@ -175,7 +182,7 @@ press down 1px. Skeletons use a slow light sweep (`skeleton-sweep`), not a pulse
 | Don't (it reads as generated) | Do |
 |---|---|
 | A row of 4 identical stat cards with big numbers | A flow strip if the numbers are stages; a ledger if they are facts; or put the number where the thing is |
-| Gradients on buttons, cards and headings | Flat fills; the only gradient is the logo tile |
+| Gradients on buttons, cards and headings | Flat fills everywhere (the Mintly mark is flat mint) |
 | Centred card inside a card inside a page | Content on the page with hairlines; one container at most |
 | Pills for every tag, filter and status | Squared status tags; plain text plus dot; segmented filters |
 | The same radius on everything | 8 for controls, 14 for surfaces, 18 for media, squircles for people |

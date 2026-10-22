@@ -62,20 +62,23 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Brand palette. Defaults = brand/config.yaml; overwritten at runtime from /api/public/brand
-   (see src/lib/brand.ts), so Config-page edits restyle the dashboard too. Always dark. */
+/* App palette (Mintly). Light is the default; .dark on <html> switches to dark (src/lib/theme.ts picks it from the
+   Light / Dark / System setting before first paint, see index.html). Every surface below is mixed from these four
+   base values, so each theme only sets the bases and the status colours. The channel brand (brand/config.yaml:
+   the colours of the Instagram slides and reels) no longer restyles the app; only its fonts do. */
 :root {
-    --brand-bg: #0D1117;
-    --brand-primary: #00E5FF;
-    --brand-accent: #FFB800;
-    --brand-text: #FFFFFF;
+    --brand-bg: #F6F7F9;
+    --brand-primary: #0E7490;   /* cyan, darkened so text and focus rings reach 4.5:1 on light surfaces */
+    --brand-accent: #B45309;    /* amber "you are here" and "needs a human", 4.5:1+ on light surfaces */
+    --brand-text: #111418;
     --font-brand-heading: 'Poppins';
     --font-brand-body: 'Inter Variable';
     --font-brand-code: 'JetBrains Mono';
 
     --background: var(--brand-bg);
     --foreground: var(--brand-text);
-    --card: color-mix(in srgb, var(--brand-text) 4%, var(--brand-bg));
+    --card: var(--surface-card);
+    --surface-card: #FFFFFF;    /* light: white panels on a soft grey page; dark overrides below */
     --card-foreground: var(--brand-text);
     --popover: color-mix(in srgb, var(--brand-text) 6%, var(--brand-bg));
     --popover-foreground: var(--brand-text);
@@ -87,15 +90,12 @@
     --muted-foreground: color-mix(in srgb, var(--brand-text) 62%, var(--brand-bg));
     --accent: color-mix(in srgb, var(--brand-primary) 14%, var(--brand-bg));
     --accent-foreground: var(--brand-text);
-    --destructive: #F85149;
+    --destructive: #CF222E;
     --border: color-mix(in srgb, var(--brand-text) 12%, var(--brand-bg));
     --input: color-mix(in srgb, var(--brand-text) 34%, var(--brand-bg)); /* 3.1:1 on bg: field/checkbox boundaries meet WCAG 1.4.11 */
     --ring: var(--brand-primary);
     --chart-1: var(--brand-primary);
     --chart-2: var(--brand-accent);
-    --chart-3: #7EE787;
-    --chart-4: #D2A8FF;
-    --chart-5: #FF9E64;
     /* Shape: controls 8px, surfaces 10-14px, media 18px+ (see design-system.md "Shape"). */
     --radius: 0.625rem;
     --sidebar: color-mix(in srgb, var(--brand-text) 3%, var(--brand-bg));
@@ -109,29 +109,59 @@
     /* Status roles (see docs/design/design-system.md). Text-safe on --brand-bg at >= 4.5:1. */
     --wait: var(--brand-accent);   /* needs a human: waiting for approval, warnings */
     --go: var(--brand-primary);    /* in motion: approved, scheduled, publishing, info */
-    --ok: #56D364;                 /* done: live / published */
-    --ok-solid: #2EA043;           /* fills only; never text */
+    --ok: #1A7F37;                 /* done: live / published */
+    --ok-solid: #2DA44E;           /* fills only; never text */
     --bad: var(--destructive);     /* failed, errors, destructive actions */
-    --ai: #D2A8FF;                 /* machine work: regenerating */
+    --ai: #8250DF;                 /* machine work: regenerating */
     --rule: color-mix(in srgb, var(--brand-text) 22%, var(--brand-bg)); /* hairline that must be seen (ledger rules, dividers) */
     --raised: color-mix(in srgb, var(--brand-text) 5%, var(--brand-bg));   /* one step up: hovered rows, open panels */
-    --sunken: color-mix(in srgb, #000 28%, var(--brand-bg));                /* one step down: wells, media beds, code */
+    --sunken: color-mix(in srgb, var(--brand-text) 6%, var(--brand-bg));                /* one step down: wells, media beds, code */
     --selected: color-mix(in srgb, var(--brand-primary) 8%, var(--brand-bg)); /* the open/selected row; every status colour stays >= 4.5:1 on it */
     --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
     --dur-fast: 120ms;   /* hover, press, colour */
     --dur-base: 200ms;   /* reveal, toggle, small moves */
     --dur-slow: 320ms;   /* panels, sheets, page-level entrances */
+    --chart-3: #1A7F37;
+    --chart-4: #8250DF;
+    --chart-5: #BC4C00;
+    --scrim: color-mix(in srgb, #0B1220 32%, transparent);   /* behind dialogs and sheets */
+    --float-shadow: rgb(15 23 42 / 0.18);                     /* dialogs, sheets, popovers, toasts */
+    color-scheme: light;
+}
+
+/* Dark theme: the original Mintly desk palette. */
+.dark {
+    --brand-bg: #0D1117;
+    --brand-primary: #00E5FF;
+    --brand-accent: #FFB800;
+    --brand-text: #FFFFFF;
+    --surface-card: color-mix(in srgb, var(--brand-text) 4%, var(--brand-bg));
+    --destructive: #F85149;
+    --ok: #56D364;
+    --ok-solid: #2EA043;
+    --ai: #D2A8FF;
+    --sunken: color-mix(in srgb, #000 28%, var(--brand-bg));
+    --chart-3: #7EE787;
+    --chart-4: #D2A8FF;
+    --chart-5: #FF9E64;
+    --scrim: color-mix(in srgb, #000 62%, transparent);
+    --float-shadow: rgb(0 0 0 / 0.8);
     color-scheme: dark;
 }
 
 /* Mintly, the product brand: fixed, unlike the channel palette above. Used by the signed-out screens. */
 .mintly {
+    --mint: #0B8A5E;            /* light: deep mint so mint text reaches 4.5:1 on light surfaces */
+    --mint-deep: #087250;
+    --primary: var(--mint);
+    --primary-foreground: #FFFFFF;
+    --ring: var(--mint);
+}
+.dark .mintly {
     --mint: #34E3A4;
     --mint-deep: #0FA37A;
-    --primary: var(--mint);
     --primary-foreground: #0D1117;
-    --ring: var(--mint);
 }
 
 @layer base {
@@ -230,7 +260,7 @@
   border-radius: var(--radius-lg) !important;
   border: 1px solid var(--rule) !important;
   border-left: 3px solid var(--rule) !important;
-  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.7) !important;
+  box-shadow: 0 12px 32px -12px var(--float-shadow) !important;
   font-family: var(--font-sans);
 }
 [data-sonner-toaster] [data-sonner-toast][data-type="success"] { border-left-color: var(--ok) !important; }

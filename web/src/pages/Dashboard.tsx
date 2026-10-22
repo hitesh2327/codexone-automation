@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cadenceSummary, pickWorkspace, timeIST, type Overview } from "@/lib/dashboard-format";
 import { storeWorkspace, storedWorkspace, useOverview, type Workspace } from "@/lib/dashboard";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /** Non-dismissible, part of the page (and of any screenshot): nobody mistakes the demo for a real account. */
@@ -54,7 +55,7 @@ function Body({ data }: { data: Overview }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-12">
       {/* phone order: sentence + what needs you, the numbers, then the slots; wide: hero beside slots, numbers below */}
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-y-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:gap-x-8 lg:gap-y-10">
         <RightNow data={data} />
         <div className="order-3 grid lg:order-2"><NextSlotsCard data={data} /></div>
         <div className="relative order-2 lg:order-3 lg:col-span-2"><SampleMark className="-top-2 bg-background" /><KpiStrip data={data} /></div>
@@ -75,7 +76,7 @@ function Body({ data }: { data: Overview }) {
 
       <section aria-labelledby="eng-h">
         <SectionHead id="eng-h" n="03" title="Is the engine healthy?" hint="Reliability of generation and publishing, and how quickly you respond" />
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 border-t border-rule pt-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-8">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 rounded-3xl bg-card p-5 ring-1 ring-border sm:p-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-8">
           <PipelineConsole data={data} />
           <Turnaround data={data} />
         </div>
@@ -96,6 +97,10 @@ function Body({ data }: { data: Overview }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const first = (user?.name || user?.username || "").trim().split(/\s+/)[0];
+  const hour = Number(new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", hour12: false }).format(new Date()));
+  const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const [, setParams] = useSearchParams();
   const [demoOk, setDemoOk] = useState(true);
   const [workspace, setWorkspace] = useState<Workspace>(() => pickWorkspace(window.location.search, storedWorkspace(), true));
@@ -147,8 +152,8 @@ export default function Dashboard() {
             <PageHeader
               index="01"
               eyebrow={<span className="truncate">Control room{!demo && handle ? ` · ${handle}` : ""}</span>}
-              title="Dashboard"
-              lead="What needs you now, whether you ship every day, and whether the engine is healthy."
+              title={first ? `${greet}, ${first}` : greet}
+              lead="Here's what needs you today, what goes out next, and how your desk is doing."
               actions={<>
               {(demoOk || demo) && (
                 <Segmented<Workspace> label="Workspace" value={workspace} onChange={pick}

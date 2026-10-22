@@ -14,7 +14,7 @@ export function Platforms({ data }: { data: Overview }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
       {p.items.map((pl) => (
-        <article key={pl.platform} aria-label={pl.name} className="min-w-0 rounded-xl border bg-card">
+        <article key={pl.platform} aria-label={pl.name} className="min-w-0 rounded-3xl bg-card ring-1 ring-border">
           <header className="flex items-start justify-between gap-3 border-b p-4 sm:p-5">
             <div>
               <h3 className="font-heading font-semibold">{pl.platform === "ig" ? "Instagram" : "YouTube Shorts"}</h3>
@@ -128,7 +128,7 @@ export function Feed({ data }: { data: Overview }) {
   const a = data.activity;
   if (!a.ok) return <Unavailable what="The activity feed" />;
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-3xl bg-card ring-1 ring-border">
       <div className="flex flex-wrap items-center justify-between gap-x-4 border-b px-4 py-2 sm:px-5">
         <p className={MONO}>Activity ledger · last {a.items.length}</p>
         {demo ? <span className="text-xs text-muted-foreground" title={DEMO_TIP}>Logs off in the demo</span> : (

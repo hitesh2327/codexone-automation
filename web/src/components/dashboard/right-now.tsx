@@ -67,23 +67,23 @@ function Attention({ a }: { a: Overview["attention"] }) {
   const hiddenPhone = a.items.length - 1;
   return (
     <div>
-      <p className={cn(MONO, "mb-2 flex items-center gap-2")}>
-        What needs you<span aria-hidden className="h-px flex-1 bg-border" /><span className="normal-case tracking-normal">most urgent first</span>
+      <p className="mb-2 flex items-center gap-2 text-sm font-medium">
+        What needs you<span aria-hidden className="h-px flex-1 bg-border" /><span className="text-xs font-normal text-muted-foreground">most urgent first</span>
       </p>
-      <ol id="attention-list" className="overflow-hidden rounded-xl border bg-background/40">
+      <ol id="attention-list" className="border-y border-rule">
         {a.items.map((it, i) => {
           const s = SEV[it.severity];
           const Icon = s.icon;
           const tucked = !open && (i >= PEEK ? "hidden" : i >= 1 ? "hidden sm:flex" : "");
           return (
-            <li key={`${it.code}-${it.post_id ?? i}`} className={cn("flex items-center gap-3 border-t px-3 py-2.5 first:border-t-0", tucked || "flex")}>
+            <li key={`${it.code}-${it.post_id ?? i}`} className={cn("flex items-center gap-3 border-t px-1 py-3 first:border-t-0", tucked || "flex")}>
               <span className={cn("hidden size-8 shrink-0 place-items-center rounded-[10px] border sm:grid", TEXT[s.tone], it.severity === "high" ? "border-bad/40 bg-bad/10" : it.severity === "medium" ? "border-wait/40 bg-wait/10" : "border-border bg-muted/50")}>
                 <Icon className="size-4" aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-snug font-medium"><span className="sr-only">{s.word}: </span>{it.title}</p>
                 <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                  <span className={cn("font-mono text-[10px] tracking-wide uppercase", TEXT[s.tone])}>{s.word}</span>
+                  <span className={cn("text-[11px] font-semibold", TEXT[s.tone])}>{s.word}</span>
                   <span aria-hidden> · </span>{it.detail}
                   <span className="whitespace-nowrap"><span aria-hidden> · </span><span className="sr-only">waiting for </span>{fmtMinutes(it.age_min)}</span>
                 </p>
@@ -160,22 +160,20 @@ function NextSlots({ n }: { n: Overview["next_slots"] }) {
 export function RightNow({ data }: { data: Overview }) {
   const { now } = useDash();
   const h = headline(data.status, now);
-  const bar = h.tone === "bad" ? "bg-bad" : h.tone === "wait" ? "bg-wait" : h.tone === "ok" ? "bg-ok-solid" : "bg-muted-foreground/50";
   return (
-    <section aria-labelledby="now-h" className="relative overflow-hidden rounded-2xl border bg-card">
-      <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", bar)} />
+    <section aria-labelledby="now-h" className="relative">
       <SampleMark />
-      <div className="grid content-start gap-3.5 p-4 pl-5 sm:gap-4 sm:p-6 sm:pl-8">
+      <div className="grid content-start gap-5 py-1 sm:gap-6">
         <div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pr-20">
             <span className={cn("inline-flex items-center gap-1.5 rounded-[4px] border border-current/40 px-2 py-0.5 text-xs font-medium", TEXT[h.tone])}>
               <span aria-hidden className={cn("size-1.5 rounded-full", BG[h.tone], h.tone === "ok" && "motion-safe:animate-pulse")} />
               {h.label}
             </span>
             <span className={cn(MONO, "text-[10px]")}>as of <span className="sm:hidden">{timeIST(data.generated_at)}</span><span className="max-sm:hidden">{stampIST(data.generated_at)}</span> IST</span>
           </div>
-          <h2 id="now-h" aria-live="polite" className="mt-2 font-heading text-[2rem] leading-[1.05] font-semibold tracking-tight sm:text-5xl">{h.title}</h2>
-          <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">{h.sub}</p>
+          <h2 id="now-h" aria-live="polite" className="mt-3 font-heading text-[2.4rem] leading-[1] font-semibold tracking-tight sm:text-5xl 2xl:text-6xl">{h.title}</h2>
+          <p className="mt-3 max-w-xl text-sm text-muted-foreground sm:text-base">{h.sub}</p>
         </div>
         <Attention a={data.attention} />
       </div>
@@ -186,9 +184,9 @@ export function RightNow({ data }: { data: Overview }) {
 /** Band B, right: the next four slots as a timeline. */
 export function NextSlotsCard({ data }: { data: Overview }) {
   return (
-    <section aria-labelledby="next-h" className="relative rounded-2xl border bg-[color-mix(in_srgb,var(--brand-bg)_55%,black)] p-4 sm:p-6">
+    <section aria-labelledby="next-h" className="relative rounded-3xl bg-card p-5 ring-1 ring-border sm:p-6">
       <SampleMark />
-      <h2 id="next-h" className={cn(MONO, "mb-4")}>Going out next</h2>
+      <h2 id="next-h" className="mb-5 font-heading text-lg font-semibold tracking-tight">Going out next</h2>
       <NextSlots n={data.next_slots} />
     </section>
   );

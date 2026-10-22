@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 export const DashCtx = createContext<{ demo: boolean; now: number; intro: boolean }>({ demo: false, now: Date.now(), intro: false });
 export const useDash = () => useContext(DashCtx);
 
-export const MONO = "font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground";
+/** Small label: plain, friendly, sentence case ("dark and softer", see docs/design/references). */
+export const MONO = "text-xs font-medium text-muted-foreground";
 export const DEMO_TIP = "Sample data. Actions are off.";
 
 export const TEXT: Record<Tone, string> = {
@@ -47,13 +48,13 @@ export function CountUp({ value, format = (n: number) => String(Math.round(n)) }
 export function SectionHead({ n, title, hint, id }: { n: string; title: string; hint?: string; id: string }) {
   const { demo } = useDash();
   return (
-    <header className="mb-4 flex items-end gap-3">
-      <span aria-hidden className="font-heading text-3xl leading-none font-bold text-transparent [-webkit-text-stroke:1px_color-mix(in_srgb,var(--brand-text)_55%,transparent)]">{n}</span>
+    <header className="mb-5 flex items-center gap-3">
+      <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full bg-raised font-heading text-sm font-semibold text-muted-foreground ring-1 ring-border">{Number(n)}</span>
       <div className="min-w-0">
-        <h2 id={id} className="font-heading text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 id={id} className="font-heading text-xl font-semibold tracking-tight">{title}</h2>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <span aria-hidden className="mb-1.5 h-px flex-1 bg-border" />
+      <span aria-hidden className="h-px flex-1 bg-border" />
       {demo && <span className={cn(MONO, "mb-0.5 rounded border border-[var(--brand-accent)]/50 px-1.5 py-px text-[10px] text-[var(--brand-accent)]")}>Sample</span>}
     </header>
   );

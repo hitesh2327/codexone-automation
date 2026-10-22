@@ -4,6 +4,7 @@ import { CreditCard, FileText, KeyRound, LayoutDashboard, LogOut, ScrollText, Se
 import { toast } from "sonner";
 
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-control";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { useAuth } from "@/lib/auth";
@@ -198,6 +199,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <span className="block truncate text-xs text-muted-foreground">View profile</span>
                 </span>
               </NavLink>
+              <ThemeToggle />
               <Button variant="ghost" size="icon" onClick={onLogout} disabled={busy} aria-label="Sign out" title="Sign out">
                 <LogOut />
               </Button>
@@ -222,6 +224,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <NavLink to="/profile" aria-label="Your profile" className="ml-auto grid size-10 place-items-center rounded-[30%]">
           <UserAvatar name={user?.name} email={user?.email} version={user?.avatar_v} className="size-8" text="text-xs" />
         </NavLink>
+        <ThemeToggle />
         <Button variant="ghost" size="icon" onClick={onLogout} disabled={busy} aria-label="Sign out">
           <LogOut />
         </Button>

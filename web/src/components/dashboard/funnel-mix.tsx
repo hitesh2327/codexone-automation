@@ -15,7 +15,7 @@ export function Funnel({ data }: { data: Overview }) {
   const regen = f.buckets.regenerated ?? 0;
   const leaks = f.leaks.filter((l) => l.n > 0);
   return (
-    <div className="rounded-xl border bg-card p-5 sm:p-6">
+    <div className="rounded-3xl bg-card ring-1 ring-border p-5 sm:p-6">
       <div role="img" aria-label={`Funnel over ${data.window_days} days: ${f.stages.map((s) => `${s.label} ${s.n}`).join(", ")}.`}>
         <svg viewBox={`0 0 ${g.w} ${g.h}`} preserveAspectRatio="none" className="h-36 w-full" aria-hidden>
           {g.bands.map((d, i) => <path key={i} d={d} className="fill-primary/15" />)}
@@ -62,7 +62,7 @@ export function Mix({ data }: { data: Overview }) {
   if (!m.n) return <Empty title="No topics in this period yet">The mix is counted per topic, once there are some.</Empty>;
   const max = Math.max(40, ...m.categories.flatMap((c) => [c.share, c.target ?? 0]));
   return (
-    <div className="rounded-xl border bg-card p-5 sm:p-6">
+    <div className="rounded-3xl bg-card ring-1 ring-border p-5 sm:p-6">
       <ul className="grid gap-3.5" aria-label="Topic share by category against target">
         {m.categories.map((c) => (
           <li key={c.category}>
