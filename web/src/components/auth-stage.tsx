@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Logo, Wordmark } from "@/components/logo";
+import { LegalLinks } from "@/pages/Legal";
 
 /** The leaf from the logo, drawn large and faint behind the editorial panel. */
 function Leaf({ className }: { className?: string }) {
@@ -44,6 +45,7 @@ export function AuthStage({ handle, aside, children }: { handle?: string; aside:
             <Wordmark className="text-xl" />
           </div>
           {children}
+          <LegalLinks className="mt-10 border-t pt-4 text-xs text-muted-foreground" />
         </div>
       </main>
     </div>

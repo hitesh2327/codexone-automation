@@ -259,6 +259,10 @@ export default function Signup({ brand }: { brand: Brand | null }) {
           {busy ? <LoaderCircle className="animate-spin" /> : <ArrowRight className="size-4" />}
         </Button>
       </form>
+      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+        By creating an account you agree to the <Link to="/legal/terms" className="text-[var(--mint)] underline-offset-4 hover:underline">terms of service</Link> and
+        the <Link to="/legal/privacy" className="text-[var(--mint)] underline-offset-4 hover:underline">privacy policy</Link>, and confirm you're 18 or older.
+      </p>
 
       <div className="mt-8 border-t border-border/50 pt-4 text-center text-xs text-muted-foreground">
         Already have an account?{" "}

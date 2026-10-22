@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Loader2, Lock, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
@@ -278,6 +279,11 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
             </div>
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Lock className="size-3.5 text-ok" aria-hidden />You'll pay in Razorpay's secure window: UPI, card or netbanking.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Renews automatically until you cancel. By paying you agree to the{" "}
+              <Link to="/legal/terms" target="_blank" className="text-primary underline-offset-4 hover:underline">terms</Link> and the{" "}
+              <Link to="/legal/refunds" target="_blank" className="text-primary underline-offset-4 hover:underline">refund and cancellation policy</Link>.
             </p>
           </div>
         )}

@@ -11,6 +11,7 @@ import Posts from "@/pages/Posts";
 import Profile from "@/pages/Profile";
 import Recover from "@/pages/Recover";
 import Subscription from "@/pages/Subscription";
+import LegalPage from "@/pages/Legal";
 
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Config = lazy(() => import("@/pages/Config"));
@@ -28,6 +29,8 @@ export default function App() {
       <Route path="/login" element={<Login brand={brand} />} />
       <Route path="/signup" element={<Signup brand={brand} />} />
       <Route path="/forgot-password" element={<Recover brand={brand} />} />
+      <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
+      <Route path="/legal/:slug" element={<LegalPage />} />
       <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
       <Route path="/subscription" element={<RequireAuth><Subscription /></RequireAuth>} />
       <Route path="/dashboard" element={<RequireAuth><Suspense fallback={null}><Dashboard /></Suspense></RequireAuth>} />

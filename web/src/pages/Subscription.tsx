@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { PageHeader } from "@/components/page-header";
+import { LegalLinks } from "@/pages/Legal";
 import { PlanReviewDialog, type BillingDetails } from "@/components/plan-review-dialog";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
@@ -380,6 +381,7 @@ export default function SubscriptionPage() {
           </div>
         </div>
       </div>
+      <LegalLinks className="mx-auto max-w-[72rem] px-4 pb-8 text-xs text-muted-foreground md:px-8" />
       <PlanReviewDialog
         plan={reviewing}
         interval={interval}
