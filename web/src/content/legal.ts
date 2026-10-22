@@ -129,7 +129,7 @@ const privacy: LegalDoc = {
       ]},
     ]},
     { id: "rights", title: "Your rights", body: [
-      "Under the Digital Personal Data Protection Act you can ask us for a summary of your personal data and how we use it, correct or update it, have it erased, withdraw your consent, nominate someone to act for you, and raise a grievance. Most details can be changed in Profile and Config; for anything else write to " + CONTACT + ". We'll respond within 30 days. If you're not satisfied, you can complain to the Data Protection Board of India.",
+      "Under the Digital Personal Data Protection Act you can ask us for a summary of your personal data and how we use it, correct or update it, have it erased, withdraw your consent, nominate someone to act for you, and raise a grievance. Most details can be changed in Profile and Config, and you can delete your account yourself in Profile (see [deleting your data](/legal/data-deletion)); for anything else write to " + CONTACT + ". We'll respond within 30 days. If you're not satisfied, you can complain to the Data Protection Board of India.",
       "Withdrawing consent stops the processing that depends on it (for example disconnecting Instagram stops publishing there) but doesn't undo what was done before.",
     ]},
     { id: "youtube", title: "YouTube", body: [
@@ -161,6 +161,7 @@ const refunds: LegalDoc = {
   sections: [
     { id: "cancel", title: "Cancelling", body: [
       "Cancel anytime on the Subscription page. Your plan keeps working until the end of the period you've paid for, then stops, and you aren't charged again. Changed your mind before then? Choose the same plan again and it carries on from the end of the period, with nothing charged now.",
+      "Deleting your account is different: it cancels the subscription straight away, with no refund for the time left, because the account it pays for no longer exists.",
     ]},
     { id: "changes", title: "Changing plan", body: [
       { list: [
@@ -215,11 +216,12 @@ const deletion: LegalDoc = {
   title: "Deleting your data",
   summary: "How to close your Mintly account and have your data deleted.",
   sections: [
-    { id: "request", title: "Ask for deletion", body: [
-      `Email ${CONTACT} from the address on your Mintly account with the subject "Delete my Mintly account". We confirm the request within 48 hours and complete it within 30 days.`,
+    { id: "request", title: "Delete your account", body: [
+      "**Yourself, right away:** sign in, open Profile, then Security, and choose Delete account. You confirm with your password (or a code we email you if you sign in with Google) and by typing DELETE. Your account and data are erased at once and your subscription is cancelled.",
+      `**By email:** if you can't sign in, write to ${CONTACT} from the address on your Mintly account with the subject "Delete my Mintly account". We confirm the request within 48 hours and complete it within 30 days.`,
     ]},
     { id: "what", title: "What's deleted", body: [
-      "Your account, profile, preferences, billing details, connected-account tokens (Instagram, YouTube, Telegram), and the content made for you, including images and videos stored with our media host. Posts already published to Instagram or YouTube stay on those platforms; delete them there if you want them gone.",
+      "Your account, profile, preferences, billing details, connected-account tokens (Instagram, YouTube, Telegram), and the content made for you, including images and videos stored with our media host. Our activity records keep what happened (for example that a post was published) but no longer say who it was. Posts already published to Instagram or YouTube stay on those platforms; delete them there if you want them gone.",
       "We keep only what the law requires, such as invoices and payment records for tax purposes (generally 6 to 8 years), and nothing else.",
     ]},
     { id: "platforms", title: "Disconnect Instagram and YouTube yourself", body: [

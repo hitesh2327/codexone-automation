@@ -23,7 +23,7 @@ from api.app import mailer, otp
 from api.app import ratelimit as rl
 from api.app.deps import CurrentUser, current_user
 from api.app.routes.auth import avatar_version, start_session
-from api.app.security import hash_password, password_problems, verify_password
+from api.app.security import clear_session_cookie, hash_password, password_problems, verify_password
 from api.app.settings import settings
 from src import db, plan_limits
 from src.db.models import User
@@ -495,6 +495,56 @@ def set_password(body: PasswordBody, response: Response, cu: CurrentUser = Depen
         raise problem
     rl.otp_limiter.reset(f"pw:{cu.id}")
     return {"ok": True, "csrf": csrf, "profile": out}
+
+
+# --------------------------------------------------------------------------- #
+# Delete the account (src/account_deletion.py)
+# --------------------------------------------------------------------------- #
+@router.post("/delete/otp")
+def delete_code(cu: CurrentUser = Depends(current_user)) -> dict:
+    """Email a code that proves it's really you (accounts without a password, e.g. Google sign-in)."""
+    with db.session() as ses:
+        u = _user(ses, cu)
+        if not u.email:
+            raise _bad("This account has no email address to send a code to.", status.HTTP_409_CONFLICT)
+        message = _send_code(ses, u, "delete_account", u.email)
+    return _deliver(message)
+
+
+class DeleteBody(BaseModel):
+    confirm: str = Field(max_length=20)                       # the word DELETE, typed
+    current_password: str | None = Field(default=None, max_length=200)
+    code: str | None = Field(default=None, max_length=12)
+
+
+@router.post("/delete")
+def delete_account(body: DeleteBody, response: Response, cu: CurrentUser = Depends(current_user)) -> dict:
+    """Close the account and erase its data, after proof: the password, or an emailed code without one."""
+    from src import account_deletion
+    if body.confirm.strip() != "DELETE":
+        raise _bad("Type DELETE to confirm.")
+    with db.session() as ses:
+        u = _user(ses, cu)
+        wait = rl.otp_limiter.retry_after(f"del:{u.id}", rl.OTP_TRY_PER_ACCOUNT, rl.WINDOW)
+        if wait:
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, f"Too many attempts. Try again in {wait // 60 + 1} min.")
+        rl.otp_limiter.hit(f"del:{u.id}")
+        if u.password_hash:
+            proven = bool(body.current_password) and verify_password(body.current_password, u.password_hash)
+            wrong = "Your password isn't right."
+        else:
+            proven = bool(u.email and body.code) and otp.verify(ses, u, "delete_account", u.email, body.code)
+            wrong = "That code is invalid or has expired. Check it, or ask for a new one."
+    if not proven:
+        raise _bad(wrong, status.HTTP_400_BAD_REQUEST)
+    try:
+        removed = account_deletion.delete_account(cu.id)
+    except account_deletion.DeletionError as e:
+        code = {"not_found": 404, "owner": 409, "billing": 502}[e.code]
+        raise HTTPException(code, detail={"code": e.code, "message": e.message}) from None
+    clear_session_cookie(response)
+    log.info("account %s deleted (%s posts, %s media files)", cu.id, removed["posts"], removed["media_files"])
+    return {"ok": True, **removed}
 
 
 @router.post("/sessions/revoke")

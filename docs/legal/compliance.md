@@ -14,7 +14,7 @@ Legend: **Done** = in the product and the policies. **Partial** = covered in par
 | Clear refund and cancellation terms; no refusing refunds for deficient service | E-Commerce Rules 2020, Consumer Protection Act 2019 | **Done** | `/legal/refunds` |
 | Privacy policy published; purpose of each use stated | IT Act 2000 s.43A + SPDI Rules 2011; DPDP Act 2023 | **Done** | `/legal/privacy` |
 | DPDP consent notice: purpose-specific, plain language, withdraw as easily as give | DPDP Act 2023, DPDP Rules 2025 (phased in to May 2027) | **Partial** | Privacy policy covers it; sign-up shows a consent line linking Terms and Privacy. A separate itemised consent notice at sign-up and a consent log are still open |
-| Rights: access, correction, erasure, grievance, nominee | DPDP Act 2023 | **Partial** | By email today; **no self-serve account deletion yet** (open, also needed for Meta/YouTube) |
+| Rights: access, correction, erasure, grievance, nominee | DPDP Act 2023 | **Partial** | Erasure is self-serve (Profile > Security > Delete account); access summary, correction beyond Profile, and nominee by email |
 | Children (under 18) need verifiable parental consent | DPDP Act 2023 | **Done** | Service limited to 18+ in the Terms |
 | Reasonable security safeguards | IT Act s.43A, DPDP Act | **Done** | HTTPS, hashed passwords, encrypted integration tokens, signed payment webhooks, row locks |
 | Breach notification to the Data Protection Board and users | DPDP Rules 2025 | **Open** | Needs an incident-response runbook |
@@ -29,7 +29,7 @@ Legend: **Done** = in the product and the policies. **Partial** = covered in par
 |---|---|---|---|
 | Terms, Privacy, Refund/Cancellation, Contact, Delivery pages on the website | Razorpay activation | **Done** | Delivery is a section of `/legal/refunds` (digital service, no shipping) |
 | Own privacy policy saying what YouTube data is used; link YouTube ToS and Google Privacy Policy; how to revoke | YouTube API Services Developer Policies | **Done** | `/legal/privacy` section 8 |
-| Don't keep YouTube data indefinitely; easy deletion | YouTube API Services Developer Policies | **Partial** | Deletion by email; self-serve deletion open |
+| Don't keep YouTube data indefinitely; easy deletion | YouTube API Services Developer Policies | **Done** | Disconnect YouTube (deletes the token) or delete the account (`src/account_deletion.py`) |
 | Data deletion instructions URL (or callback) | Meta Platform (Instagram API) | **Done** | `/legal/data-deletion` (instructions URL). A deletion callback is an option later |
 | Privacy policy URL for Google Sign-In OAuth consent screen | Google | **Done** | `/legal/privacy` |
 | Disclose that Gemini's free tier may use prompts to improve Google products | Gemini API terms | **Done** | `/legal/privacy` section 4; moving to the paid tier removes this |
@@ -37,8 +37,7 @@ Legend: **Done** = in the product and the policies. **Partial** = covered in par
 ## 3. Open items, in priority order
 
 1. Fill in company details in `web/src/lib/company.ts` (removes the Draft notice).
-2. Self-serve account deletion (DPDP erasure, Meta, YouTube).
-3. GST invoices (roadmap item 9) and GST registration / LUT decisions with a CA.
-4. Itemised consent notice at sign-up plus a consent record (DPDP Rules, by May 2027).
-5. Incident-response runbook for breach notification.
-6. Lawyer review of all four policies.
+2. GST invoices (roadmap item 9) and GST registration / LUT decisions with a CA.
+3. Itemised consent notice at sign-up plus a consent record (DPDP Rules, by May 2027).
+4. Incident-response runbook for breach notification.
+5. Lawyer review of all four policies.

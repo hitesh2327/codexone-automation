@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -47,6 +48,35 @@ def _upload(path: Path, public_id: str, resource_type: str, retries: int = 3, **
             log.warning("upload %s failed (attempt %d/%d): %s", path.name, attempt, retries, e)
             time.sleep(3 * attempt)
     raise RuntimeError(f"Cloudinary upload failed for {path}")
+
+
+_DELIVERY = re.compile(r"^https://res\.cloudinary\.com/[^/]+/(image|video)/upload/(?:[^/]+/)*?(?:v\d+/)?"
+                       rf"({re.escape(FOLDER)}/[^?#]+?)\.[A-Za-z0-9]+$")
+
+
+def public_id_of(url: str) -> tuple[str, str] | None:
+    """(public_id, resource_type) of a media URL this module uploaded, or None for anything else."""
+    m = _DELIVERY.match(url or "")
+    return (m.group(2), m.group(1)) if m else None
+
+
+def delete_media(urls: list[str]) -> int:
+    """Delete these uploaded files from Cloudinary (only ones under our folder). Returns how many were deleted."""
+    import cloudinary.api
+    by_type: dict[str, list[str]] = {}
+    for url in urls:
+        if found := public_id_of(url):
+            by_type.setdefault(found[1], []).append(found[0])
+    if not by_type:
+        return 0
+    _configure()
+    deleted = 0
+    for resource_type, ids in by_type.items():
+        ids = list(dict.fromkeys(ids))
+        for i in range(0, len(ids), 100):          # the Admin API takes up to 100 ids per call
+            res = cloudinary.api.delete_resources(ids[i:i + 100], resource_type=resource_type, invalidate=True)
+            deleted += sum(1 for v in (res.get("deleted") or {}).values() if v == "deleted")
+    return deleted
 
 
 def upload_post(post_dir: Path, only: str | None = None, dry_run: bool = False) -> dict:

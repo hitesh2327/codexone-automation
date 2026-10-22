@@ -183,7 +183,7 @@ export function PlanReviewDialog({ plan, interval, open, onOpenChange, onDone }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{step === "details" ? "Billing details" : "Review your plan"}</DialogTitle>
           <DialogDescription>

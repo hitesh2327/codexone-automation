@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { AvatarCropper } from "@/components/avatar-cropper";
+import { DeleteAccount } from "@/components/delete-account";
 import { ThemeSwitch } from "@/components/theme-control";
 import { OtpInput } from "@/components/otp-input";
 import { PasswordField, passwordAcceptable } from "@/components/password-field";
@@ -549,6 +550,7 @@ export default function ProfilePage() {
                 <Section id="security" n="03" title="Security" lead={p.has_password ? "Keep your password fresh and your sessions tidy." : "Add a password so Google isn't the only way in."}>
                   {p.has_password ? <ChangePassword p={p} onDone={onPassword} /> : <FirstPassword p={p} onDone={onPassword} />}
                   <OtherDevices onDone={(csrf) => setCsrf(csrf)} />
+                  <DeleteAccount p={p} />
                 </Section>
                 <Section id="record" n="04" title="Account record" lead="The facts on file. Read-only.">
                   <Record p={p} />

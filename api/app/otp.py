@@ -21,7 +21,7 @@ from src.db.models import OtpCode, User
 CODE_TTL = timedelta(minutes=10)
 MAX_ATTEMPTS = 5
 RESEND_COOLDOWN = 60  # seconds
-PURPOSES = ("reset", "set_password", "verify_email")
+PURPOSES = ("reset", "set_password", "verify_email", "delete_account")
 
 
 class OtpCooldown(Exception):

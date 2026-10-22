@@ -202,6 +202,9 @@ _COPY = {
                      "Use this code to add a password to your account, so you can sign in without Google."),
     "verify_email": ("Confirm your new email address", "Confirm your email",
                      "Use this code to confirm this address for your account."),
+    "delete_account": ("Your code to delete your account", "Delete your account",
+                       "Use this code to confirm you want to delete your account and its data. "
+                       "If you didn't ask for this, ignore this email and change your password."),
 }
 
 
