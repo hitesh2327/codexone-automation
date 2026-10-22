@@ -44,7 +44,21 @@ type StatusResponse = {
   change_scheduled: boolean;
   payments_enabled: boolean;
   billing: BillingDetails;
+  usage: Usage;
 };
+
+type Count = { reels: number; carousels: number };
+type Usage = { plan: string; exempt: boolean; used: Count; quota: Count | null; left: Count | null; resets_at: string };
+
+/** "12 of 30 reels and 14 of 30 carousels used this month" (plans without reels mention carousels only). */
+function usageLine(u: Usage | undefined): string | null {
+  if (!u || u.exempt || !u.quota || (!u.quota.reels && !u.quota.carousels)) return null;
+  const parts = [];
+  if (u.quota.reels) parts.push(`${u.used.reels} of ${u.quota.reels} reels`);
+  parts.push(`${u.used.carousels} of ${u.quota.carousels} carousels`);
+  const resets = new Date(u.resets_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return `${parts.join(" and ")} used this month. Resets ${resets}.`;
+}
 
 /** Squared status tag colours by role (docs/design/design-system.md, "Status colours"). */
 const TAG: Record<string, { tag: string; dot: string }> = {
@@ -190,6 +204,9 @@ export default function SubscriptionPage() {
                       : `Renews on ${renews}.`
                   : "Choose a plan below to start posting automatically."}
               </p>
+              {usageLine(status?.usage) && (
+                <p className="mt-1 text-xs tabular-nums text-foreground/80">{usageLine(status?.usage)}</p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">

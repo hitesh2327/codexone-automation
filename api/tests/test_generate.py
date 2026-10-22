@@ -129,7 +129,10 @@ def test_happy_path_dispatches_once_with_inputs(authed, gh):
     slot_at = datetime.fromisoformat(job["slot_at"]).astimezone(IST)   # "auto" resolved ONCE, by the API (QA-L-10)
     assert sent["json"]["inputs"] == {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": "DSA",
                                       "topic": evil, "source_url": "https://example.com/a", "request_id": job["id"],
-                                      "dry_run": "false", "force": "false", "allow_duplicate": "false"}
+                                      "dry_run": "false", "force": "false", "allow_duplicate": "false",
+                                      "user_id": sent["json"]["inputs"]["user_id"]}
+    me = authed.get("/api/profile").json()
+    assert sent["json"]["inputs"]["user_id"] == str(me["id"])   # the run is made for whoever asked
     assert events() == [("generate.requested", "info")]
     assert job["id"] in authed.get("/api/logs", params={"q": job["id"]}).text
     # nothing in any response carries the token or a GitHub body

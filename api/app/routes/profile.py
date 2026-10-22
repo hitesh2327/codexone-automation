@@ -25,7 +25,7 @@ from api.app.deps import CurrentUser, current_user
 from api.app.routes.auth import avatar_version, start_session
 from api.app.security import hash_password, password_problems, verify_password
 from api.app.settings import settings
-from src import db
+from src import db, plan_limits
 from src.db.models import User
 
 log = logging.getLogger("codexone.api.profile")
@@ -157,6 +157,14 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
                 if taken:
                     raise _bad("That username is taken.", status.HTTP_409_CONFLICT)
                 u.username = uname
+        try:  # the plan caps the schedule and the platforms (src/plan_limits.py)
+            if data.get("cadence") is not None:
+                plan_limits.check_cadence(u, {**(u.cadence or {}), **data["cadence"]})
+            if data.get("taste") is not None and "default_targets" in data["taste"]:
+                plan_limits.check_targets(u, data["taste"]["default_targets"])
+        except plan_limits.PlanLimit as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail={"code": e.code, "message": e.message, **e.extra}) from None
         if "taste" in data and data["taste"] is not None:
             current_taste = dict(u.taste or {})
             current_taste.update(data["taste"])

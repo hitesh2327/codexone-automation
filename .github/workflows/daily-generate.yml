@@ -50,6 +50,9 @@ on:
         description: "Let a custom topic repeat a recently covered one"
         type: boolean
         default: false
+      user_id:
+        description: "Make the run for this user (set by the dashboard; empty = the owner's scheduled post)"
+        required: false
 
 # Its own group: GitHub keeps one running + one pending run per group and silently cancels an older
 # pending run, so sharing queue-state with poll (dispatched on every Regenerate / Publish now) could
@@ -112,6 +115,7 @@ jobs:
           IN_DRY_RUN: ${{ inputs.dry_run }}
           IN_FORCE: ${{ inputs.force }}
           IN_ALLOW_DUPLICATE: ${{ inputs.allow_duplicate }}
+          IN_USER_ID: ${{ inputs.user_id }}
         run: |
           # Map the cron that fired to its slot (keep in sync with post_times_ist).
           case "$SCHEDULE" in
@@ -129,6 +133,7 @@ jobs:
           if [ "$IN_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
           if [ "$IN_FORCE" = "true" ]; then ARGS+=(--force); fi
           if [ "$IN_ALLOW_DUPLICATE" = "true" ]; then ARGS+=(--allow-duplicate); fi
+          if [[ "$IN_USER_ID" =~ ^[0-9]+$ ]]; then ARGS+=(--user-id "$IN_USER_ID"); fi
           python main.py generate "${ARGS[@]}"
 
       - name: Close the dashboard job if the run died before reporting

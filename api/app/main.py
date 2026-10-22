@@ -82,7 +82,10 @@ def sync_admin() -> None:
                                 "not giving it the env password; choose another ADMIN_USERNAME", s.admin_username)
                     return
                 else:
-                    user = User(username=s.admin_username, password_hash=hash_password(s.admin_password), name="Admin")
+                    # the install's first admin owns the brand's own posts and isn't limited by a plan (plan_limits)
+                    has_owner = ses.scalar(select(func.count()).select_from(User).where(User.role == "owner"))
+                    user = User(username=s.admin_username, password_hash=hash_password(s.admin_password), name="Admin",
+                                role="admin" if has_owner else "owner")
                     ses.add(user)
                     ses.flush()
                     seed = {"user_id": user.id}

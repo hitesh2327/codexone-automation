@@ -23,6 +23,8 @@ const REASON_TITLE: Record<string, string> = {
   taken: "Slot already had a post",
   stale: "Slot too old",
   superseded: "Replaced by a newer run",
+  plan_required: "No active plan",
+  quota_reached: "Monthly limit reached",
 };
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {

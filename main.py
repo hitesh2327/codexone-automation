@@ -74,11 +74,28 @@ def cmd_generate(args) -> int:
     job = generation.Reporter() if args.dry_run else generation.Reporter.begin(
         args.request_id, slot_at=publish_at, category=args.category, topic=args.topic,
         source_url=args.source_url, force=args.force, allow_duplicate=args.allow_duplicate)
+    from src import plan_limits
+    from src.credentials import active_user_id
+    # A dashboard run is made for the user who asked (their posts, their quota); scheduled runs for the owner.
+    owner = plan_limits.load_user(args.user_id) if args.user_id else None
+    try:
+        allowed = plan_limits.check_generation(owner)
+    except plan_limits.PlanLimit as e:
+        log.warning("user %s: %s", args.user_id, e.message)
+        job.skipped(e.code, e.message)
+        return 0
+    if not allowed["reel"] and not args.skip_reel:
+        log.info("user %s has no reels left this month: making the carousel only", args.user_id)
+        args.skip_reel = True
+    tok = active_user_id.set(args.user_id) if args.user_id else None
     try:
         return _generate(args, publish_at, job)
     except Exception as e:
         job.failed(e)
         raise
+    finally:
+        if tok is not None:
+            active_user_id.reset(tok)
 
 
 def _generate(args, publish_at: datetime, job) -> int:
@@ -226,10 +243,20 @@ def cmd_regenerate(args) -> int:
     for item in todo:
         groups.setdefault(item.group_id, []).append(item)
 
+    from src import plan_limits
     for group_id, olds in groups.items():
         kinds = sorted({o.kind for o in olds})
         version = max(o.version for o in olds) + 1
         first = olds[0]
+        try:
+            plan_limits.check_regenerate(max(olds, key=lambda o: o.version))
+        except plan_limits.PlanLimit as e:
+            log.warning("%s: %s", group_id, e.message)
+            for old in olds:
+                old.status = "pending"
+                q.update_if(old, "regenerate")
+            approve_bot.notify(f"⚠️ {e.message}", first.tg_control_id, dry_run=args.dry_run)
+            continue
         log.info("regenerating %s [%s] as v%d", group_id, "+".join(kinds), version)
         if args.dry_run:
             continue
@@ -316,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--allow-duplicate", action="store_true", help="allow --topic to repeat a recent topic")
     g.add_argument("--request-id", help="dashboard request id: progress is reported to that generation job")
     g.add_argument("--skip-reel", action="store_true")
+    g.add_argument("--user-id", type=int, help="make this run for that user: their posts, their plan's quota")
     g.add_argument("--music", type=Path)
     g.set_defaults(fn=cmd_generate)
 

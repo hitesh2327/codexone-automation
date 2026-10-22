@@ -374,6 +374,14 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
                 if item.status != "pending":  # e.g. already decided in the dashboard
                     await _safe(bot.answer_callback_query(cq.id, f"Already {item.status}."))
                     continue
+                if action == "regen":
+                    from src import plan_limits
+                    try:
+                        plan_limits.check_regenerate(item)
+                    except plan_limits.PlanLimit as e:
+                        if not dry_run:
+                            await _safe(bot.answer_callback_query(cq.id, e.message[:190], show_alert=True))
+                        continue
                 q.apply_decision(item, action)
                 changed[item.id] = item
                 applied.append((item.id, item.status))

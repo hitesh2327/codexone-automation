@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.app.deps import CurrentUser, current_user
 from api.app.ratelimit import RateLimiter
-from src import activity, approve_bot, generation, github_actions
+from src import activity, approve_bot, generation, github_actions, plan_limits
 from src import queue_store as q
 from src.actions import publishing_enabled
 from src.approve_bot import IST
@@ -262,6 +262,13 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                             headers={"Retry-After": str(wait)})
     limiter.hit(str(user.id))
 
+    owner = plan_limits.load_user(user.id)
+    try:  # before anything else that costs: no plan or no quota left means no run
+        plan_limits.check_generation(owner)
+    except plan_limits.PlanLimit as e:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
+                            detail={"code": e.code, "message": e.message, **e.extra}) from None
+
     now = datetime.now(IST)
     if live := generation.active():
         live, _ = generation.reconcile(live)  # a dead job must not block the form forever
@@ -312,7 +319,8 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
     # 30-minute lead would otherwise resolve "auto" to the NEXT slot (QA-L-10).
     inputs = {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": body.category or "", "topic": body.topic or "",
               "source_url": body.source_url or "", "request_id": job["id"], "dry_run": "false",
-              "force": str(body.force).lower(), "allow_duplicate": str(body.allow_duplicate).lower()}
+              "force": str(body.force).lower(), "allow_duplicate": str(body.allow_duplicate).lower(),
+              "user_id": str(user.id)}     # the run's posts belong to (and count against) the requester
     try:
         github_actions.dispatch(generation.WORKFLOW, inputs)
     except github_actions.GitHubError as e:

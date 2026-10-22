@@ -115,6 +115,12 @@ def reject(item_id: str, *, source: str = "dashboard", reason: str = "", item: q
 def regenerate(item_ids: list[str], feedback: str = "", source: str = "dashboard") -> list[q.Item]:
     """Mark items for regeneration. Both formats of one topic -> one new shared script."""
     items = [_get(i) for i in item_ids]
+    from src import plan_limits
+    for item in items:
+        try:
+            plan_limits.check_regenerate(item)
+        except plan_limits.PlanLimit as e:
+            raise ActionError(e.message) from None
     before = [_decide(item, "regen", feedback) for item in items]
     lost: list[str] = []
     for item, prev in zip(items, before):

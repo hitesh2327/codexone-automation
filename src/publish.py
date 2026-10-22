@@ -239,6 +239,17 @@ def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...]
     """Publish one item. The caller either passes an approved/failed/published item (this claims
     it) or has already claimed it itself with q.claim_for_publish and says so with claimed=True.
     A "publishing" item that the caller did not claim belongs to another publisher: skipped."""
+    from src import plan_limits
+    allowed = plan_limits.allowed_platforms(item.user_id)
+    if allowed is not None:
+        if not allowed and item.status in q.PUBLISHABLE + ("publishing",):
+            item.status = "failed"
+            item.error = "Your Mintly plan isn't active, so this post wasn't published. Renew, then retry it."
+            if not dry_run:
+                q.upsert(item)
+            log.warning("%s: owner has no active plan; not published", item.id)
+            return item
+        platforms = tuple(p for p in platforms if p in allowed)     # e.g. Lite: Instagram only
     tok = active_user_id.set(item.user_id)
     try:
         return _publish_item(item, dry_run, platforms, claimed)
