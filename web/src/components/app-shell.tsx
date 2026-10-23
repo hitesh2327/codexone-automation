@@ -37,7 +37,7 @@ const grouped = GROUPS.map((g, gi) => ({
   items: ENTRIES.filter((e) => g.paths.includes(e.to) || (gi === GROUPS.length - 1 && !GROUPS.some((x) => x.paths.includes(e.to)))),
 })).filter((g) => g.items.length);
 
-const MONO = "font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground";
+const MONO = "text-xs font-medium text-muted-foreground";
 
 // ---------------------------------------------------------------------------------------------
 // Desktop navigation: an index, not a list of pills
@@ -180,7 +180,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Logo className="size-8 rounded-[9px] text-[11px]" />
             <span className="grid leading-tight">
               <span className="font-heading text-[15px] font-semibold tracking-tight">mintly</span>
-              <span className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">content desk</span>
+              <span className="text-[11px] text-muted-foreground">content desk</span>
             </span>
           </Link>
 

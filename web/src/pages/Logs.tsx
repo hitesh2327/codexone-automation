@@ -255,7 +255,7 @@ export default function Logs() {
         {/* the last 24 hours as one terminal status line; every segment is a shortcut filter that keeps the others */}
         <div role="group" aria-label="Last 24 hours"
              className="grid grid-cols-2 items-center gap-x-1 gap-y-0.5 rounded-lg border bg-sunken px-2 py-1.5 font-mono text-xs text-muted-foreground sm:flex sm:flex-wrap">
-          <span aria-hidden className="col-span-2 px-2 pt-1 text-[11px] tracking-[0.14em] text-foreground uppercase sm:px-1.5 sm:pt-0">24h</span>
+          <span aria-hidden className="col-span-2 px-2 pt-1 text-xs text-foreground sm:px-1.5 sm:pt-0">24h</span>
           <span aria-hidden className="mr-1 hidden h-4 w-px bg-rule sm:block" />
           <Seg on={errorsOnly} onClick={() => setFilter("level", errorsOnly ? "" : "error")}
                label={`Errors in the last 24 hours: ${summary ? errors24 : "loading"}. Show errors only`}>

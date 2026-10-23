@@ -107,7 +107,7 @@ function TopicRow({ g, now, selected, onOpen }: { g: Group; now: number; selecte
       <span aria-hidden className={cn("absolute inset-y-0 left-0 w-[3px] bg-signal transition-opacity", selected ? "opacity-100" : "opacity-0")} />
       <div className="grid content-start">
         <span className={cn("font-mono text-lg leading-none font-medium tabular-nums", past ? "text-muted-foreground" : "text-foreground")}>{time}</span>
-        <span className="mt-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">IST</span>
+        <span className="mt-1.5 text-xs text-muted-foreground">IST</span>
       </div>
       <div className="min-w-0">
         {/* the real control: a button whose hit area is stretched over the whole row */}
@@ -120,7 +120,7 @@ function TopicRow({ g, now, selected, onOpen }: { g: Group; now: number; selecte
           {g.topic}
         </button>
         <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted-foreground">
-          <span className="tracking-wider uppercase">{g.category}</span>
+          <span className="">{g.category}</span>
           {g.versions > 1 && <><span aria-hidden>·</span><span>v{g.versions}</span></>}
         </p>
       </div>
@@ -170,8 +170,8 @@ function DayMark({ day, now }: { day: Day; now: number }) {
     <div className="flex items-baseline gap-3 lg:sticky lg:top-6 lg:grid lg:content-start lg:gap-1 lg:self-start">
       <span className="font-heading text-[2.5rem] leading-none font-semibold tracking-tight tabular-nums lg:text-5xl">{day.key.slice(8)}</span>
       <span className="grid gap-0.5 lg:mt-1">
-        <span className="font-mono text-xs tracking-[0.14em] text-foreground/90 uppercase">{DAY_NAME.format(d)} · {MONTH.format(d)}</span>
-        {rel && <span className={cn("font-mono text-[11px] tracking-[0.14em] uppercase", rel === "Today" ? "text-signal" : "text-muted-foreground")}>{rel}</span>}
+        <span className="text-xs text-foreground/90">{DAY_NAME.format(d)} · {MONTH.format(d)}</span>
+        {rel && <span className={cn("text-xs", rel === "Today" ? "text-signal" : "text-muted-foreground")}>{rel}</span>}
       </span>
       <span className="ml-auto font-mono text-[11px] text-muted-foreground lg:mt-3 lg:ml-0">
         {day.groups.length} {day.groups.length === 1 ? "topic" : "topics"} · {items} {items === 1 ? "post" : "posts"}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ClipboardEvent, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, Check, CircleDashed, Eye, EyeOff, LoaderCircle, Radar, RefreshCw, Send, ShieldCheck, Sparkles, Trash2, TriangleAlert, X } from "lucide-react";
+import { BookOpen, Check, CircleDashed, Eye, EyeOff, LoaderCircle, Radar, RefreshCw, Send, ShieldCheck, Compass, Trash2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
@@ -268,7 +268,7 @@ function Step({ integ, onChanged, onGuide, setConfirm }: {
   return (
     <section id={integ.name} aria-labelledby={`${integ.name}-h`} className="scroll-mt-24 border-t border-rule pt-8 first:border-t-0 first:pt-0">
       <header className="mb-6 grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-5">
-        <span aria-hidden className="select-none font-heading text-4xl leading-none font-bold text-transparent [-webkit-text-stroke:1px_color-mix(in_srgb,var(--brand-text)_30%,transparent)] sm:text-6xl">{STEP_NO[integ.name]}</span>
+        <span aria-hidden className="num-badge">{STEP_NO[integ.name]}</span>
         <div className="min-w-0 pt-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 id={`${integ.name}-h`} className="font-heading text-2xl font-semibold tracking-tight">{integ.title}</h2>
@@ -393,7 +393,7 @@ function Later({ items }: { items: Integration[] }) {
   return (
     <section id="later" aria-labelledby="later-h" className="scroll-mt-24 border-t border-rule pt-8">
       <header className="mb-4 flex items-start gap-5">
-        <span aria-hidden className="select-none font-heading text-5xl leading-none font-bold text-transparent [-webkit-text-stroke:1px_color-mix(in_srgb,var(--brand-text)_30%,transparent)] sm:text-6xl">05</span>
+        <span aria-hidden className="num-badge">05</span>
         <div className="pt-1">
           <h2 id="later-h" className="font-heading text-2xl font-semibold tracking-tight">Publishing & extras</h2>
           <p className="mt-1 max-w-prose text-sm text-muted-foreground">Not needed to generate. These keep working from the server environment; their dashboard checks arrive in the next release, so we don't claim they work.</p>
@@ -454,17 +454,17 @@ export default function ConfigPage() {
           <div className="flex flex-col gap-3 rounded-xl border border-signal/40 bg-signal/10 p-5 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-signal/20 text-signal">
-                <Sparkles className="size-5" />
+                <Compass className="size-5" />
               </div>
               <div>
-                <h3 className="font-heading font-semibold text-foreground">Welcome to CodexOne! Quick Initial Setup Required</h3>
+                <h3 className="font-heading font-semibold text-foreground">Welcome to Mintly. A few choices and you're ready</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Complete your content taste, target destinations (Instagram / YouTube), and publishing schedule below to activate your workspace and unlock the content desk.
+                  Pick your content taste, where to post (Instagram, YouTube) and when, below. Then Mintly starts drafting posts for you to approve.
                 </p>
               </div>
             </div>
             <a href="#taste-cadence" className="inline-flex shrink-0 items-center justify-center rounded-md bg-signal px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-90">
-              Configure Now ↓
+              Start setup
             </a>
           </div>
         )}

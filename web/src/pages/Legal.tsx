@@ -113,7 +113,7 @@ export default function LegalPage() {
             {doc.sections.map((s, i) => (
               <section key={s.id} id={s.id} aria-labelledby={`${s.id}-h`} className="scroll-mt-8 border-t pt-8 first:border-t-0 first:pt-0">
                 <header className="mb-4 flex items-start gap-4">
-                  <span aria-hidden className="select-none font-heading text-4xl leading-none font-bold text-transparent [-webkit-text-stroke:1px_color-mix(in_srgb,var(--brand-text)_28%,transparent)]">{num(i)}</span>
+                  <span aria-hidden className="num-badge">{num(i)}</span>
                   <h2 id={`${s.id}-h`} className="pt-1 font-heading text-xl font-semibold tracking-tight text-foreground md:text-2xl">{s.title}</h2>
                 </header>
                 <div className="grid gap-3">{s.body.map((b, j) => <Body key={j} block={b} />)}</div>

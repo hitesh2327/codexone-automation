@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const err = (e: unknown, fallback = "Something went wrong. Please try again.") => (e instanceof ApiError ? e.message : fallback);
-const MONO = "font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground";
+const MONO = "text-xs font-medium text-muted-foreground";
 const LINE_INPUT =
   "h-12 rounded-none border-0 border-b border-input bg-transparent px-0 text-lg shadow-none focus-visible:border-[var(--brand-accent)] focus-visible:ring-0 dark:bg-transparent";
 
@@ -38,7 +38,7 @@ function Section({ id, n, title, lead, children }: { id: string; n: string; titl
   return (
     <section id={id} aria-labelledby={`${id}-h`} className="scroll-mt-8 border-t pt-8 first:border-t-0 first:pt-0">
       <header className="mb-8 flex items-start gap-5">
-        <span aria-hidden className="select-none font-heading text-6xl leading-none font-bold text-transparent [-webkit-text-stroke:1px_color-mix(in_srgb,var(--brand-text)_28%,transparent)]">{n}</span>
+        <span aria-hidden className="num-badge">{n}</span>
         <div className="pt-1.5">
           <h2 id={`${id}-h`} className="font-heading text-2xl font-semibold tracking-tight">{title}</h2>
           <p className="mt-1 max-w-prose text-sm text-muted-foreground">{lead}</p>

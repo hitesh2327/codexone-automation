@@ -387,7 +387,7 @@ export function TasteCadenceConfig({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="select-none font-heading text-4xl font-bold text-transparent [-webkit-text-stroke:1px_color-mix(in_srgb,var(--brand-text)_30%,transparent)]">
+            <span className="num-badge">
               00
             </span>
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
@@ -399,7 +399,7 @@ export function TasteCadenceConfig({
           </p>
         </div>
         {isOnboarding && (
-          <span className="rounded-full bg-signal/20 px-3 py-1 font-mono text-xs font-semibold uppercase text-signal">
+          <span className="rounded-full bg-signal/20 px-3 py-1 text-xs font-semibold text-signal">
             Step 1: Required Onboarding
           </span>
         )}
@@ -415,13 +415,13 @@ export function TasteCadenceConfig({
 
           {/* Niche */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Primary Niche / Subject
             </label>
             <div className="grid gap-2">
               {NICHE_GROUPS.map((group) => (
                 <div key={group.label} className="grid gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60">
+                  <span className="text-xs text-muted-foreground/60">
                     {group.label}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
@@ -454,7 +454,7 @@ export function TasteCadenceConfig({
 
           {/* Content Type */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Content Type
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -479,7 +479,7 @@ export function TasteCadenceConfig({
           {/* Content Categories */}
           <div className="grid gap-2">
             <div className="flex items-center justify-between">
-              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-medium text-muted-foreground">
                 Content Categories
               </label>
               <button
@@ -544,7 +544,7 @@ export function TasteCadenceConfig({
 
           {/* Tone */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Voice & Tone
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -574,7 +574,7 @@ export function TasteCadenceConfig({
 
           {/* Visual Aesthetic */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Visual Aesthetic & Color Theme
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -598,7 +598,7 @@ export function TasteCadenceConfig({
 
           {/* Template Style */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Slide & Reel Template Style
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -625,7 +625,7 @@ export function TasteCadenceConfig({
 
           {/* Target Audience */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Target Audience
             </label>
             <Input
@@ -638,7 +638,7 @@ export function TasteCadenceConfig({
 
           {/* Custom Prompt Directives */}
           <div className="grid gap-2">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Custom AI Prompt Directives
             </label>
             <textarea
@@ -660,7 +660,7 @@ export function TasteCadenceConfig({
 
           {/* Platform Selection */}
           <div className="grid gap-3">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Posting Destinations (Select All That Apply)
             </label>
             <div className="grid grid-cols-2 gap-3">
@@ -749,7 +749,7 @@ export function TasteCadenceConfig({
           {/* Daily Post Cadence */}
           <div className="grid gap-3">
             <div className="flex items-baseline justify-between">
-              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-medium text-muted-foreground">
                 Automated Posts Per Day
               </label>
               <span className="font-mono text-xs text-signal font-semibold">
@@ -771,7 +771,7 @@ export function TasteCadenceConfig({
                   )}
                 >
                   <span className="font-heading text-lg">{count}</span>
-                  <span className="text-[10px] uppercase font-mono tracking-wider">
+                  <span className="text-xs">
                     {count === 1 ? "Post" : "Posts"}
                   </span>
                 </button>
@@ -781,7 +781,7 @@ export function TasteCadenceConfig({
 
           {/* Schedule Mode */}
           <div className="grid gap-3">
-            <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-medium text-muted-foreground">
               Posting Schedule
             </label>
             <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-border bg-background/50 p-1">
@@ -792,7 +792,7 @@ export function TasteCadenceConfig({
               ] as const).map(({ mode, icon: Icon, label }) => (
                 <button key={mode} type="button" onClick={() => setScheduleMode(mode)}
                   className={cn(
-                    "flex flex-col items-center gap-1 rounded-md px-2 py-2 text-[10px] font-mono font-medium uppercase tracking-wide transition-colors",
+                    "flex flex-col items-center gap-1 rounded-md px-2 py-2 text-xs font-medium tracking-wide transition-colors",
                     scheduleMode === mode
                       ? "bg-primary/10 text-primary shadow-sm"
                       : "text-muted-foreground hover:bg-raised hover:text-foreground"
@@ -807,7 +807,7 @@ export function TasteCadenceConfig({
           {/* Uniform: same time every day */}
           {scheduleMode === "uniform" && (
             <div className="grid gap-2">
-              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-medium text-muted-foreground">
                 Slot Times (24h IST)
               </label>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -828,7 +828,7 @@ export function TasteCadenceConfig({
           {/* Weekly: different time per day */}
           {scheduleMode === "weekly" && (
             <div className="grid gap-2">
-              <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-medium text-muted-foreground">
                 Times Per Day (24h IST) — toggle a day off to skip it
               </label>
               <div className="grid gap-1.5">
@@ -865,7 +865,7 @@ export function TasteCadenceConfig({
           {scheduleMode === "ai" && (
             <div className="grid gap-3">
               <div className="flex items-center justify-between">
-                <label className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <label className="text-xs font-medium text-muted-foreground">
                   AI-Suggested Times (IST)
                 </label>
                 <button type="button" onClick={handleGetAiSuggestions} disabled={aiLoading}
@@ -878,7 +878,7 @@ export function TasteCadenceConfig({
                 <div className="grid gap-2">
                   {Object.entries(aiSchedule).map(([plat, times]) => (
                     <div key={plat} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
-                      <span className="w-16 font-mono text-xs font-semibold uppercase text-muted-foreground">
+                      <span className="w-16 text-xs font-semibold text-muted-foreground">
                         {plat === "ig" ? "Instagram" : plat === "yt" ? "YouTube" : plat}
                       </span>
                       {(times || []).map((t, i) => (

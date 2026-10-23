@@ -53,7 +53,7 @@ export function CheckList({ checks }: { checks: CheckRow[] }) {
               {c.label}
               {c.evidence && <span className="block text-xs break-words text-muted-foreground">{c.evidence}</span>}
             </span>
-            <span className="col-start-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase sm:col-start-3 sm:self-start sm:pt-1">
+            <span className="col-start-2 text-xs text-muted-foreground sm:col-start-3 sm:self-start sm:pt-1">
               {c.depth === "format" ? "format" : c.depth === "deep" ? "real test" : "live"}
             </span>
           </li>
@@ -74,7 +74,7 @@ function External({ href, children }: { href: string; children: ReactNode }) {
 export function Unverified({ why }: { why: string }) {
   return (
     <details className="mt-1.5 text-xs text-muted-foreground">
-      <summary className="inline-flex cursor-pointer items-center gap-1 rounded-[3px] border border-wait/40 px-1.5 py-px font-mono text-[10px] tracking-wide text-wait uppercase">Unverified</summary>
+      <summary className="inline-flex cursor-pointer items-center gap-1 rounded-[3px] border border-wait/40 px-1.5 py-px text-xs text-wait">Unverified</summary>
       <p className="mt-1 max-w-prose">{why}</p>
     </details>
   );

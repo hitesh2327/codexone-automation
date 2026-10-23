@@ -22,7 +22,7 @@ export function PasswordField({
 
   return (
     <div className="grid gap-2">
-      <label htmlFor={fieldId} className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{label}</label>
+      <label htmlFor={fieldId} className="text-xs font-medium text-muted-foreground">{label}</label>
       <div className="relative">
         <Input
           id={fieldId} type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}

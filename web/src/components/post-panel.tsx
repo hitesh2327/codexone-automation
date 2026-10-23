@@ -29,7 +29,7 @@ import { cn, safeHref } from "@/lib/utils";
 
 const CAPTION_MAX = 2200;
 const YT_TITLE_MAX = 100;
-const MONO = "font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground";
+const MONO = "text-xs font-medium text-muted-foreground";
 
 function errorMessage(e: unknown) {
   return e instanceof ApiError ? e.message : "Something went wrong. Please try again.";
@@ -371,7 +371,7 @@ export function PostPanel({
             <span aria-hidden className="amber-rule" />
             <SheetTitle className="font-heading text-xl leading-snug text-balance sm:text-2xl">{group.topic}</SheetTitle>
             <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
-              <span className="tracking-wider text-foreground/85 uppercase">{group.category}</span>
+              <span className="text-foreground/85">{group.category}</span>
               <span aria-hidden className="text-border">/</span>
               <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5" aria-hidden />{formatIST(group.publish_at)} IST</span>
               {group.versions > 1 && <><span aria-hidden className="text-border">/</span><span>version {group.versions}</span></>}
@@ -433,7 +433,7 @@ export function PostPanel({
                       <Checkbox aria-label={b.label} checked={checked} disabled={disabled} onCheckedChange={(v) => toggleTarget(b, v === true)} />
                       <span className="grid leading-tight">
                         <span className="font-medium">{b.label}</span>
-                        <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">{b.item ? b.sub : "not in this post"}</span>
+                        <span className="text-xs text-muted-foreground">{b.item ? b.sub : "not in this post"}</span>
                       </span>
                       {busy === `target-${b.key}` && <LoaderCircle className="ml-auto size-3.5 animate-spin text-muted-foreground" aria-hidden />}
                     </label>

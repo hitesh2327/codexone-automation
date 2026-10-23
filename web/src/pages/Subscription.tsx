@@ -187,7 +187,7 @@ export default function SubscriptionPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Current plan</span>
-                <span className="font-heading font-semibold uppercase tracking-wider text-foreground">
+                <span className="font-heading font-semibold text-foreground">
                   {currentTier}
                 </span>
                 <span className={cn("inline-flex h-5 items-center gap-1.5 rounded-[4px] border px-1.5 text-[11px] leading-none font-medium",
