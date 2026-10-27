@@ -273,7 +273,7 @@ def cmd_regenerate(args) -> int:
         from src.credentials import active_user_id
         tok = active_user_id.set(first.user_id) if getattr(first, "user_id", None) else None
         try:
-            content = gen_content.generate(topic, feedback)
+            content = gen_content.generate(topic, feedback, language=first.language)  # Hinglish stays Hinglish
             slug = gen_content.slugify(first.topic)
             # one format alone gets its own folder so it never overwrites the other's content.json
             suffix = f"v{version}" if len(kinds) == 2 else f"v{version}-{kinds[0]}"
@@ -284,7 +284,8 @@ def cmd_regenerate(args) -> int:
             if "carousel" in kinds:
                 render_post.render_carousel(content, post_dir / "carousel")
             if "reel" in kinds:
-                voice = render_reel.voice_from_feedback("\n".join(notes)) or render_reel.pick_voice()
+                voice = (render_reel.voice_from_feedback("\n".join(notes), first.language)
+                         or render_reel.pick_voice(first.language))
                 render_reel.render_reel(content, post_dir, render_reel._default_music(), voice=voice)
             upload.upload_post(post_dir, only=None if len(kinds) == 2 else kinds[0])
             by_kind = {o.kind: o for o in olds}

@@ -188,6 +188,8 @@ def _control_text(item: q.Item, max_caption: int = 3500, max_total: int | None =
     if item.voice:  # e.g. en-US-AndrewMultilingualNeural -> Andrew
         name = item.voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
         when += f"🎙 Voice: {name}\n"
+    if item.kind == "reel" and item.language == "hi":
+        when += "🗣 Narration: Hinglish (no subtitles)\n"
 
     fb = ""
     if item.version > 1 and item.feedback:

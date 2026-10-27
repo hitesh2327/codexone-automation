@@ -385,3 +385,29 @@ def test_poll_expires_stuck_jobs(monkeypatch):
     with db.session() as s:
         s.get(GenerationJob, job["id"]).created_at = datetime.now(UTC) - timedelta(hours=3)
     assert generation.expire_stuck() == 1 and generation.get(job["id"])["status"] == "failed"
+
+
+# --------------------------------------------------------------------------- #
+# main.py regenerate: a Hinglish post stays Hinglish
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("language", ["hi", "en"])
+def test_regenerate_keeps_the_narration_language(monkeypatch, tmp_path, language):
+    q.save([q.Item(id=f"r-{language}", kind="reel", date=FAR, topic="Caching", category="AI", post_dir="output/x",
+                   caption="c", media={"reel": "https://x/r.mp4"}, status="regenerate", voice="v",
+                   language=language, feedback="use Swara")])
+    seen = {}
+
+    def generate(topic, feedback="", language="en"):
+        seen["language"] = language
+        return SimpleNamespace(model_dump_json=lambda **k: "{}")
+    monkeypatch.setattr(gen_content, "generate", generate)
+    monkeypatch.setattr(gen_content, "post_dir", lambda day, title: tmp_path)
+    monkeypatch.setattr(render_reel, "render_reel", lambda *a, **k: seen.setdefault("voice", k["voice"]))
+    monkeypatch.setattr(render_reel, "_default_music", lambda: None)
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"voices": ["en-US-AndrewMultilingualNeural"]})
+    monkeypatch.setattr(upload, "upload_post", lambda *a, **k: None)
+    monkeypatch.setattr(approve_bot, "items_from_post", lambda *a, **k: [])
+    assert main.main(["regenerate"]) == 0
+    assert seen["language"] == language
+    # "use Swara" picks the Hindi voice only on a Hinglish post; an English post keeps its own rotation
+    assert seen["voice"] == ("hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewMultilingualNeural")

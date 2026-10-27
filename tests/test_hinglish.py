@@ -205,3 +205,12 @@ def test_english_timeline_keeps_subtitles(monkeypatch, tmp_path):
     monkeypatch.setattr(render_reel, "load_brand", lambda: {"pronunciations": {}})
     tl, _ = v2render.timeline(english(), "en-US-AndrewMultilingualNeural", tmp_path, "en")
     assert all(tl["subs"])
+
+
+def test_youtube_audio_language(monkeypatch):
+    from src import publish_youtube as yt
+    monkeypatch.setattr(yt, "load_brand", lambda: {"cta": ""})
+    hi = yt.build_metadata("Caching explained\n\n#ai", audio_language="hi")["snippet"]
+    en = yt.build_metadata("Caching explained\n\n#ai")["snippet"]
+    assert (hi["defaultAudioLanguage"], hi["defaultLanguage"]) == ("hi", "en")
+    assert en["defaultAudioLanguage"] == "en"
