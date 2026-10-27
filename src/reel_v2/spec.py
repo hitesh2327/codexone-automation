@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Literal
@@ -31,6 +32,13 @@ NodeState = Literal["idle", "live", "ok", "busy", "boot", "error", "testing", "e
 # idle = standby, boot = starting, testing = being checked, error = failing, empty = not deployed, off = stopped
 
 MAX_WORDS = 75          # ~30s with the brand voices at +6% (95 words came out at ~35s)
+MAX_WORDS_HI = 60       # Hinglish: the Hindi voices speak ~2.3 words/s vs ~2.8 (docs/specs/hinglish-narration-plan.md §7)
+DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+TRIGGER_STRIP = ".,?!'\"।"   # Hindi sentences end in । (danda)
+
+
+def max_words(language: str = "en") -> int:
+    return MAX_WORDS_HI if language == "hi" else MAX_WORDS
 MAX_ROW_NODES = 6
 
 
@@ -161,9 +169,24 @@ CATEGORY_GUIDE = {
 }
 
 
-def _prompt(topic: str, category: str, angle: str, brand: dict, feedback: str = "") -> str:
+HINGLISH = """NARRATION LANGUAGE: HINGLISH
+- Only `narration` is Hinglish: conversational Hindi the way Indian tech creators talk, with English tech terms.
+  Write Hindi words in Devanagari and keep tech terms, product names, commands and numbers in Latin script,
+  e.g. "सोचो, हर request सीधा database पे जाए तो क्या होगा? यहीं cache काम आता है।"
+  Never write Hindi in Latin letters ("socho, har request..."): the Hindi voice mispronounces it.
+- EVERYTHING ELSE STAYS ENGLISH, with no Devanagari: title, subtitle, cover_lead, headings, captions, terms,
+  slide titles and text, node and group labels, counters, notes, payoff, cheat sheet, Instagram caption, hashtags.
+- `trigger` is one word copied exactly from the narration; prefer the English tech word ("cache", "crash").
+- Short sentences ending in । or ?. Say symbols in words ("O of log n").
+- Last beat ends with the follow CTA in Hinglish, e.g. 'ऐसे और explainers के लिए follow करो {handle}।'.
+"""
+
+
+def _prompt(topic: str, category: str, angle: str, brand: dict, feedback: str = "", language: str = "en") -> str:
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
     guide = f"\n\n{CATEGORY_GUIDE[category]}" if category in CATEGORY_GUIDE else ""
+    if language == "hi":
+        guide += "\n\n" + HINGLISH.format(handle=brand["handle"])
     return f"""Design one reel + carousel for {brand['handle']}.
 
 Topic: {topic}
@@ -180,7 +203,7 @@ DIAGRAM
 - Show the problem AND the fix on the same diagram (e.g. a node goes error, then traffic is
   rerouted, a cache starts answering, a queue absorbs a spike...).
 
-BEATS (5-8) — total narration MAX {MAX_WORDS} words, the reel must be at most 30 seconds
+BEATS (5-8) — total narration MAX {max_words(language)} words, the reel must be at most 30 seconds
 - Beat 1 is the hook: a curiosity question + the topic name. It must already have flows (motion
   from the first frame).
 - Middle beats: ONE change each (short beats are fine), the trigger word is the verb that causes
@@ -206,7 +229,20 @@ CAPTION: 60-150 words, hook first line, value in the middle, question at the end
 HASHTAGS: 10-15; include a few of: {' '.join(brand['hashtags'])}.{guide}{extra}"""
 
 
-def validate(s: SceneSpec) -> list[str]:
+def on_screen_text(s: SceneSpec) -> list[str]:
+    """Every string the reel/carousel shows or publishes (narration and ids excluded)."""
+    c = s.cheat
+    out = [p.text for p in s.title + s.payoff] + [s.subtitle, s.cover_lead, s.payoff_sub, s.caption, *s.hashtags]
+    out += [x for g in s.groups for x in (g.label, g.sub)] + [n.label for n in s.nodes]
+    out += [st.note for st in s.initial]
+    for b in s.beats:
+        out += [b.heading, b.caption, b.term, b.slide_title, b.slide_text]
+        out += [x for k in b.counters for x in (k.label, k.value)] + [st.note for st in b.states]
+    out += [*c.use_when, *c.tradeoffs, c.code_title, c.code, *c.compare.headers, *(x for r in c.compare.rows for x in r)]
+    return out
+
+
+def validate(s: SceneSpec, language: str = "en") -> list[str]:
     """Structural checks the renderer relies on (accuracy is the reviewer's job)."""
     p: list[str] = []
     ids = {n.id for n in s.nodes}
@@ -239,11 +275,11 @@ def validate(s: SceneSpec) -> list[str]:
     if not 5 <= len(s.beats) <= 8:
         p.append(f"need 5-8 beats, got {len(s.beats)}")
     words = sum(len(b.narration.split()) for b in s.beats)
-    if words > MAX_WORDS:
-        p.append(f"narration is {words} words; max {MAX_WORDS} so the reel stays under 30 seconds")
+    if words > (cap := max_words(language)):
+        p.append(f"narration is {words} words; max {cap} so the reel stays under 30 seconds")
     labels = None
     for i, b in enumerate(s.beats, 1):
-        if b.trigger.lower().strip(".,?!") not in [w.lower().strip(".,?!'\"") for w in b.narration.split()]:
+        if b.trigger.lower().strip(TRIGGER_STRIP) not in [w.lower().strip(TRIGGER_STRIP) for w in b.narration.split()]:
             p.append(f"beat {i}: trigger {b.trigger!r} is not a word of its narration")
         for f in b.flows:
             if (f.src, f.dst) not in pairs and (f.dst, f.src) not in pairs:
@@ -271,32 +307,40 @@ def validate(s: SceneSpec) -> list[str]:
         p.append("cheat.compare needs 4 headers and 4 cells per row")
     if any(len(l) > 52 for l in c.code.splitlines()) or len(c.code.splitlines()) > 5:
         p.append("cheat.code: max 4 lines of 46 chars")
+    if language == "hi":
+        p += [f"beat {i}: narration must be Hinglish in Devanagari (with English tech terms), not Latin script"
+              for i, b in enumerate(s.beats, 1) if not DEVANAGARI.search(b.narration)]
+        if hindi := [t for t in on_screen_text(s) if DEVANAGARI.search(t)]:
+            p.append(f"only the narration is Hinglish; keep on-screen text and the caption English: {hindi[:3]}")
     return p
 
 
-def _review_prompt(s: SceneSpec) -> str:
+def _review_prompt(s: SceneSpec, language: str = "en") -> str:
+    hinglish = ("\nThe narration is Hinglish (Hindi in Devanagari with English tech terms); the rest is English. "
+                "Check that each beat's narration says the same thing as its on-screen text and is technically "
+                "correct.\n") if language == "hi" else ""
     return f"""You are a strict senior engineer reviewing an animated explainer for technical accuracy.
 Check every claim in narration, captions, terminal commands, the cheat sheet snippet and the
 comparison table. Does the diagram story (which node fails, where traffic goes) match how the
 real system behaves? Flag exaggerated or absolute claims (infinite, zero, never, instant) that are
 not literally true, especially in the payoff. Ignore style. Flag only real errors or misleading
-statements.
+statements.{hinglish}
 
 {s.model_dump_json(indent=2)}"""
 
 
-def generate(topic: str, category: str = "", angle: str = "", feedback: str = "") -> SceneSpec:
+def generate(topic: str, category: str = "", angle: str = "", feedback: str = "", language: str = "en") -> SceneSpec:
     brand = load_brand()
-    spec = generate_json(_prompt(topic, category, angle, brand, feedback), SceneSpec, system=SYSTEM)
-    problems = validate(spec)
-    review = generate_json(_review_prompt(spec), Review, temperature=0.2)
+    spec = generate_json(_prompt(topic, category, angle, brand, feedback, language), SceneSpec, system=SYSTEM)
+    problems = validate(spec, language)
+    review = generate_json(_review_prompt(spec, language), Review, temperature=0.2)
     issues = problems + ([] if review.ok else review.issues)
     if issues:
         log.info("rewriting draft: %s", "; ".join(issues))
         fix = "\n".join(f"- {i}" for i in issues)
-        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + fix).strip()),
+        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + fix).strip(), language),
                              SceneSpec, system=SYSTEM)
-        left = validate(spec)
+        left = validate(spec, language)
         if left:
             raise ValueError("scene spec still invalid: " + "; ".join(left))
     return spec

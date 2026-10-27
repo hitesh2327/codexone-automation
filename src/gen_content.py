@@ -159,7 +159,16 @@ def _carousel_block(car: dict, is_tech: bool, handle: str) -> str:
 """
 
 
-def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "", taste=None) -> str:
+# Classic format, Hinglish reel: only the spoken fields change (see src/reel_v2/spec.py HINGLISH for the v2 engine).
+CLASSIC_HINGLISH = """
+NARRATION LANGUAGE: HINGLISH. Only the spoken fields (reel.hook_narration, reel.points[].narration,
+demo.steps[].narration, reel.cta_narration) are conversational Hinglish: Hindi words in Devanagari, tech terms,
+names, code and numbers in Latin script, e.g. "सोचो, हर request सीधा database पे जाए तो क्या होगा?". Never write Hindi
+in Latin letters. Everything else (on-screen text, carousel, caption, hashtags) stays English with no Devanagari.
+Total narration 45-58 words."""
+
+
+def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "", taste=None, language: str = "en") -> str:
     if taste is None:
         from src.user_taste import get_user_taste
         taste = get_user_taste()
@@ -181,7 +190,7 @@ Language: {brand['language']}
 
 REEL ({reel['duration_sec']} seconds spoken, structure: {reel['structure']}):
 - Total narration 55-70 words; the reel must NEVER exceed 30 seconds. Short sentences, easy to speak aloud.
-- CTA narration should invite the viewer to follow {brand['handle']}.
+- CTA narration should invite the viewer to follow {brand['handle']}.{CLASSIC_HINGLISH if language == "hi" else ""}
 
 {_demo_block(taste.is_tech())}
 {_carousel_block(car, taste.is_tech(), brand['handle'])}
@@ -334,7 +343,7 @@ def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") 
     if (taste.is_tech() or topic.category in TECH_CATEGORY_DESCRIPTIONS) and v2.uses_v2(topic.category):
         try:
             from src.reel_v2.spec import generate as generate_scene
-            spec = generate_scene(topic.title, topic.category, topic.angle, feedback)
+            spec = generate_scene(topic.title, topic.category, topic.angle, feedback, language)
             log.info("v2 scene: %d beats, %d words", len(spec.beats),
                      sum(len(b.narration.split()) for b in spec.beats))
             content = v2.to_content(spec, topic.title, topic.category)
@@ -344,7 +353,7 @@ def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") 
             log.exception("v2 scene generation failed; falling back to the classic format")
             v2.warn_fallback("Script", topic.title, e)
     brand = load_brand()
-    content = generate_json(_write_prompt(topic, brand, feedback, taste), Content, system=system)
+    content = generate_json(_write_prompt(topic, brand, feedback, taste, language), Content, system=system)
     attempts = 3
     for attempt in range(1, attempts + 1):
         content = normalize(content)
@@ -367,8 +376,8 @@ def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") 
         # Revise the previous draft (keeps what was right) instead of starting over.
         fb = ("\n".join(f"- {p}" for p in problems) + (f"\n- {feedback}" if feedback else "")
               + "\n\nPrevious draft to revise:\n" + content.model_dump_json())
-        content = generate_json(_write_prompt(topic, brand, fb, taste), Content, system=system)
-    if not blocking:
+        content = generate_json(_write_prompt(topic, brand, fb, taste, language), Content, system=system)
+    if not blocking and language == "en":  # hookscore reads Latin-script words only
         try:
             content = pick_hook(content, brand)
         except Exception:  # noqa: BLE001 -- the scorer is a nicety; never lose the day's post to it

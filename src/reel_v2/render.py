@@ -28,7 +28,7 @@ from playwright.sync_api import sync_playwright
 from src.config import TEMPLATES_DIR, load_brand
 from src.logger import get_logger
 from src.render_reel import Word, pick_voice, speakable
-from src.reel_v2.spec import SceneSpec
+from src.reel_v2.spec import TRIGGER_STRIP, SceneSpec
 
 log = get_logger("reel_v2.render")
 
@@ -128,10 +128,10 @@ def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
         t += d + GAP
     triggers = []
     for i, (b, ws) in enumerate(zip(spec.beats, words)):
-        target = b.trigger.lower().strip(".,?!'\"")
-        hit = next((w.start for w in ws if w.text.lower().strip(".,?!'\"") == target), None)
+        target = b.trigger.lower().strip(TRIGGER_STRIP)
+        hit = next((w.start for w in ws if w.text.lower().strip(TRIGGER_STRIP) == target), None)
         if hit is None:
-            hit = next((w.start for w in ws if w.text.lower().strip(".,?!'\"").startswith(target[:4])), 0.0)
+            hit = next((w.start for w in ws if w.text.lower().strip(TRIGGER_STRIP).startswith(target[:4])), 0.0)
             log.warning("beat %d: trigger %r not matched exactly; using %.2fs", i, b.trigger, hit)
         triggers.append(starts[i] + hit)
 
