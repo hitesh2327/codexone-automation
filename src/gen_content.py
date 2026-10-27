@@ -157,6 +157,43 @@ def _carousel_block(car: dict, is_tech: bool, handle: str) -> str:
 """
 
 
+def _hook_formula_block(brand: dict) -> str:
+    """Build the hook formula reference block from ig-reel/hooks.json.
+
+    Falls back silently if the file is missing. Also surfaces any formulas
+    flagged as preferred in brand reel.preferred_hook_formulas (set monthly
+    by running scripts/run_swipe.ps1 after the ig-viral research session).
+    """
+    import json as _json
+    hooks_path = Path(__file__).parent.parent / ".claude" / "skills" / "ig-reel" / "hooks.json"
+    if not hooks_path.exists():
+        return ""
+    try:
+        data = _json.loads(hooks_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return ""
+
+    preferred: list[str] = brand.get("reel", {}).get("preferred_hook_formulas") or []
+    lines = ["HOOK FORMULA LIBRARY (pick ONE for hook_narration and hook_on_screen):"]
+    for h in data["hooks"]:
+        flag = "  ← OVER-INDEXING THIS MONTH" if h["name"] in preferred else ""
+        lines.append(f"  #{h['id']:02d} {h['name']}: {h['template']}{flag}")
+
+    pref_note = ""
+    if preferred:
+        pref_note = (
+            f"\nPrefer the OVER-INDEXING formulas ({', '.join(preferred)}) "
+            "— swipe-file data shows they beat this account's median right now."
+        )
+
+    return (
+        "\n".join(lines)
+        + pref_note
+        + "\nWrite hook_on_screen as the short on-screen version (6 words or fewer, all caps)."
+        + "\nNote which formula you chose with a comment in hook_narration: e.g. [#3 Nobody Tells You]"
+    )
+
+
 def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "", taste=None) -> str:
     if taste is None:
         from src.user_taste import get_user_taste
@@ -166,6 +203,8 @@ def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "", taste=Non
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
     instructions = taste.prompt_instructions
     custom_note = f"\n\nAdditional creator instructions: {instructions}" if instructions else ""
+    hook_block = _hook_formula_block(brand)
+    hook_section = f"\n\n{hook_block}" if hook_block else ""
     return f"""Create one Instagram reel and one carousel for {brand['handle']}.
 
 Topic: {topic.title}
@@ -179,12 +218,12 @@ Language: {brand['language']}
 
 REEL ({reel['duration_sec']} seconds spoken, structure: {reel['structure']}):
 - Total narration 55-70 words; the reel must NEVER exceed 30 seconds. Short sentences, easy to speak aloud.
-- CTA narration should invite the viewer to follow {brand['handle']}.
+- CTA narration should invite the viewer to follow {brand['handle']}.{hook_section}
 
 {_demo_block(taste.is_tech())}
 {_carousel_block(car, taste.is_tech(), brand['handle'])}
 CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: 10-15 relevant tags for {taste.niche}; include a few of: {' '.join(brand['hashtags'])}.{custom_note}{extra}"""
+HASHTAGS: up to 5 highly specific tags for {taste.niche}; choose from or inspired by: {' '.join(brand['hashtags'][:5])}. No generic tags like #viral #fyp #reels.{custom_note}{extra}"""
 
 
 def _review_prompt(content: Content, taste=None) -> str:
@@ -321,6 +360,21 @@ def pick_hook(c: Content, brand: dict) -> Content:
     return c
 
 
+def _extract_formula_from_hook(hook: str) -> str | None:
+    """Parse the [#N Name] annotation Gemini adds when using the formula block."""
+    import re as _re
+    m = _re.search(r"\[#\d+\s+([^\]]+)\]", hook)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _clean_formula_annotation(hook: str) -> str:
+    """Remove the [#N Name] annotation from the final spoken hook."""
+    import re as _re
+    return _re.sub(r"\s*\[#\d+[^\]]*\]\s*", " ", hook).strip()
+
+
 def generate(topic: RankedTopic, feedback: str = "") -> Content:
     from src.user_taste import get_user_taste
     taste = get_user_taste()
@@ -335,7 +389,9 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
             spec = generate_scene(topic.title, topic.category, topic.angle, feedback)
             log.info("v2 scene: %d beats, %d words", len(spec.beats),
                      sum(len(b.narration.split()) for b in spec.beats))
-            return v2.to_content(spec, topic.title, topic.category)
+            content = v2.to_content(spec, topic.title, topic.category)
+            content = _post_process(content)
+            return content
         except Exception as e:  # never lose the day's post to the new engine
             log.exception("v2 scene generation failed; falling back to the classic format")
             v2.warn_fallback("Script", topic.title, e)
@@ -369,8 +425,71 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
             content = pick_hook(content, brand)
         except Exception:  # noqa: BLE001 -- the scorer is a nicety; never lose the day's post to it
             log.exception("hook scoring failed; keeping the model's hook")
-    content.hashtags = [h if h.startswith("#") else f"#{h}" for h in content.hashtags][:15]
+    content = _post_process(content)
     content.topic, content.category = topic.title, topic.category
+    return content
+
+
+def _post_process(content: Content) -> Content:
+    """Phase 2+3: caption lint + humanise + Phase 5: score the hook. Called after every generation path."""
+    # --- Phase 1: strip formula annotation from final hook, record it ---
+    hook_formula = _extract_formula_from_hook(content.reel.hook_narration)
+    if hook_formula:
+        content.reel.hook_narration = _clean_formula_annotation(content.reel.hook_narration)
+        log.info("hook formula used: %s", hook_formula)
+
+    # --- Phase 3: humanise captions and narrations ---
+    try:
+        from src.humanize import clean as humanize_text
+        before = content.caption
+        content.caption = humanize_text(content.caption)
+        content.reel.hook_narration = humanize_text(content.reel.hook_narration)
+        for pt in content.reel.points:
+            pt.narration = humanize_text(pt.narration)
+        content.reel.cta_narration = humanize_text(content.reel.cta_narration)
+        if content.caption != before:
+            log.info("humanize: caption cleaned (slop/em-dash/invisible chars removed)")
+    except Exception:  # noqa: BLE001
+        log.exception("humanize pass failed; continuing with original text")
+
+    # --- Phase 2: enforce caption lint rules (hashtag cap, dead tags, IG limit) ---
+    try:
+        from src.caption_lint import enforce, lint
+        issues = lint(content.caption, content.hashtags)
+        for issue in issues:
+            (log.warning if issue.startswith("FAIL") else log.info)("caption_lint: %s", issue)
+        content.caption, content.hashtags = enforce(content.caption, content.hashtags)
+    except Exception:  # noqa: BLE001
+        log.exception("caption_lint pass failed; continuing with original hashtags")
+
+    # Ensure hashtag format after linting
+    content.hashtags = [h if h.startswith("#") else f"#{h}" for h in content.hashtags]
+
+    # --- Phase 5: score hook and log for ig-audit ---
+    try:
+        from src.hookscore import run as score_hook
+        _, hook_score, hook_verdict, _ = score_hook(content.reel.hook_narration)
+        log.info("hook score: %.0f (%s)", hook_score, hook_verdict)
+    except Exception:  # noqa: BLE001
+        hook_score, hook_verdict = None, None
+
+    try:
+        from src.post_log import record as log_post
+        log_post(
+            post_id=f"{content.category}-{slugify(content.topic)}",
+            kind="reel+carousel",
+            topic=content.topic,
+            category=content.category,
+            hook=content.reel.hook_narration,
+            hook_formula=hook_formula,
+            hook_score=hook_score,
+            humanness_verdict=hook_verdict,
+            caption_len=len(content.caption),
+            hashtag_count=len(content.hashtags),
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("post_log.record failed silently")
+
     return content
 
 
