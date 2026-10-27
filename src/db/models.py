@@ -42,7 +42,6 @@ class Post(Base):
     status: Mapped[str] = mapped_column(String(16), index=True, default="pending")
     publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     voice: Mapped[str] = mapped_column(String(64), default="")
-    language: Mapped[str] = mapped_column(String(2), default="en", server_default="en")  # en | hi (Hinglish narration)
     version: Mapped[int] = mapped_column(Integer, default=1)
     feedback: Mapped[str] = mapped_column(Text, default="")
     tg_message_ids: Mapped[list] = mapped_column(JSONType, default=list)
@@ -223,7 +222,6 @@ class GenerationJob(Base):
     source_url: Mapped[str | None] = mapped_column(Text)
     force: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     allow_duplicate: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    language: Mapped[str] = mapped_column(String(2), default="en", server_default="en")  # reel narration: en | hi
     # Progress: queued | running | succeeded | failed | skipped | cancelled
     status: Mapped[str] = mapped_column(String(12), default="queued")
     phase: Mapped[str | None] = mapped_column(String(20))

@@ -114,10 +114,8 @@ def fit_title(title: str) -> str:
     return t[:TITLE_MAX]
 
 
-def build_metadata(caption: str, title: str | None = None, description: str | None = None,
-                   audio_language: str = "en") -> dict:
-    """title/description: dashboard overrides; otherwise built from the caption.
-    audio_language: "hi" for a Hinglish reel; the title and description stay English (defaultLanguage "en")."""
+def build_metadata(caption: str, title: str | None = None, description: str | None = None) -> dict:
+    """title/description: dashboard overrides; otherwise built from the caption."""
     body, hashtags = split_caption(caption)
     cta = load_brand().get("cta", "")
     tags_line = " ".join(hashtags + (["#Shorts"] if "#Shorts" not in hashtags else []))
@@ -135,7 +133,7 @@ def build_metadata(caption: str, title: str | None = None, description: str | No
         "snippet": {"title": fit_title(title) if title else make_title(body),
                     "description": _clean(description)[:4900] if description else built_description, "tags": tags,
                     "categoryId": CATEGORY_SCIENCE_TECH, "defaultLanguage": "en",
-                    "defaultAudioLanguage": audio_language},
+                    "defaultAudioLanguage": "en"},
         "status": {"privacyStatus": privacy(), "selfDeclaredMadeForKids": False, "embeddable": True},
     }
 
@@ -206,9 +204,9 @@ def shorts_url(video_id: str) -> str:
 
 
 def publish_reel(video: str, caption: str, dry_run: bool = False, title: str | None = None,
-                 description: str | None = None, audio_language: str = "en") -> tuple[str, str]:
+                 description: str | None = None) -> tuple[str, str]:
     """Upload a reel (local path or URL). Returns (video_id, shorts_url)."""
-    body = build_metadata(caption, title, description, audio_language)
+    body = build_metadata(caption, title, description)
     if dry_run:
         credentials()
         if video.startswith("http"):
