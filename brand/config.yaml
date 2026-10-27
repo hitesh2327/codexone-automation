@@ -9,7 +9,7 @@ pronunciations:
 
 # Reel narration language for every run: "hi" Hinglish (Hindi voice, no subtitles) or "en" English.
 # The Generate page can switch one run to the other.
-narration_language: "hi"
+narration_language: "en"
 
 # Hinglish reels rotate through these voices round-robin (one per reel, in order).
 # Naming one in Telegram feedback before Regenerate ("use Madhur", "use Swara") picks it instead.

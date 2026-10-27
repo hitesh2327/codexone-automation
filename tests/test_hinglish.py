@@ -233,10 +233,12 @@ def test_yaml_narration_and_voices_win_over_the_db_copy(monkeypatch):
     monkeypatch.setattr(db, "get_setting", lambda key: dict(stale))
     config.load_brand.cache_clear()
     try:
+        import yaml
+        yml = yaml.safe_load(config.BRAND_FILE.read_text(encoding="utf-8"))
         b = config.load_brand()
-        assert b["narration_language"] == "hi" and b["voices_hi"][0] == "hi-IN-MadhurNeural"
-        assert b["voices"][0].startswith("en-") and b["language"].startswith("English")
-        assert config.default_narration() == "hi"
+        assert b["narration_language"] == yml["narration_language"] in ("en", "hi")
+        assert b["voices_hi"] == yml["voices_hi"] and b["voices"] == yml["voices"] and b["language"] == yml["language"]
+        assert config.default_narration() == yml["narration_language"]
     finally:
         config.load_brand.cache_clear()
 
