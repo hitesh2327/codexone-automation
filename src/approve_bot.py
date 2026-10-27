@@ -170,14 +170,16 @@ def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "
 # --------------------------------------------------------------------------- #
 # Sending
 # --------------------------------------------------------------------------- #
-def _control_text(item: q.Item, max_caption: int = 3500) -> str:
+def _control_text(item: q.Item, max_caption: int = 3500, max_total: int | None = None) -> str:
     """HTML text for the control message. Truncate BEFORE escaping so tags stay intact.
 
-    Video captions are limited to 1024 chars, so reels pass a smaller max_caption.
+    Video captions are limited to 1024 chars in Telegram (automatically budgeted for reels).
     """
+    if item.kind == "reel" and max_total is None:
+        max_total = 1020
+
     kind = "🖼 CAROUSEL" if item.kind == "carousel" else "🎬 REEL"
     ver = f" · v{item.version}" if item.version > 1 else ""
-    cap = item.caption if len(item.caption) <= max_caption else item.caption[:max_caption].rstrip() + "…"
     at = item_publish_at(item)
     when = (f"🕒 Posts as soon as you approve (the {at:%H:%M} IST slot has passed)\n"
             if datetime.now(IST) > at else
@@ -185,12 +187,46 @@ def _control_text(item: q.Item, max_caption: int = 3500) -> str:
     if item.voice:  # e.g. en-US-AndrewMultilingualNeural -> Andrew
         name = item.voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
         when += f"🎙 Voice: {name}\n"
+
+    fb = ""
     if item.version > 1 and item.feedback:
-        when += f"📝 Applied feedback: {html.escape(item.feedback[:300])}\n"
-    return (f"<b>{kind} · {html.escape(item.category)}{ver}</b>\n"
-            f"<b>{html.escape(item.topic)}</b>\n{when}\n{html.escape(cap)}\n\n"
-            f"<i>Reply to this message with feedback, then tap Regenerate to apply it.</i>\n"
-            f"<code>{item.id}</code>")
+        max_fb = 180 if max_total and max_total <= 1024 else 300
+        fb_text = item.feedback[:max_fb].rstrip() + ("…" if len(item.feedback) > max_fb else "")
+        fb = f"📝 Applied feedback: {html.escape(fb_text)}\n"
+
+    top = (f"<b>{kind} · {html.escape(item.category)}{ver}</b>\n"
+           f"<b>{html.escape(item.topic)}</b>\n{when}{fb}\n")
+    bottom = (f"\n\n<i>Reply to this message with feedback, then tap Regenerate to apply it.</i>\n"
+              f"<code>{item.id}</code>")
+
+    caption = item.caption or ""
+    if max_total is not None:
+        budget = max_total - len(top) - len(bottom)
+        if budget < 50:
+            fb = ""
+            top = (f"<b>{kind} · {html.escape(item.category)}{ver}</b>\n"
+                   f"<b>{html.escape(item.topic)}</b>\n{when}\n")
+            budget = max_total - len(top) - len(bottom)
+
+        if len(html.escape(caption)) <= budget:
+            cap_html = html.escape(caption)
+        else:
+            low, high = 0, len(caption)
+            best = ""
+            while low <= high:
+                mid = (low + high) // 2
+                cand = html.escape(caption[:mid].rstrip()) + "…"
+                if len(cand) <= budget:
+                    best = cand
+                    low = mid + 1
+                else:
+                    high = mid - 1
+            cap_html = best
+    else:
+        cap = caption if len(caption) <= max_caption else caption[:max_caption].rstrip() + "…"
+        cap_html = html.escape(cap)
+
+    return f"{top}{cap_html}{bottom}"
 
 
 def _download(url: str) -> io.BytesIO:
@@ -234,7 +270,7 @@ async def _send_preview(item: q.Item) -> q.Item:
         else:
             async def send_reel(video):
                 return await bot.send_video(chat, video, supports_streaming=True,
-                                            caption=_control_text(item, max_caption=600),
+                                            caption=_control_text(item, max_total=1020),
                                             parse_mode=ParseMode.HTML, reply_markup=keyboard(item.id))
 
             ctrl = await _with_upload_fallback(send_reel, item.media["reel"])
@@ -301,7 +337,7 @@ async def _refresh_preview(item: q.Item) -> None:
                                               parse_mode=ParseMode.HTML, reply_markup=markup))
         else:
             await _safe(bot.edit_message_caption(_chat_id(), item.tg_control_id,
-                                                 caption=_control_text(item, max_caption=600),
+                                                 caption=_control_text(item, max_total=1020),
                                                  parse_mode=ParseMode.HTML, reply_markup=markup))
 
 

@@ -107,3 +107,13 @@ def test_dashboard_decision_updates_telegram(telegram):
     bot = telegram([])
     actions.approve("c", targets=["ig"])
     assert "edit_message_reply_markup" in bot.calls and "send_message" in bot.calls
+
+
+def test_reel_control_text_never_exceeds_telegram_video_caption_limit():
+    huge_feedback = "Please remake with new style and designs! " * 20
+    huge_caption = "Long technical caption with lots of quotes 'and' & ampersands <tags> here. " * 30
+    item = _item("20261025-r-4a770b", "reel", version=2, feedback=huge_feedback, voice="en-US-EmmaNeural")
+    item.caption = huge_caption
+    text = approve_bot._control_text(item)
+    assert len(text) <= 1024
+    assert len(text) <= 1020

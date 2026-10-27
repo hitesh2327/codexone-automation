@@ -266,6 +266,8 @@ def cmd_regenerate(args) -> int:
             feedback += "\nReviewer feedback to apply: " + "\n".join(notes)
         topic = RankedTopic(category=first.category, title=first.topic, angle=first.angle or first.topic,
                             source_url=first.source_url, evergreen=not first.source_url, why="regenerate")
+        from src.credentials import active_user_id
+        tok = active_user_id.set(first.user_id) if getattr(first, "user_id", None) else None
         try:
             content = gen_content.generate(topic, feedback)
             slug = gen_content.slugify(first.topic)
@@ -305,6 +307,9 @@ def cmd_regenerate(args) -> int:
                     old.status = "failed"
                     old.error = f"Regeneration failed after 3 attempts: {e}"
                 q.update_if(old, "regenerate")
+        finally:
+            if tok is not None:
+                active_user_id.reset(tok)
     return 0
 
 
