@@ -264,4 +264,21 @@ keyboard focus).
 
 ## 7. Step 0 results
 
-To fill in: duration and words per second per voice, boundary yes/no, `MAX_WORDS_HI`.
+Run 2026-10-27 on a GitHub-hosted runner (`scripts/tts_probe.py`, run 40472576756), 4 Hinglish lines
+(Devanagari + English terms, 62 words) at +6%:
+
+| Voice | Words/s | Word boundaries |
+|---|---|---|
+| hi-IN-MadhurNeural | 2.24 | 62/62 |
+| hi-IN-SwaraNeural | 2.38 | 62/62 |
+| en-US-AndrewMultilingualNeural (comparison) | 2.64 | 62/62 |
+| English voices on English text (reference, MAX_WORDS=75 in ~27 s) | 2.78 | - |
+
+- Edge TTS works from GitHub runners for both Hindi voices.
+- Every word gets a boundary, Devanagari and English alike; punctuation (`,` `?` `।`) is not attached to the
+  boundary text. The timing fallback in step 4 is a safety net, not required.
+- English terms inside Devanagari come back as separate words (`Binary | search | हर | step`), so English
+  trigger words match exactly.
+- **`MAX_WORDS_HI = 60`** (27 s on the slower Madhur voice). The speed-up loop (+30% max) covers the rest.
+- The brand pronunciation "Code Xone By Hitesh" is spoken as four words by both Hindi voices; listen to the
+  run's `tts-probe` artifact to confirm it sounds right.
