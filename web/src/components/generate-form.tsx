@@ -11,12 +11,19 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Segmented } from "@/components/dashboard/primitives";
 import { ApiError } from "@/lib/api";
 import { checkTopic, requestGeneration } from "@/lib/generate";
 import { cn } from "@/lib/utils";
-import { SLOT_LABEL, newIdempotencyKey, type GenConfig, type Job, type Slot } from "@/lib/generate-format";
+import {
+  NARRATION_LABEL, NARRATION_NOTE, SLOT_LABEL, newIdempotencyKey, type GenConfig, type Job, type Narration, type Slot,
+} from "@/lib/generate-format";
 
-export type Prefill = { nonce: number; slot?: string; category?: string; topic?: string; source_url?: string };
+export type Prefill = { nonce: number; slot?: string; category?: string; topic?: string; source_url?: string; language?: Narration };
+
+const NARRATIONS: { value: Narration; label: string }[] = [
+  { value: "en", label: NARRATION_LABEL.en }, { value: "hi", label: NARRATION_LABEL.hi },
+];
 
 const AUTO = "auto";
 
@@ -47,6 +54,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
   const [url, setUrl] = useState("");
   const [force, setForce] = useState(false);
   const [allowDup, setAllowDup] = useState(false);
+  const [language, setLanguage] = useState<Narration>("en");
   const [dup, setDup] = useState<{ title: string; date: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -60,6 +68,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
     if (prefill.category !== undefined) setCategory(prefill.category || AUTO);
     if (prefill.topic !== undefined) setTopic(prefill.topic);
     if (prefill.source_url !== undefined) setUrl(prefill.source_url);
+    setLanguage(prefill.language ?? "en");
     setForce(false);
     setAllowDup(false);
     setError(null);
@@ -97,9 +106,10 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
     try {
       const job = await requestGeneration({
         slot, category: category === AUTO ? null : category, topic: t || null, source_url: url.trim() || null,
-        force, allow_duplicate: allowDup, confirm_quota: !!quotaWarn, idempotency_key: key.current,
+        force, allow_duplicate: allowDup, language, confirm_quota: !!quotaWarn, idempotency_key: key.current,
       });
       key.current = newIdempotencyKey();
+      setLanguage("en");  // English is the default; Hinglish is picked per run
       toast.success("Request sent. Previews arrive in Telegram when it finishes.");
       onRequested(job);
     } catch (e) {
@@ -181,6 +191,12 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
         </div>
 
         <div className="grid gap-1.5">
+          <Label id={`${uid}-voice`} className="label-mono">Narration</Label>
+          <Segmented<Narration> label="Narration" value={language} onChange={setLanguage} options={NARRATIONS} className="w-fit" />
+          <Hint id={`${uid}-voice-note`}>{NARRATION_NOTE[language]}</Hint>
+        </div>
+
+        <div className="grid gap-1.5">
           <Label htmlFor={`${uid}-topic`} className="label-mono">
             Your own topic <span className="tracking-normal normal-case">(optional)</span>
           </Label>
@@ -249,6 +265,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
                 <ul className="grid gap-1 rounded-lg border bg-muted/40 p-3 text-sm text-foreground">
                   <li><span className="text-muted-foreground">Category:</span> {category === AUTO ? "Auto (by weight)" : category}</li>
                   <li><span className="text-muted-foreground">Topic:</span> {t || "Picked from today's trending topics"}</li>
+                  <li><span className="text-muted-foreground">Narration:</span> {language === "hi" ? "Hinglish (Hindi voice, no subtitles)" : "English"}</li>
                   {url.trim() && <li className="break-all"><span className="text-muted-foreground">Link:</span> {url.trim()} (cited, not read)</li>}
                   {force && <li>Adds an extra post to a slot that has one or has long passed.</li>}
                 </ul>
