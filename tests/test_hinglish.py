@@ -116,8 +116,15 @@ def test_v2_path_sets_language(monkeypatch):
 def test_classic_path_sets_language_and_skips_hook_scorer(monkeypatch):
     from src.reel_v2 import pipeline
     monkeypatch.setattr(pipeline, "uses_v2", lambda category: False)
-    from tests.test_content_validation import content
-    draft = content()
+    G = gen_content
+    draft = G.Content(
+        topic="T", category="SystemDesign", caption="c", hashtags=["#x"],
+        reel=G.Reel(hook_on_screen="h", hook_narration="सोचो cache क्या है?",
+                    points=[G.ReelPoint(on_screen=f"p{i}", narration="cache तेज़ है।") for i in range(3)],
+                    cta_on_screen="c", cta_narration="follow करो।"),
+        carousel=[G.Slide(type="title", heading="T", body="b"),
+                  *[G.Slide(type="content", heading=f"H{i}", body="b") for i in range(4)],
+                  G.Slide(type="cta", heading="C", body="b")])
     prompts = []
 
     def fake(prompt, schema, **k):
