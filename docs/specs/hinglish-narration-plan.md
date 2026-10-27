@@ -1,6 +1,6 @@
 # Hinglish narration: implementation plan
 
-Status: plan, not started. Written 2026-10-27 against `main` @ 6901866.
+Status: built 2026-10-27 (steps 0-7 on branch `claude/beautiful-thompson-prz5bb`); the one real Hinglish post in step 7 is still to do.
 
 ## 1. Goal and scope
 
