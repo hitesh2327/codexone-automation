@@ -61,7 +61,7 @@ function build(spec, handle, category) {
   const solved = spec.beats.length - 2;
   slides.push(`<section class="slide cover">${top(1)}
     <span class="chip" style="color:${T.cyan}">${esc((category || 'System Design').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase())}</span>
-    <h1>${titleHtml(spec.title)}</h1><div class="sub">${esc(spec.subtitle)}</div>
+    <h1 class="fit">${titleHtml(spec.title)}</h1><div class="sub">${esc(spec.subtitle)}</div>
     <div class="lead">${emph(spec.cover_lead)}</div>
     <div class="dia">${at(solved)}</div>
     <div class="go">SWIPE TO LEARN →</div></section>`);
@@ -77,7 +77,7 @@ function build(spec, handle, category) {
   const c = spec.cheat;
   slides.push(`<section class="slide">${top(total)}
     <span class="chip" style="color:${T.cyan}">CHEAT SHEET · SAVE THIS</span>
-    <h1 style="font-size:62px;margin-bottom:0">${titleHtml(spec.title)} <span style="font-size:.8em">in one page</span></h1>
+    <h1 class="fit" style="font-size:62px;margin-bottom:0;white-space:nowrap">${titleHtml(spec.title)} <span style="font-size:.8em">in one page</span></h1>
     <div class="grid2">
       <div class="card"><h3 style="color:${HI.green}">✓ USE WHEN</h3><ul>${c.use_when.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="card"><h3 style="color:${T.amber}">⚠ TRADE-OFFS</h3><ul>${c.tradeoffs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
@@ -89,6 +89,7 @@ function build(spec, handle, category) {
     <div class="cta"><div class="t">Save it for your next interview</div><div class="f">Follow ${esc(handle)}</div></div>
   </section>`);
   document.getElementById('deck').innerHTML = slides.join('');
+  fitAll();
   return slides.length;
 }
 </script>

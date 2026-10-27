@@ -378,8 +378,10 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
                 log.error("TTS unavailable in v2 reel (%s); skipping reel — carousel will still publish", e)
                 return None
             log.exception("v2 reel render failed; rendering the classic reel instead")
-        except Exception:  # content.reel mirrors the same beats as a classic text reel
+            v2.warn_fallback("Reel", content.topic, e)
+        except Exception as e:  # content.reel mirrors the same beats as a classic text reel
             log.exception("v2 reel render failed; rendering the classic reel instead")
+            v2.warn_fallback("Reel", content.topic, e)
     brand = load_brand()
     voice = voice or pick_voice()
     log.info("voice: %s", voice)
