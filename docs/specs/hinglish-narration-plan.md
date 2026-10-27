@@ -9,8 +9,8 @@ English tech terms ("Socho, har request seedha database pe jaaye toh kya hoga? Y
 
 | Decision | Choice |
 |---|---|
-| Default narration | English, for every scheduled and auto run (no change) |
-| How Hinglish is chosen | Manually, per run, on the dashboard's Generate page only |
+| Default narration | **Hinglish** (option B, 2026-10-28): brand `narration_language: "hi"` in `brand/config.yaml`, which wins over the DB brand copy (`src/config.py load_brand`) |
+| How English is chosen | Per run, on the Generate page ("Hinglish (default) / English"), or set `narration_language: "en"` |
 | What is Hinglish | Only the reel's spoken narration |
 | Stays English | Carousel, on-screen reel text (title, headings, diagram labels, counters, code, cheat sheet), IG caption, hashtags, YouTube title and description |
 | Subtitles | None on Hinglish reels |

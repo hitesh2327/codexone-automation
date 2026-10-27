@@ -463,9 +463,19 @@ def test_language_is_stored_on_the_job_not_sent_as_an_input(authed, gh):
     assert "language" not in gh.posts[0]["json"]["inputs"]   # the workflow is at GitHub's 10-input limit
 
 
-def test_language_defaults_to_english(authed, gh):
+def test_language_defaults_to_the_brand_narration(authed, gh, monkeypatch):
+    from api.app.routes import generate as route
+    monkeypatch.setattr(route, "default_narration", lambda: "hi")
+    assert authed.get("/api/generate/config").json()["default_language"] == "hi"
     job = authed.post("/api/generate", json=body()).json()
-    assert job["language"] == "en" and generation.job_language(job["id"]) == "en"
+    assert job["language"] == "hi" and generation.job_language(job["id"]) == "hi"
+
+
+def test_explicit_english_overrides_a_hinglish_default(authed, gh, monkeypatch):
+    from api.app.routes import generate as route
+    monkeypatch.setattr(route, "default_narration", lambda: "hi")
+    job = authed.post("/api/generate", json=body(language="en")).json()
+    assert job["language"] == "en"
 
 
 def test_job_language_of_no_job_is_none():

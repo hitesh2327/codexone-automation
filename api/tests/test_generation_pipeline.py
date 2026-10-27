@@ -283,9 +283,15 @@ def test_dashboard_job_language_reaches_the_writer(stages):
     assert stages.language == "hi"
 
 
-def test_scheduled_run_is_english_and_flag_overrides(stages):
-    assert gen() == 0 and stages.language == "en"
-    assert generation.recent()[0]["language"] == "en"
+@pytest.mark.parametrize("default", ["hi", "en"])
+def test_scheduled_run_uses_the_brand_narration(stages, monkeypatch, default):
+    monkeypatch.setattr("src.config.load_brand", lambda: {"narration_language": default})
+    assert gen() == 0 and stages.language == default
+    assert generation.recent()[0]["language"] == default
+
+
+def test_flag_overrides_the_brand_narration(stages, monkeypatch):
+    monkeypatch.setattr("src.config.load_brand", lambda: {"narration_language": "en"})
     assert gen("--language", "hi") == 0 and stages.language == "hi"
     assert generation.recent()[0]["language"] == "hi"
 

@@ -20,7 +20,7 @@ from src import activity, approve_bot, generation, github_actions, plan_limits
 from src import queue_store as q
 from src.actions import publishing_enabled
 from src.approve_bot import IST
-from src.config import Language, get_env, load_brand
+from src.config import Language, default_narration, get_env, load_brand
 
 
 def require_admin(user: CurrentUser = Depends(current_user)) -> CurrentUser:
@@ -84,7 +84,7 @@ class GenerateBody(BaseModel):
     source_url: str | None = Field(None, max_length=600)
     force: bool = False                             # extra post for a slot that has one / a slot long past
     allow_duplicate: bool = False
-    language: Language = "en"                       # reel narration: English, or Hinglish (Hindi voice, no subtitles)
+    language: Language | None = None                # reel narration: hi Hinglish / en English; None = brand default
     confirm_quota: bool = False                     # go ahead although Gemini's quota ran out recently
     idempotency_key: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
@@ -158,6 +158,7 @@ def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
         "late_limit_hours": generation.LATE_LIMIT_HOURS,
         "publishing_enabled": publishing_enabled(), "telegram_sync": approve_bot.sync_enabled(),
         "topic_length": [5, 120],
+        "default_language": default_narration(),   # the Generate page preselects it
     }
 
 
@@ -304,7 +305,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
         job = generation.create(trigger="dashboard", requested_by=_actor(user), slot_at=slot_at, category=body.category,
                                 topic=body.topic, source_url=body.source_url, force=body.force,
                                 allow_duplicate=body.allow_duplicate, idempotency_key=body.idempotency_key,
-                                language=body.language)
+                                language=body.language or default_narration())
     except generation.Replay as r:  # two identical requests raced: the first one owns the dispatch
         response.status_code = status.HTTP_200_OK
         return r.job
@@ -317,7 +318,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                     source="generate", actor=_actor(user),
                     detail={"request_id": job["id"], "slot": slot_at.isoformat(), "category": body.category,
                             "topic": body.topic, "source_url": body.source_url, "force": body.force,
-                            "language": body.language})
+                            "language": body.language or default_narration()})
     # The slot the API validated (taken/stale) and showed, not "auto": a run that waits in the queue past the
     # 30-minute lead would otherwise resolve "auto" to the NEXT slot (QA-L-10).
     inputs = {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": body.category or "", "topic": body.topic or "",

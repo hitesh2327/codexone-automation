@@ -221,3 +221,28 @@ def test_youtube_audio_language(monkeypatch):
     en = yt.build_metadata("Caching explained\n\n#ai")["snippet"]
     assert (hi["defaultAudioLanguage"], hi["defaultLanguage"]) == ("hi", "en")
     assert en["defaultAudioLanguage"] == "en"
+
+
+# --------------------------------------------------------------------------- #
+# Brand default (option B: Hinglish unless a run picks English)
+# --------------------------------------------------------------------------- #
+def test_yaml_narration_and_voices_win_over_the_db_copy(monkeypatch):
+    from src import config, db
+    stale = {"handle": "@t", "voices": ["en-US-Old"], "language": "old"}     # a DB brand copied before Hinglish
+    monkeypatch.setattr(db, "enabled", lambda: True)
+    monkeypatch.setattr(db, "get_setting", lambda key: dict(stale))
+    config.load_brand.cache_clear()
+    try:
+        b = config.load_brand()
+        assert b["narration_language"] == "hi" and b["voices_hi"][0] == "hi-IN-MadhurNeural"
+        assert b["voices"][0].startswith("en-") and b["language"].startswith("English")
+        assert config.default_narration() == "hi"
+    finally:
+        config.load_brand.cache_clear()
+
+
+@pytest.mark.parametrize("value,expected", [("hi", "hi"), ("en", "en"), (None, "en"), ("fr", "en")])
+def test_default_narration_falls_back_to_english(monkeypatch, value, expected):
+    from src import config
+    monkeypatch.setattr(config, "load_brand", lambda: {"narration_language": value} if value else {})
+    assert config.default_narration() == expected

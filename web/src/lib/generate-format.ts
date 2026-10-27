@@ -61,6 +61,8 @@ export type GenConfig = {
   publishing_enabled: boolean;
   telegram_sync: boolean;
   topic_length: [number, number];
+  /** Narration every run uses unless the request picks the other one (brand narration_language). */
+  default_language: Narration;
 };
 
 export type GithubState = { ok: boolean; as_of: string };
@@ -73,7 +75,7 @@ export type GenerateRequest = {
   source_url: string | null;
   force: boolean;
   allow_duplicate: boolean;
-  language: Narration;
+  language: Narration | null;
   confirm_quota: boolean;
   idempotency_key: string;
 };
@@ -82,9 +84,16 @@ export type GenerateRequest = {
 export type Narration = "en" | "hi";
 export const NARRATION_LABEL: Record<Narration, string> = { en: "English", hi: "Hinglish" };
 export const NARRATION_NOTE: Record<Narration, string> = {
-  en: "English voice with subtitles. Every scheduled run uses English.",
-  hi: "Hindi voice speaking Hinglish, with no subtitles. The carousel, on-screen text and caption stay English.",
+  en: "English voice with subtitles.",
+  hi: "Hindi voice (Madhur or Swara) speaking Hinglish, with no subtitles. The carousel, on-screen text and caption stay English.",
 };
+
+/** Segment labels: the default narration is marked so a change from it is a visible choice. */
+export function narrationOptions(def: Narration): { value: Narration; label: string }[] {
+  return (["hi", "en"] as Narration[])
+    .sort((a, b) => Number(b === def) - Number(a === def))
+    .map((v) => ({ value: v, label: v === def ? `${NARRATION_LABEL[v]} (default)` : NARRATION_LABEL[v] }));
+}
 
 // ---------------------------------------------------------------------------
 // Display helpers
