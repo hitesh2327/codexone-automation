@@ -205,7 +205,7 @@ def _publish_yt(item: q.Item) -> dict:
     if not yt.configured():
         return {"status": "skipped", "error": "YT_CLIENT_ID/YT_CLIENT_SECRET/YT_REFRESH_TOKEN not set"}
     vid, url = yt.publish_reel(item.media["reel"], item.caption, title=item.yt_title,
-                               description=item.yt_description)
+                               description=item.yt_description, audio_language=item.language)
     return {"status": "published", "id": vid, "url": url, "privacy": yt.privacy()}
 
 
@@ -284,7 +284,7 @@ def _publish_item(item: q.Item, dry_run: bool, platforms: tuple[str, ...], claim
                          item.kind, item.id, len(item.caption))
             elif yt.configured():
                 yt.publish_reel(item.media["reel"], item.caption, dry_run=True, title=item.yt_title,
-                                description=item.yt_description)
+                                description=item.yt_description, audio_language=item.language)
             else:
                 log.info("[dry-run] YouTube not configured (YT_* unset); would skip")
         return item

@@ -91,6 +91,7 @@ export function RunTracker({ job, now, github, onRetry }: {
         <Fact label="Slot">{job.slot_at ? `${formatIST(job.slot_at)} IST` : "Next free"}</Fact>
         <Fact label="Category">{job.topic_category ?? job.category ?? "Auto"}</Fact>
         <Fact label="Started by">{job.trigger === "scheduled" ? "Scheduler" : job.requested_by ?? "Dashboard"}</Fact>
+        {job.language === "hi" && <Fact label="Narration">Hinglish</Fact>}
         {job.topic && <div className="col-span-2 sm:col-span-4"><Fact label="Your topic">{job.topic}</Fact></div>}
       </dl>
 
