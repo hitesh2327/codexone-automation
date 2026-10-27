@@ -47,8 +47,8 @@ no subtitles, nobody sees this text; it only decides how the voice sounds.
 Generate page (Narration: English | Hinglish)
   -> POST /api/generate {language}                      api/app/routes/generate.py
   -> generation_jobs.language                           src/generation.py create()
-  -> workflow_dispatch input `language`                 .github/workflows/daily-generate.yml
-  -> env IN_LANGUAGE -> python main.py generate --language hi
+  -> workflow_dispatch (unchanged inputs, request_id)   .github/workflows/daily-generate.yml
+  -> main.py generate: generation.job_language(request_id) -> "hi"
   -> gen_content.generate(topic, language=...)          Content.language, scene prompt in Hinglish
   -> render_reel(..., voice=pick_voice(language))       Hindi voice, no subtitles
   -> items_from_post -> Item.language / posts.language  Telegram preview shows "Narration: Hinglish"
@@ -99,20 +99,17 @@ Edge TTS is blocked in the dev sandbox, so this runs in GitHub Actions (or on a 
   `"language": body.language` to the dispatch `inputs` (line ~320).
 - `src/generation.py`: `create()` and `Reporter.begin()` take and store `language`; the job dict (line ~201)
   returns it, so the run tracker and history can show it.
-- `.github/workflows/daily-generate.yml`:
-  - New input: `language: {description: "Narration language: en (English) or hi (Hinglish)", type: choice, options: [en, hi], default: en}`.
-  - Step env: `IN_LANGUAGE: ${{ inputs.language }}`. Never inline it in `run:`; `tests/test_workflows.py`
-    enforces that.
-  - Args: `if [ "$IN_LANGUAGE" = "hi" ]; then ARGS+=(--language hi); fi`. A scheduled run has no input, so no flag.
-  - Input count goes from 10 to 11. GitHub has raised the `workflow_dispatch` limit above 10; confirm on the first
-    dispatch. Fallback if it is still 10: fold the flag into an existing input rather than dropping it.
+- `.github/workflows/daily-generate.yml`: **no change** (as built). The workflow already has 10 inputs, the
+  limit `tests/test_workflows.py` enforces, so the language is not a dispatch input. A dashboard run already
+  passes `--request-id`, and its generation job carries `language`; `main.py` reads it with
+  `generation.job_language(request_id)`.
 - `main.py`:
   - `generate` gets `--language`, `choices=["en", "hi"]`, `default="en"`.
-  - `cmd_generate` passes it to `gen_content.generate(topic, language=args.language)` (line ~149), to
+  - `cmd_generate` resolves `--language`, else `generation.job_language(--request-id)`, else `en`, and passes it to `gen_content.generate(topic, language=args.language)` (line ~149), to
     `render_reel.pick_voice(args.language)` (line ~162), and to `Reporter.begin`.
-- **Tests:** an API body with `language: "hi"` reaches the dispatch inputs; a bad value is a 422; omitted means `en`;
-  workflow contract test (`test_generate_workflow_contract_with_the_dashboard`) includes `language`;
-  `IN_LANGUAGE` is read through env; `main.py generate --language xx` is rejected by argparse.
+- **Tests:** an API body with `language: "hi"` is stored on the job and is not a dispatch input; a bad value is a
+  422; omitted means `en`; a dashboard job's `hi` reaches the writer; a scheduled run is `en`; `--language xx` is
+  rejected by argparse.
 
 ### Step 3: write the Hinglish script
 
@@ -259,7 +256,6 @@ keyboard focus).
 | Model writes Hinglish in Latin script | Mispronounced narration | Prompt rule plus a validator check: `hi` narration must contain Devanagari; one rewrite, then fail over to classic with a Telegram warning |
 | Model translates on-screen text too | Hindi in fonts without Devanagari (Inter, JetBrains Mono) | Prompt rule plus a validator check: on-screen fields must not contain Devanagari |
 | Edge TTS blocked on a cloud IP | Reel skipped (as today for English) | Unchanged behaviour: carousel still publishes |
-| `workflow_dispatch` input limit | Dispatch rejected | Confirm on the first dispatch; fold into an existing input if needed |
 | Brand in DB lacks `voices_hi` | No Hindi voice | `DEFAULT_VOICES_HI` in code |
 
 ## 7. Step 0 results

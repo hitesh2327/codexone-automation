@@ -323,7 +323,7 @@ def pick_hook(c: Content, brand: dict) -> Content:
     return c
 
 
-def generate(topic: RankedTopic, feedback: str = "") -> Content:
+def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") -> Content:
     from src.user_taste import get_user_taste
     taste = get_user_taste()
     system = _build_system(taste)
@@ -337,7 +337,9 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
             spec = generate_scene(topic.title, topic.category, topic.angle, feedback)
             log.info("v2 scene: %d beats, %d words", len(spec.beats),
                      sum(len(b.narration.split()) for b in spec.beats))
-            return v2.to_content(spec, topic.title, topic.category)
+            content = v2.to_content(spec, topic.title, topic.category)
+            content.language = language
+            return content
         except Exception as e:  # never lose the day's post to the new engine
             log.exception("v2 scene generation failed; falling back to the classic format")
             v2.warn_fallback("Script", topic.title, e)
@@ -372,7 +374,7 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
         except Exception:  # noqa: BLE001 -- the scorer is a nicety; never lose the day's post to it
             log.exception("hook scoring failed; keeping the model's hook")
     content.hashtags = [h if h.startswith("#") else f"#{h}" for h in content.hashtags][:15]
-    content.topic, content.category = topic.title, topic.category
+    content.topic, content.category, content.language = topic.title, topic.category, language
     return content
 
 

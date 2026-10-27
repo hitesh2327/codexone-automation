@@ -71,9 +71,13 @@ def cmd_generate(args) -> int:
     # Which posting slot is this run for? Explicit --slot (CI passes it per trigger), else the next one.
     publish_at = (approve_bot.slot_at(args.date, args.slot) if args.slot else approve_bot.next_slot())
     log.info("slot: %s IST", f"{publish_at:%a %d %b %H:%M}")
+    # Narration language: --language, else what the dashboard job asked for, else English (scheduled runs).
+    args.language = args.language or generation.job_language(args.request_id) or "en"
+    log.info("narration: %s", "Hinglish" if args.language == "hi" else "English")
     job = generation.Reporter() if args.dry_run else generation.Reporter.begin(
         args.request_id, slot_at=publish_at, category=args.category, topic=args.topic,
-        source_url=args.source_url, force=args.force, allow_duplicate=args.allow_duplicate)
+        source_url=args.source_url, force=args.force, allow_duplicate=args.allow_duplicate,
+        language=args.language)
     from src import plan_limits
     from src.credentials import active_user_id
     # A dashboard run is made for the user who asked (their posts, their quota); scheduled runs for the owner.
@@ -146,7 +150,7 @@ def _generate(args, publish_at: datetime, job) -> int:
         topic = rank_topics.rank(day, args.category, seed=f"{day}-{publish_at:%H%M}")
     log.info("topic: [%s] %s", topic.category, topic.title)
     job.phase("writing")
-    content = gen_content.generate(topic)
+    content = gen_content.generate(topic, language=args.language)
     if args.dry_run:
         log.info("[dry-run] content generated (%d slides); not rendering/uploading/sending",
                  len(content.carousel))
@@ -348,6 +352,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--allow-duplicate", action="store_true", help="allow --topic to repeat a recent topic")
     g.add_argument("--request-id", help="dashboard request id: progress is reported to that generation job")
     g.add_argument("--skip-reel", action="store_true")
+    g.add_argument("--language", choices=["en", "hi"],
+                   help="reel narration: en English, hi Hinglish (default: the dashboard job's choice, else en)")
     g.add_argument("--user-id", type=int, help="make this run for that user: their posts, their plan's quota")
     g.add_argument("--music", type=Path)
     g.set_defaults(fn=cmd_generate)

@@ -220,6 +220,7 @@ class Stages:
 
         def generate(topic, *a, **k):
             self.topic = topic
+            self.language = k.get("language")
             self.calls.append("write")
             if self.fail_at and self.fail_at[0] == "write":
                 raise self.fail_at[1]
@@ -274,6 +275,25 @@ def test_dashboard_job_is_adopted_by_its_run(stages, monkeypatch):
     # custom topic: no trending fetch, no ranking; the topic goes straight to writing
     assert "fetch" not in stages.calls and "rank" not in stages.calls
     assert (stages.topic.title, stages.topic.category) == ("Topic about sharding", "DSA")
+
+
+def test_dashboard_job_language_reaches_the_writer(stages):
+    queued = generation.create(trigger="dashboard", requested_by="admin", language="hi")
+    assert gen("--request-id", queued["id"]) == 0
+    assert stages.language == "hi"
+
+
+def test_scheduled_run_is_english_and_flag_overrides(stages):
+    assert gen() == 0 and stages.language == "en"
+    assert generation.recent()[0]["language"] == "en"
+    assert gen("--language", "hi") == 0 and stages.language == "hi"
+    assert generation.recent()[0]["language"] == "hi"
+
+
+def test_unknown_language_flag_is_refused(stages):
+    with pytest.raises(SystemExit):
+        gen("--language", "fr")
+    assert stages.calls == []
 
 
 def test_custom_topic_with_shell_text_stays_text(stages):
