@@ -160,6 +160,7 @@ def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "
             caption=full_caption(content), version=version,
             publish_at=publish_at.isoformat() if publish_at else None,
             voice=voice if kind == "reel" else "",
+            language=content.language,  # on both items, so a Regenerate of either keeps it
             user_id=active_user_id.get(),
             media={k: v for k, v in media.items()
                    if (kind == "carousel" and k == "carousel") or (kind == "reel" and k in ("reel", "cover"))},

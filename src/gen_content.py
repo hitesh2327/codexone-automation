@@ -20,7 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from src.config import DATA_DIR, OUTPUT_DIR, load_brand
+from src.config import DATA_DIR, OUTPUT_DIR, Language, load_brand
 from src.llm import generate_json
 from src.logger import get_logger
 from src.rank_topics import RankedTopic
@@ -87,6 +87,8 @@ class Content(BaseModel):
     carousel: list[Slide] = Field(description="5-7 slides: first type=title, last type=cta, rest type=content or visual")
     caption: str = Field(description="Instagram caption without hashtags, 60-150 words, ends with a question")
     hashtags: list[str] = Field(description="10-15 hashtags, each starting with #")
+    # Reel narration language, set by generate() (not chosen by the model): en | hi (Hinglish)
+    language: Language = "en"
     # v2 scene spec (src/reel_v2) when this post uses the animated-diagram engine; not part of
     # the Gemini schema or content.json (it is saved separately as scene.json).
     _scene: object | None = PrivateAttr(default=None)
