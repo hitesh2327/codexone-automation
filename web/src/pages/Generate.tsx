@@ -14,7 +14,7 @@ import { ApiError } from "@/lib/api";
 import { safeHref } from "@/lib/utils";
 import { getConfig, getJob, getJobs, getSlots } from "@/lib/generate";
 import {
-  blockedReason, elapsedText, pollDelay, type GenConfig, type GithubState, type Job, type Slot,
+  NARRATION_LABEL, blockedReason, elapsedText, pollDelay, type GenConfig, type GithubState, type Job, type Slot,
 } from "@/lib/generate-format";
 import { formatIST } from "@/lib/posts";
 
@@ -63,6 +63,7 @@ function History({ jobs, onOpen }: { jobs: Job[]; onOpen: (j: Job) => void }) {
               {j.trigger === "scheduled" ? "Scheduled" : `Dashboard · ${j.requested_by ?? "admin"}`}
               {j.slot_at ? ` · slot ${formatIST(j.slot_at, false)}` : ""}
               {j.force ? " · extra post" : ""}
+              {` · ${NARRATION_LABEL[j.language] ?? "English"}`}
               {j.status === "failed" || j.status === "skipped" || j.status === "cancelled" ? ` · ${j.message ?? j.failure_reason ?? ""}` : ""}
             </p>
           </div>
@@ -169,6 +170,7 @@ export default function Generate() {
       nonce: Date.now(),
       slot: cfg?.slots.includes(time) && today.some((s) => s.time === time) ? time : "auto",
       category: job.category ?? "auto", topic: job.topic ?? "", source_url: job.source_url ?? "",
+      language: job.language,
     });
   }
 

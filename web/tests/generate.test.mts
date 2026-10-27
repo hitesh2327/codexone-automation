@@ -61,3 +61,13 @@ const a = newIdempotencyKey();
 assert.match(a, /^[A-Za-z0-9_-]{8,64}$/);
 assert.notEqual(a, newIdempotencyKey());
 console.log("generate.test.mts: ok");
+
+// narration: English is the default and the labels match the server's values
+{
+  const { NARRATION_LABEL, NARRATION_NOTE, narrationOptions } = await import("../src/lib/generate-format.ts");
+  assert.deepEqual(Object.keys(NARRATION_LABEL), ["en", "hi"]);
+  assert.match(NARRATION_NOTE.hi, /no subtitles/);
+  // the brand default comes first and is marked
+  assert.deepEqual(narrationOptions("hi"), [{ value: "hi", label: "Hinglish (default)" }, { value: "en", label: "English" }]);
+  assert.deepEqual(narrationOptions("en"), [{ value: "en", label: "English (default)" }, { value: "hi", label: "Hinglish" }]);
+}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -15,6 +16,8 @@ OUTPUT_DIR = ROOT / "output"
 LOGS_DIR = ROOT / "logs"
 DATA_DIR = ROOT / "data"
 BRAND_FILE = ROOT / "brand" / "config.yaml"
+# Reel narration language of a post: "en" English (default) or "hi" Hinglish, picked on the Generate page.
+Language = Literal["en", "hi"]
 POSTED_FILE = DATA_DIR / "posted.json"
 
 # Locally we read .env; in GitHub Actions the vars come from Secrets and
@@ -97,14 +100,21 @@ def load_brand() -> dict:
     if db.enabled():
         db_brand = db.get_setting("brand")
         if db_brand:
-            # Keep brand/config.yaml authoritative for voices, language, and preferred_hook_formulas
+            # Keep brand/config.yaml authoritative for voices, narration, language, and preferred_hook_formulas
             # while keeping other dashboard runtime overrides
-            db_brand["voices"] = file_brand.get("voices", db_brand.get("voices"))
-            db_brand["language"] = file_brand.get("language", db_brand.get("language"))
+            for key in ("voices", "voices_hi", "narration_language", "language"):
+                if key in file_brand:
+                    db_brand[key] = file_brand[key]
             db_brand["preferred_hook_formulas"] = file_brand.get("preferred_hook_formulas", db_brand.get("preferred_hook_formulas", []))
             return db_brand
 
     return file_brand
+
+
+def default_narration() -> Language:
+    """Reel narration for a run that doesn't choose one: brand `narration_language` ("hi" Hinglish or "en")."""
+    lang = load_brand().get("narration_language")
+    return lang if lang in ("en", "hi") else "en"
 
 
 def ensure_dirs() -> None:

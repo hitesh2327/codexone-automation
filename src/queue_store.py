@@ -25,7 +25,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, Field, ValidationError
 
 from src import db
-from src.config import DATA_DIR, POSTED_FILE
+from src.config import DATA_DIR, POSTED_FILE, Language
 
 QUEUE_FILE = DATA_DIR / "queue.json"
 log = logging.getLogger("codexone.queue")
@@ -55,6 +55,7 @@ class Item(BaseModel):
     status: Status = "pending"
     publish_at: str | None = None          # ISO time (IST) of the slot this post is for
     voice: str = ""                        # reels: edge-tts voice used
+    language: Language = "en"              # reel narration: en (English) | hi (Hinglish)
     version: int = 1
     feedback: str = ""                     # text reply in Telegram → used by Regenerate
     tg_message_ids: list[int] = Field(default_factory=list)
