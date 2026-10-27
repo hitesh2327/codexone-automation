@@ -326,17 +326,19 @@ def generate(topic: RankedTopic, feedback: str = "") -> Content:
     taste = get_user_taste()
     system = _build_system(taste)
 
+    from src.rank_topics import TECH_CATEGORY_DESCRIPTIONS
     from src.reel_v2 import pipeline as v2
-    # v2 animated diagrams only make sense for tech niches
-    if taste.is_tech() and v2.uses_v2(topic.category):
+    # v2 animated diagrams only make sense for tech niches; the built-in categories are tech by definition
+    if (taste.is_tech() or topic.category in TECH_CATEGORY_DESCRIPTIONS) and v2.uses_v2(topic.category):
         try:
             from src.reel_v2.spec import generate as generate_scene
             spec = generate_scene(topic.title, topic.category, topic.angle, feedback)
             log.info("v2 scene: %d beats, %d words", len(spec.beats),
                      sum(len(b.narration.split()) for b in spec.beats))
             return v2.to_content(spec, topic.title, topic.category)
-        except Exception:  # never lose the day's post to the new engine
+        except Exception as e:  # never lose the day's post to the new engine
             log.exception("v2 scene generation failed; falling back to the classic format")
+            v2.warn_fallback("Script", topic.title, e)
     brand = load_brand()
     content = generate_json(_write_prompt(topic, brand, feedback, taste), Content, system=system)
     attempts = 3

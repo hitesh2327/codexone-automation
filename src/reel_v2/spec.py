@@ -102,7 +102,7 @@ class Cheat(BaseModel):
     use_when: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     tradeoffs: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     code_title: str = Field(description="UPPERCASE, max 30 chars, e.g. 'THE SWITCH IN KUBERNETES'")
-    code: str = Field(description="Real, correct snippet, 1-4 lines, max 46 chars per line")
+    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-4 lines, max 46 chars per line")
     compare: Compare
 
 
@@ -135,8 +135,35 @@ is minimal: a beat heading, one caption line, optionally a terminal command. You
 precise, never invent statistics or benchmarks, and keep it beginner-friendly."""
 
 
+# How the one-diagram format maps onto categories that aren't about live systems.
+CATEGORY_GUIDE = {
+    "DSA": """CATEGORY NOTES (DSA)
+- The diagram is the data structure or the algorithm's state: array cells, pointers, hash buckets,
+  stack/queue slots, tree or graph nodes (icons: memory, cpu, code, database, gear, clock).
+  Rows hold levels (tree depth, input -> work -> output).
+- Flows are data moving or a pointer/visit step (e.g. left -> mid, node -> child). States show the
+  algorithm: testing = being compared, live = current element, ok = done/found, off = discarded.
+- Counters track the algorithm, e.g. STEPS, COMPARES, TIME (Big-O), SPACE. Use a real worked example
+  with small concrete inputs; counts must be exactly what that example produces.
+- `term` lines are real code or a trace (e.g. 'mid = (lo + hi) // 2'). The cheat snippet is real
+  working code; the comparison table compares alternative approaches by time/space complexity.""",
+    "Interview": """CATEGORY NOTES (Interview)
+- The diagram is a process, not a server stack: e.g. candidate -> recruiter -> rounds -> offer, or the
+  structure of a good answer (question -> clarify -> approach -> trade-offs -> result)
+  (icons: users, client, doc, brain, clock, key, shield, gear).
+- Flows are the candidate or the answer moving through the stages. States: live = current stage,
+  ok = passed, error = a common mistake, testing = being evaluated.
+- Counters are qualitative or count stages, e.g. STAGE, SIGNAL, TIME LEFT. Never invent pass
+  rates, salaries or hiring statistics.
+- Leave `term` empty: it renders as a shell prompt, and these beats have no commands.
+- The cheat snippet is a reusable template (an answer outline or a short script to say), labelled as
+  such; the comparison table compares approaches (e.g. answer styles or prep strategies).""",
+}
+
+
 def _prompt(topic: str, category: str, angle: str, brand: dict, feedback: str = "") -> str:
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
+    guide = f"\n\n{CATEGORY_GUIDE[category]}" if category in CATEGORY_GUIDE else ""
     return f"""Design one reel + carousel for {brand['handle']}.
 
 Topic: {topic}
@@ -176,7 +203,7 @@ CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code), and a 
 2-3 alternatives (topic itself last). Table cells are plain words, no abbreviations like 'Wr-Thru'.
 
 CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: 10-15; include a few of: {' '.join(brand['hashtags'])}.{extra}"""
+HASHTAGS: 10-15; include a few of: {' '.join(brand['hashtags'])}.{guide}{extra}"""
 
 
 def validate(s: SceneSpec) -> list[str]:
