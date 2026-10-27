@@ -8,6 +8,16 @@ function titleHtml(parts) {
     return `<span style="color:${c};${glow}">${esc(p.text)}</span>`;
   }).join('');
 }
+// Shrink a one-line (nowrap) element's font until it fits its box: titles may be up to 22 chars.
+// The renderer calls fitAll() again once the web fonts have loaded (they load on first use).
+function fitWidth(el, minPx = 40) {
+  el.style.fontSize = '';
+  const r = document.createRange(), box = el.getBoundingClientRect().width;
+  r.selectNodeContents(el);  // the text's own width (scrollWidth misses centered overflow)
+  let px = parseFloat(getComputedStyle(el).fontSize);
+  while (r.getBoundingClientRect().width > box && px > minPx) el.style.fontSize = `${px -= 2}px`;
+}
+function fitAll() { document.querySelectorAll('.fit').forEach(el => fitWidth(el)); }
 // Tween "48,200" -> "52,307" (or "0.0s" -> "1.2s"); non-numeric values switch at the end.
 function tween(a, b, k) {
   if (a === b || k >= 1) return b;

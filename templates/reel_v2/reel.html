@@ -10,7 +10,7 @@
   #top { position: absolute; left: 70px; right: 70px; top: 92px; }
   #timer { font: 700 36px 'JetBrains Mono'; padding: 6px 22px; border-radius: 40px; border: 2px solid var(--line); background: var(--panel); }
   #title { position: absolute; left: 0; width: 1080px; top: 190px; text-align: center; }
-  #title .l1 { font: 800 100px/1 Poppins; letter-spacing: -2px; white-space: nowrap; }
+  #title .l1 { font: 800 100px/1 Poppins; letter-spacing: -2px; white-space: nowrap; margin: 0 40px; }
   #title .l2 { font: 600 50px Poppins; color: #E6EDF3; margin-top: 8px; }
   #heading { position: absolute; left: 0; width: 1080px; top: 398px; text-align: center; }
   #heading .chip { font-size: 38px; }
@@ -32,7 +32,7 @@
 <body class="bg">
 <div id="progress"></div>
 <div id="top" class="topbar"><div class="brand"><div class="logo">&lt;/&gt;</div><span class="handle"></span></div><div id="timer"></div></div>
-<div id="title"><div class="l1"></div><div class="l2"></div></div>
+<div id="title"><div class="l1 fit"></div><div class="l2"></div></div>
 <div id="heading"><span class="chip"></span></div>
 <div id="dia"></div>
 <div id="stats" class="stats3"></div>
@@ -52,6 +52,7 @@ function setTimeline(tl) {
   document.querySelector('.handle').textContent = tl.handle;
   document.querySelector('#title .l1').innerHTML = titleHtml(tl.spec.title);
   document.querySelector('#title .l2').textContent = tl.spec.subtitle;
+  fitAll();
   const [a, b] = tl.spec.payoff;
   document.querySelector('#payoff').innerHTML =
     `<div class="big" style="color:${ReelDiagram.HI[a.tone]}">${esc(a.text)}</div>

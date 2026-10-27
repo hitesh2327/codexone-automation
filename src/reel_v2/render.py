@@ -165,6 +165,7 @@ def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, previe
         page.goto((TPL / "reel.html").as_uri())
         page.evaluate("document.fonts.ready")
         page.evaluate("tl => setTimeline(tl)", tl)
+        page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
         if preview is not None:
             page.evaluate("t => renderAt(t)", preview)
             shot = out_dir / f"preview_{preview:.1f}.png"
@@ -207,6 +208,7 @@ def render_carousel(spec: SceneSpec, folder: Path, category: str = "") -> list[P
         page.goto((TPL / "carousel.html").as_uri())
         page.evaluate("document.fonts.ready")
         n = page.evaluate("([s, h, c]) => build(s, h, c)", [spec.model_dump(), load_brand()["handle"], category])
+        page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
         page.wait_for_timeout(200)
         for i, el in enumerate(page.query_selector_all(".slide"), 1):
             path = folder / f"slide_{i:02d}.png"
