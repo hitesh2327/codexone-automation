@@ -1,0 +1,21 @@
+account	followers	median	views	hook
+# Fill this file while browsing Instagram. One row per reel collected.
+# COLUMNS:
+#   account   = handle (e.g. @someone)
+#   followers = from their profile page
+#   median    = eyeball their last 12 reels, take the middle view count (not the mean)
+#   views     = this specific reel's view count
+#   hook      = the FIRST LINE spoken or on screen, verbatim — including bad grammar
+#
+# The script ranks on outlier multiple (views / median), NOT raw views.
+# A 4k-follower account with 400k views found something. A 2M-follower
+# account with 400k views had a quiet Tuesday.
+#
+# ACCOUNT SELECTION (per ig-viral skill):
+#   4 direct   — same niche (tech/dev content), slightly ahead of @codexonebyhitesh
+#   4 adjacent — different niche, same audience (e.g. productivity, finance for devs)
+#   2 outsized — much bigger accounts, for FORMAT only (not cadence or tone)
+#
+# Example rows (delete these before running):
+# @realpythonbytes	120000	18000	380000	nobody tells you Python's walrus operator makes this 4x faster
+# @techwithtim	890000	95000	1200000	stop using for loops in Python when you can do this
