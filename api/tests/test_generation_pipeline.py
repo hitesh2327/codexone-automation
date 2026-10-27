@@ -233,7 +233,7 @@ class Stages:
         monkeypatch.setattr(gen_content, "save", lambda content, day: Path("output/x/content.json"))
         monkeypatch.setattr(render_post, "render_carousel", stage("render-carousel"))
         monkeypatch.setattr(render_reel, "render_reel", stage("render-reel"))
-        monkeypatch.setattr(render_reel, "pick_voice", lambda: "v")
+        monkeypatch.setattr(render_reel, "pick_voice", lambda language="en": "v")
         monkeypatch.setattr(render_reel, "_default_music", lambda: None)
         monkeypatch.setattr(upload, "upload_post", stage("upload"))
         self.items = [SimpleNamespace(id=f"{k}-1", kind=k, topic="T", version=1, group_id="2026-01-01/t") for k in ("carousel", "reel")]

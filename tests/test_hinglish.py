@@ -127,3 +127,81 @@ def test_classic_path_sets_language_and_skips_hook_scorer(monkeypatch):
     monkeypatch.setattr(gen_content, "pick_hook", lambda *a: pytest.fail("hook scorer ran on Hinglish"))
     c = gen_content.generate(TOPIC, language="hi")
     assert c.language == "hi" and "NARRATION LANGUAGE: HINGLISH" in prompts[0]
+
+
+# --------------------------------------------------------------------------- #
+# Voices, subtitles and trigger timing
+# --------------------------------------------------------------------------- #
+from types import SimpleNamespace  # noqa: E402
+
+from src import render_reel  # noqa: E402
+from src.reel_v2 import render as v2render  # noqa: E402
+
+
+def _queue(monkeypatch, items):
+    from src import queue_store as q
+    monkeypatch.setattr(q, "load", lambda *a, **k: items)
+
+
+def test_hindi_voices_rotate_on_their_own(monkeypatch):
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"voices": ["en-US-A", "en-US-B"],
+                                                           "voices_hi": ["hi-IN-X", "hi-IN-Y"]})
+    reel = lambda lang: SimpleNamespace(kind="reel", voice="v", language=lang)  # noqa: E731
+    _queue(monkeypatch, [reel("en"), reel("en"), reel("en"), reel("hi")])
+    assert render_reel.pick_voice("hi") == "hi-IN-Y"      # 1 Hinglish reel so far
+    assert render_reel.pick_voice("en") == "en-US-B"      # 3 English reels so far
+    assert render_reel.pick_voice() == "en-US-B"
+
+
+def test_hindi_voices_default_when_the_brand_has_none(monkeypatch):
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"voices": ["en-US-A"]})   # an older DB brand
+    _queue(monkeypatch, [])
+    assert render_reel.pick_voice("hi") == render_reel.DEFAULT_VOICES_HI[0]
+
+
+def test_feedback_voice_stays_in_the_posts_language(monkeypatch):
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"voices": ["en-US-AndrewMultilingualNeural"]})
+    assert render_reel.voice_from_feedback("use Swara please", "hi") == "hi-IN-SwaraNeural"
+    assert render_reel.voice_from_feedback("use Swara please", "en") is None
+    assert render_reel.voice_from_feedback("try Andrew", "en") == "en-US-AndrewMultilingualNeural"
+
+
+def _fake_tts(with_words: bool):
+    import subprocess
+
+    import imageio_ffmpeg
+
+    async def tts(text, voice, rate, out):
+        words = text.split()
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "anullsrc=r=24000:cl=mono", "-t", f"{0.4 * len(words):.2f}", "-q:a", "9", str(out)], check=True)
+        return [render_reel.Word(w, 0.4 * i, 0.4 * i + 0.35) for i, w in enumerate(words)] if with_words else []
+    return tts
+
+
+@pytest.mark.parametrize("with_words", [True, False])
+def test_hinglish_timeline_has_no_subtitles_and_ordered_triggers(monkeypatch, tmp_path, with_words):
+    monkeypatch.setattr(v2render, "_tts", _fake_tts(with_words))
+    monkeypatch.setattr(v2render, "load_brand", lambda: {"handle": "@t", "pronunciations": {}})
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"pronunciations": {}})
+    tl, _ = v2render.timeline(hinglish(), "hi-IN-MadhurNeural", tmp_path, "hi")
+    assert tl["subs"] == [[] for _ in hinglish().beats]
+    # each narration is "अब <trigger> करो।": the trigger is word 2 of 3, ~0.4 s into its beat either way
+    for start, trig in zip(tl["starts"], tl["triggers"]):
+        assert start < trig < start + 1.2
+
+
+def test_english_timeline_still_needs_word_boundaries(monkeypatch, tmp_path):
+    monkeypatch.setattr(v2render, "_tts", _fake_tts(False))
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"pronunciations": {}})
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="no word boundaries"):
+        v2render.timeline(english(), "en-US-AndrewMultilingualNeural", tmp_path, "en")
+
+
+def test_english_timeline_keeps_subtitles(monkeypatch, tmp_path):
+    monkeypatch.setattr(v2render, "_tts", _fake_tts(True))
+    monkeypatch.setattr(v2render, "load_brand", lambda: {"handle": "@t", "pronunciations": {}})
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"pronunciations": {}})
+    tl, _ = v2render.timeline(english(), "en-US-AndrewMultilingualNeural", tmp_path, "en")
+    assert all(tl["subs"])

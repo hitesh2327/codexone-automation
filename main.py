@@ -163,7 +163,7 @@ def _generate(args, publish_at: datetime, job) -> int:
     render_post.render_carousel(content, post_dir / "carousel")
     voice = ""
     if not args.skip_reel:
-        voice = render_reel.pick_voice()
+        voice = render_reel.pick_voice(args.language)
         if render_reel.render_reel(content, post_dir, args.music or render_reel._default_music(), voice=voice) is None:
             voice = ""  # reel skipped (TTS unavailable or dry-run)
     job.phase("uploading")
