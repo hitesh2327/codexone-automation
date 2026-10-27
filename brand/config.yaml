@@ -8,16 +8,11 @@ pronunciations:
   codexonebyhitesh: "Code Xone By Hitesh"
 
 # Reels rotate through these voices round-robin (one per reel, in order).
-# Naming one in Telegram feedback before Regenerate (e.g. "use Andrew") picks it instead.
+# Naming one in Telegram feedback before Regenerate (e.g. "use Madhur" or "use Swara") picks it instead.
 voices:
-  - en-US-AndrewMultilingualNeural   # 1 Andrew: warm, confident
-  - en-US-BrianMultilingualNeural    # 2 Brian: casual, friendly
-  - en-US-ChristopherNeural          # 3 Christopher: authoritative
-  - en-US-GuyNeural                  # 4 Guy: energetic
-  - en-GB-RyanNeural                 # 5 Ryan: British
-  - en-US-AvaMultilingualNeural      # 7 Ava: expressive
-  - en-US-EmmaMultilingualNeural     # 8 Emma: cheerful, clear
-language: "English, simple, beginner-friendly"
+  - hi-IN-MadhurNeural   # Madhur: Natural Hindi male
+  - hi-IN-SwaraNeural    # Swara: Clear Hindi female
+language: "Hindi, simple, beginner-friendly"
 topics_weight:
   { AI: 30, SystemDesign: 20, DSA: 20, Interview: 15, OS: 10, Dev: 5 }
 posts_per_day: 2
