@@ -7,12 +7,26 @@ fonts: { heading: "Poppins", body: "Inter", code: "JetBrains Mono" }
 pronunciations:
   codexonebyhitesh: "Code Xone By Hitesh"
 
-# Reels rotate through these voices round-robin (one per reel, in order).
-# Naming one in Telegram feedback before Regenerate (e.g. "use Madhur" or "use Swara") picks it instead.
+# Reel narration language for every run: "hi" Hinglish (Hindi voice, no subtitles) or "en" English.
+# The Generate page can switch one run to the other.
+narration_language: "hi"
+
+# Hinglish reels rotate through these voices round-robin (one per reel, in order).
+# Naming one in Telegram feedback before Regenerate ("use Madhur", "use Swara") picks it instead.
+voices_hi:
+  - hi-IN-MadhurNeural               # Madhur: natural Hindi male
+  - hi-IN-SwaraNeural                # Swara: clear Hindi female
+# English reels (Generate page > Narration: English) rotate through these ("use Andrew" picks one).
 voices:
-  - hi-IN-MadhurNeural   # Madhur: Natural Hindi male
-  - hi-IN-SwaraNeural    # Swara: Clear Hindi female
-language: "Hindi, simple, beginner-friendly"
+  - en-US-AndrewMultilingualNeural   # 1 Andrew: warm, confident
+  - en-US-BrianMultilingualNeural    # 2 Brian: casual, friendly
+  - en-US-ChristopherNeural          # 3 Christopher: authoritative
+  - en-US-GuyNeural                  # 4 Guy: energetic
+  - en-GB-RyanNeural                 # 5 Ryan: British
+  - en-US-AvaMultilingualNeural      # 7 Ava: expressive
+  - en-US-EmmaMultilingualNeural     # 8 Emma: cheerful, clear
+# Written text (topics, carousel, on-screen text, caption) stays English; narration_language sets the voice.
+language: "English, simple, beginner-friendly"
 topics_weight:
   { AI: 30, SystemDesign: 20, DSA: 20, Interview: 15, OS: 10, Dev: 5 }
 posts_per_day: 2

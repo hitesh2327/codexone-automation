@@ -28,7 +28,7 @@ from playwright.sync_api import sync_playwright
 from src.config import TEMPLATES_DIR, load_brand
 from src.logger import get_logger
 from src.render_reel import Word, pick_voice, speakable
-from src.reel_v2.spec import SceneSpec
+from src.reel_v2.spec import TRIGGER_STRIP, SceneSpec
 
 log = get_logger("reel_v2.render")
 
@@ -61,7 +61,8 @@ async def _tts(text: str, voice: str, rate: int, out: Path) -> list[Word]:
     return words
 
 
-def _voice_beats(spec: SceneSpec, voice: str, rate: int, work: Path) -> tuple[list[Path], list[list[Word]], list[float]]:
+def _voice_beats(spec: SceneSpec, voice: str, rate: int, work: Path,
+                 need_words: bool = True) -> tuple[list[Path], list[list[Word]], list[float]]:
     files, words, durs = [], [], []
     for i, b in enumerate(spec.beats):
         mp3 = work / f"beat_{i}.mp3"
@@ -70,7 +71,7 @@ def _voice_beats(spec: SceneSpec, voice: str, rate: int, work: Path) -> tuple[li
                 ws = asyncio.run(_tts(speakable(b.narration), voice, rate, mp3))
                 with AudioFileClip(str(mp3)) as a:
                     d = a.duration
-                if not ws:
+                if not ws and need_words:
                     raise RuntimeError("no word boundaries")
                 break
             except Exception as e:  # noqa: BLE001 - edge-tts network errors
@@ -108,11 +109,21 @@ def _build_subs(ws: list[Word], beat_start: float, beat_dur: float, max_w: int =
     return result
 
 
-def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
-    """Voice every beat, fit the reel under MAX_SECONDS, and pin triggers to spoken words."""
+def _spoken_at(narration: str, trigger: str, duration: float) -> float:
+    """No word boundaries (Hinglish only): place the trigger by its position in the sentence."""
+    ws = [w.lower().strip(TRIGGER_STRIP) for w in narration.split()]
+    target = trigger.lower().strip(TRIGGER_STRIP)
+    idx = ws.index(target) if target in ws else 0
+    return duration * idx / max(1, len(ws))
+
+
+def timeline(spec: SceneSpec, voice: str, work: Path, language: str = "en") -> tuple[dict, Path]:
+    """Voice every beat, fit the reel under MAX_SECONDS, and pin triggers to spoken words.
+    Hinglish reels get no subtitles, so a voice without word boundaries is accepted there."""
+    subtitles = language == "en"
     rate = BASE_RATE
     while True:
-        files, words, durs = _voice_beats(spec, voice, rate, work)
+        files, words, durs = _voice_beats(spec, voice, rate, work, need_words=subtitles)
         total = sum(durs) + GAP * (len(durs) - 1) + TAIL
         if total <= MAX_SECONDS:
             break
@@ -128,14 +139,17 @@ def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
         t += d + GAP
     triggers = []
     for i, (b, ws) in enumerate(zip(spec.beats, words)):
-        target = b.trigger.lower().strip(".,?!'\"")
-        hit = next((w.start for w in ws if w.text.lower().strip(".,?!'\"") == target), None)
-        if hit is None:
-            hit = next((w.start for w in ws if w.text.lower().strip(".,?!'\"").startswith(target[:4])), 0.0)
+        target = b.trigger.lower().strip(TRIGGER_STRIP)
+        hit = next((w.start for w in ws if w.text.lower().strip(TRIGGER_STRIP) == target), None)
+        if not ws:
+            hit = _spoken_at(b.narration, b.trigger, durs[i])
+            log.warning("beat %d: no word boundaries; trigger %r placed at %.2fs by position", i, b.trigger, hit)
+        elif hit is None:
+            hit = next((w.start for w in ws if w.text.lower().strip(TRIGGER_STRIP).startswith(target[:4])), 0.0)
             log.warning("beat %d: trigger %r not matched exactly; using %.2fs", i, b.trigger, hit)
         triggers.append(starts[i] + hit)
 
-    subs = [_build_subs(ws, starts[i], durs[i]) for i, ws in enumerate(words)]
+    subs = [_build_subs(ws, starts[i], durs[i]) if subtitles else [] for i, ws in enumerate(words)]
 
     audio = work / "voice.m4a"
     clips = [AudioFileClip(str(f)).with_start(s) for f, s in zip(files, starts)]
@@ -147,7 +161,8 @@ def timeline(spec: SceneSpec, voice: str, work: Path) -> tuple[dict, Path]:
             "triggers": triggers, "total": round(total, 3), "subs": subs}, audio
 
 
-def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, preview: float | None = None) -> Path:
+def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, preview: float | None = None,
+                language: str = "en") -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     work = out_dir / "reel_work"
     work.mkdir(exist_ok=True)
@@ -155,7 +170,7 @@ def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, previe
     if preview is not None and tl_file.exists():
         tl, audio = json.loads(tl_file.read_text(encoding="utf-8")), work / "voice.m4a"
     else:
-        tl, audio = timeline(spec, voice or pick_voice(), work)
+        tl, audio = timeline(spec, voice or pick_voice(language), work, language)
         tl_file.write_text(json.dumps(tl, ensure_ascii=False), encoding="utf-8")
     out = out_dir / "reel.mp4"
     ff = imageio_ffmpeg.get_ffmpeg_exe()
@@ -225,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--category", default="")
     ap.add_argument("--voice")
+    ap.add_argument("--language", choices=["en", "hi"], default="en", help="hi: Hinglish (Hindi voice, no subtitles)")
     ap.add_argument("--preview", type=float, help="reel: only screenshot this time (s)")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--carousel-only", action="store_true")
@@ -234,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.reel_only and args.preview is None:
         render_carousel(spec, args.out / "carousel", args.category)
     if not args.carousel_only:
-        render_reel(spec, args.out, args.voice, args.preview)
+        render_reel(spec, args.out, args.voice, args.preview, args.language)
     return 0
 
 

@@ -220,6 +220,7 @@ class Stages:
 
         def generate(topic, *a, **k):
             self.topic = topic
+            self.language = k.get("language")
             self.calls.append("write")
             if self.fail_at and self.fail_at[0] == "write":
                 raise self.fail_at[1]
@@ -232,7 +233,7 @@ class Stages:
         monkeypatch.setattr(gen_content, "save", lambda content, day: Path("output/x/content.json"))
         monkeypatch.setattr(render_post, "render_carousel", stage("render-carousel"))
         monkeypatch.setattr(render_reel, "render_reel", stage("render-reel"))
-        monkeypatch.setattr(render_reel, "pick_voice", lambda: "v")
+        monkeypatch.setattr(render_reel, "pick_voice", lambda language="en": "v")
         monkeypatch.setattr(render_reel, "_default_music", lambda: None)
         monkeypatch.setattr(upload, "upload_post", stage("upload"))
         self.items = [SimpleNamespace(id=f"{k}-1", kind=k, topic="T", version=1, group_id="2026-01-01/t") for k in ("carousel", "reel")]
@@ -274,6 +275,25 @@ def test_dashboard_job_is_adopted_by_its_run(stages, monkeypatch):
     # custom topic: no trending fetch, no ranking; the topic goes straight to writing
     assert "fetch" not in stages.calls and "rank" not in stages.calls
     assert (stages.topic.title, stages.topic.category) == ("Topic about sharding", "DSA")
+
+
+def test_dashboard_job_language_reaches_the_writer(stages):
+    queued = generation.create(trigger="dashboard", requested_by="admin", language="hi")
+    assert gen("--request-id", queued["id"]) == 0
+    assert stages.language == "hi"
+
+
+def test_scheduled_run_is_english_and_flag_overrides(stages):
+    assert gen() == 0 and stages.language == "en"
+    assert generation.recent()[0]["language"] == "en"
+    assert gen("--language", "hi") == 0 and stages.language == "hi"
+    assert generation.recent()[0]["language"] == "hi"
+
+
+def test_unknown_language_flag_is_refused(stages):
+    with pytest.raises(SystemExit):
+        gen("--language", "fr")
+    assert stages.calls == []
 
 
 def test_custom_topic_with_shell_text_stays_text(stages):
@@ -365,3 +385,29 @@ def test_poll_expires_stuck_jobs(monkeypatch):
     with db.session() as s:
         s.get(GenerationJob, job["id"]).created_at = datetime.now(UTC) - timedelta(hours=3)
     assert generation.expire_stuck() == 1 and generation.get(job["id"])["status"] == "failed"
+
+
+# --------------------------------------------------------------------------- #
+# main.py regenerate: a Hinglish post stays Hinglish
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("language", ["hi", "en"])
+def test_regenerate_keeps_the_narration_language(monkeypatch, tmp_path, language):
+    q.save([q.Item(id=f"r-{language}", kind="reel", date=FAR, topic="Caching", category="AI", post_dir="output/x",
+                   caption="c", media={"reel": "https://x/r.mp4"}, status="regenerate", voice="v",
+                   language=language, feedback="use Swara")])
+    seen = {}
+
+    def generate(topic, feedback="", language="en"):
+        seen["language"] = language
+        return SimpleNamespace(model_dump_json=lambda **k: "{}")
+    monkeypatch.setattr(gen_content, "generate", generate)
+    monkeypatch.setattr(gen_content, "post_dir", lambda day, title: tmp_path)
+    monkeypatch.setattr(render_reel, "render_reel", lambda *a, **k: seen.setdefault("voice", k["voice"]))
+    monkeypatch.setattr(render_reel, "_default_music", lambda: None)
+    monkeypatch.setattr(render_reel, "load_brand", lambda: {"voices": ["en-US-AndrewMultilingualNeural"]})
+    monkeypatch.setattr(upload, "upload_post", lambda *a, **k: None)
+    monkeypatch.setattr(approve_bot, "items_from_post", lambda *a, **k: [])
+    assert main.main(["regenerate"]) == 0
+    assert seen["language"] == language
+    # "use Swara" picks the Hindi voice only on a Hinglish post; an English post keeps its own rotation
+    assert seen["voice"] == ("hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewMultilingualNeural")

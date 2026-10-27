@@ -160,6 +160,7 @@ def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "
             caption=full_caption(content), version=version,
             publish_at=publish_at.isoformat() if publish_at else None,
             voice=voice if kind == "reel" else "",
+            language=content.language,  # on both items, so a Regenerate of either keeps it
             user_id=active_user_id.get(),
             media={k: v for k, v in media.items()
                    if (kind == "carousel" and k == "carousel") or (kind == "reel" and k in ("reel", "cover"))},
@@ -187,6 +188,8 @@ def _control_text(item: q.Item, max_caption: int = 3500, max_total: int | None =
     if item.voice:  # e.g. en-US-AndrewMultilingualNeural -> Andrew
         name = item.voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
         when += f"🎙 Voice: {name}\n"
+    if item.kind == "reel" and item.language == "hi":
+        when += "🗣 Narration: Hinglish (no subtitles)\n"
 
     fb = ""
     if item.version > 1 and item.feedback:

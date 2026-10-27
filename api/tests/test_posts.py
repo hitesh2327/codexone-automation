@@ -314,3 +314,13 @@ def test_posts_are_paged_with_a_cursor(authed):
     paged = authed.get("/api/posts", params={"status": "pending", "limit": 1}).json()
     assert paged["total"] >= 2 and paged["has_more"] is True                 # filters apply before paging
     assert paged["groups"][0]["items"]["carousel"]["caption"]                 # page items are full items
+
+
+def test_language_round_trips_and_defaults_to_english(authed):
+    q.save([_item("h1", "reel", 1, topic="Hinglish topic", date="2026-09-21", post_dir="output/2026-09-21/h/",
+                  publish_at="2026-09-21T19:00:00+05:30", language="hi")])
+    by_id = {i.id: i for i in q.load()}
+    assert by_id["h1"].language == "hi"
+    assert by_id["r2"].language == "en"  # saved without a language
+    g = next(g for g in groups(authed) if g["group_id"] == "2026-09-21/h")
+    assert g["items"]["reel"]["language"] == "hi"
