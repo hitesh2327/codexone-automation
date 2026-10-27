@@ -63,7 +63,6 @@ function History({ jobs, onOpen }: { jobs: Job[]; onOpen: (j: Job) => void }) {
               {j.trigger === "scheduled" ? "Scheduled" : `Dashboard · ${j.requested_by ?? "admin"}`}
               {j.slot_at ? ` · slot ${formatIST(j.slot_at, false)}` : ""}
               {j.force ? " · extra post" : ""}
-              {j.language === "hi" ? " · Hinglish" : ""}
               {j.status === "failed" || j.status === "skipped" || j.status === "cancelled" ? ` · ${j.message ?? j.failure_reason ?? ""}` : ""}
             </p>
           </div>
@@ -170,7 +169,6 @@ export default function Generate() {
       nonce: Date.now(),
       slot: cfg?.slots.includes(time) && today.some((s) => s.time === time) ? time : "auto",
       category: job.category ?? "auto", topic: job.topic ?? "", source_url: job.source_url ?? "",
-      language: job.language ?? "en",
     });
   }
 

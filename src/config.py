@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -16,8 +15,6 @@ OUTPUT_DIR = ROOT / "output"
 LOGS_DIR = ROOT / "logs"
 DATA_DIR = ROOT / "data"
 BRAND_FILE = ROOT / "brand" / "config.yaml"
-# Reel narration language of a post: "en" English (default) or "hi" Hinglish, picked on the Generate page.
-Language = Literal["en", "hi"]
 POSTED_FILE = DATA_DIR / "posted.json"
 
 # Locally we read .env; in GitHub Actions the vars come from Secrets and

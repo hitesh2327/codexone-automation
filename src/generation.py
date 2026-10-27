@@ -199,7 +199,7 @@ def to_dict(r: GenerationJob) -> dict:
         "active": r.status in ACTIVE, "failure_reason": r.failure_reason,
         "message": r.message or (REASON_TEXT.get(r.failure_reason or "") if r.status in ("failed", "cancelled") else None),
         "slot_at": _iso(r.slot_at), "category": r.category, "topic": r.topic, "source_url": r.source_url,
-        "force": bool(r.force), "allow_duplicate": bool(r.allow_duplicate), "language": r.language or "en",
+        "force": bool(r.force), "allow_duplicate": bool(r.allow_duplicate),
         "github_run_id": r.github_run_id, "github_run_url": r.github_run_url,
         "created_at": _iso(r.created_at), "started_at": _iso(r.started_at), "finished_at": _iso(r.finished_at),
         "duration_sec": int((end - begin).total_seconds()) if begin else None,
@@ -212,16 +212,6 @@ def get(job_id: str) -> dict | None:
     with db.session() as s:
         row = s.get(GenerationJob, job_id)
         return to_dict(row) if row else None
-
-
-def job_language(job_id: str | None) -> str | None:
-    """The narration language a dashboard job asked for (the workflow has no input for it: the job carries it)."""
-    try:
-        job = get(job_id) if db.enabled() and valid_id(job_id) else None
-    except Exception:  # noqa: BLE001 -- an unreadable job must not stop the run; it falls back to English
-        log.exception("could not read the language of job %s", job_id)
-        return None
-    return job["language"] if job else None
 
 
 def recent(limit: int = 20) -> list[dict]:
@@ -288,12 +278,11 @@ def new_id() -> str:
 def create(*, trigger: str, requested_by: str | None = None, slot_at: datetime | None = None,
            category: str | None = None, topic: str | None = None, source_url: str | None = None,
            force: bool = False, allow_duplicate: bool = False, idempotency_key: str | None = None,
-           status: str = "queued", run_id: int | None = None, run_url: str | None = None,
-           language: str = "en") -> dict:
+           status: str = "queued", run_id: int | None = None, run_url: str | None = None) -> dict:
     """Insert a job. Raises JobActive when this trigger already has a queued/running one, Replay on a repeated key."""
     row = GenerationJob(id=new_id(), trigger=trigger, requested_by=requested_by, slot_at=slot_at and _utc(slot_at),
                         category=category, topic=topic, source_url=source_url, force=force,
-                        allow_duplicate=allow_duplicate, idempotency_key=idempotency_key, status=status, language=language,
+                        allow_duplicate=allow_duplicate, idempotency_key=idempotency_key, status=status,
                         phase="starting" if status == "running" else None, github_run_id=run_id,
                         github_run_url=run_url, started_at=utcnow() if status == "running" else None)
     try:
@@ -452,7 +441,7 @@ class Reporter:
 
     @classmethod
     def begin(cls, request_id: str | None, *, slot_at: datetime | None, category: str | None, topic: str | None,
-              source_url: str | None, force: bool, allow_duplicate: bool, language: str = "en") -> "Reporter":
+              source_url: str | None, force: bool, allow_duplicate: bool) -> "Reporter":
         try:
             if not db.enabled():
                 return cls()
@@ -474,7 +463,7 @@ class Reporter:
             expire_stuck()  # a crashed earlier run must not block this one
             job = create(trigger="scheduled", status="running", run_id=run_id, run_url=run_url, slot_at=slot_at,
                          category=category, topic=topic, source_url=source_url, force=force,
-                         allow_duplicate=allow_duplicate, language=language)
+                         allow_duplicate=allow_duplicate)
             activity.record("generate.started", f"Generation {job['id']} started", source="generate", actor="system",
                             detail={"request_id": job["id"], "run_id": run_id, "trigger": "scheduled"})
             return cls(job["id"])

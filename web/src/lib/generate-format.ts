@@ -19,7 +19,6 @@ export type Job = {
   source_url: string | null;
   force: boolean;
   allow_duplicate: boolean;
-  language: Narration;
   github_run_id: number | null;
   github_run_url: string | null;
   created_at: string;
@@ -73,17 +72,8 @@ export type GenerateRequest = {
   source_url: string | null;
   force: boolean;
   allow_duplicate: boolean;
-  language: Narration;
   confirm_quota: boolean;
   idempotency_key: string;
-};
-
-/** Reel narration: English (the default for every run) or Hinglish (Hindi voice, no subtitles). */
-export type Narration = "en" | "hi";
-export const NARRATION_LABEL: Record<Narration, string> = { en: "English", hi: "Hinglish" };
-export const NARRATION_NOTE: Record<Narration, string> = {
-  en: "English voice with subtitles. Every scheduled run uses English.",
-  hi: "Hindi voice speaking Hinglish, with no subtitles. The carousel, on-screen text and caption stay English.",
 };
 
 // ---------------------------------------------------------------------------

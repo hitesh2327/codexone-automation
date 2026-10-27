@@ -17,10 +17,6 @@ voices:
   - en-GB-RyanNeural                 # 5 Ryan: British
   - en-US-AvaMultilingualNeural      # 7 Ava: expressive
   - en-US-EmmaMultilingualNeural     # 8 Emma: cheerful, clear
-# Hinglish reels (Generate page > Narration: Hinglish) rotate through these instead.
-voices_hi:
-  - hi-IN-MadhurNeural               # Madhur: male
-  - hi-IN-SwaraNeural                # Swara: female
 language: "English, simple, beginner-friendly"
 topics_weight:
   { AI: 30, SystemDesign: 20, DSA: 20, Interview: 15, OS: 10, Dev: 5 }

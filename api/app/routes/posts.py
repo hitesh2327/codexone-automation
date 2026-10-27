@@ -32,7 +32,7 @@ def item_out(item: q.Item) -> dict:
         "targets": item.effective_targets, "allowed_targets": q.DEFAULT_TARGETS[item.kind],
         "platforms": {p: {k: v for k, v in r.items() if k in ("status", "id", "url", "error", "at", "privacy")}
                       for p, r in item.platforms.items()},
-        "feedback": item.feedback, "error": item.error, "voice": item.voice, "language": item.language,
+        "feedback": item.feedback, "error": item.error, "voice": item.voice,
         "created_at": item.created_at, "decided_at": item.decided_at, "published_at": item.published_at,
         "editable": item.status in q.EDITABLE,
         "can": {a: item.status in allowed for a, allowed in q.DECIDABLE.items()},

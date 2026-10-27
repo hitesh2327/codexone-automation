@@ -162,7 +162,6 @@ def test_double_submit_is_one_job_one_dispatch(authed, gh):
     {"category": "DSA", "topic": "A fine topic", "source_url": "https://intranet/a"},
     {"source_url": "https://example.com/a"},                                      # link without topic
     {"slot": "07:00"},
-    {"language": "fr"}, {"language": "HI"},
 ])
 def test_validation_rejects(authed, gh, patch):
     r = authed.post("/api/generate", json=body(**patch))
@@ -453,20 +452,3 @@ def test_run_matching_takes_the_first_run_with_our_title(gh):
 def test_runner_rejects_a_malformed_date():
     import main
     assert main.main(["generate", "--date", "2026-13-45", "--dry-run"]) == 2
-
-
-def test_language_is_stored_on_the_job_not_sent_as_an_input(authed, gh):
-    r = authed.post("/api/generate", json=body(language="hi"))
-    assert r.status_code == 201, r.text
-    job = r.json()
-    assert job["language"] == "hi" and generation.job_language(job["id"]) == "hi"
-    assert "language" not in gh.posts[0]["json"]["inputs"]   # the workflow is at GitHub's 10-input limit
-
-
-def test_language_defaults_to_english(authed, gh):
-    job = authed.post("/api/generate", json=body()).json()
-    assert job["language"] == "en" and generation.job_language(job["id"]) == "en"
-
-
-def test_job_language_of_no_job_is_none():
-    assert generation.job_language(None) is None and generation.job_language("not-a-valid-id!") is None

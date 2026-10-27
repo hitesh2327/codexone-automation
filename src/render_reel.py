@@ -59,36 +59,25 @@ def voice_short_name(voice: str) -> str:
     return voice.split("-")[2].replace("Multilingual", "").replace("Neural", "")
 
 
-# Used when the brand has no `voices_hi` (in production the brand is a DB copy of brand/config.yaml).
-DEFAULT_VOICES_HI = ["hi-IN-MadhurNeural", "hi-IN-SwaraNeural"]
-
-
-def voices_for(language: str = "en") -> list[str]:
-    """The rotation for a narration language: brand `voices` (English) or `voices_hi` (Hinglish)."""
+def voice_from_feedback(feedback: str) -> str | None:
+    """A rotation voice named in reviewer feedback ("change the voice to Andrew"), if any."""
     brand = load_brand()
-    if language == "hi":
-        return brand.get("voices_hi") or DEFAULT_VOICES_HI
-    return brand.get("voices") or [brand["voice"]]
-
-
-def voice_from_feedback(feedback: str, language: str = "en") -> str | None:
-    """A rotation voice named in reviewer feedback ("change the voice to Andrew"), if any.
-    Only the post's own language counts, so "use Swara" never puts a Hindi voice on an English script."""
-    for v in voices_for(language):
+    for v in brand.get("voices") or [brand.get("voice", "")]:
         if v and re.search(rf"\b{re.escape(voice_short_name(v))}\b", feedback or "", re.IGNORECASE):
             return v
     return None
 
 
-def pick_voice(language: str = "en") -> str:
-    """Round-robin over the language's voices: the Nth rotation-era reel gets voices[N % len].
+def pick_voice() -> str:
+    """Round-robin over brand `voices`: the Nth rotation-era reel gets voices[N % len].
 
-    Counts queued reels of that language that recorded a voice, so the rotation survives CI runs
-    (data/queue.json is committed) and started at voices[0]. Each language rotates on its own.
+    Counts queued reels that recorded a voice, so the rotation survives CI runs
+    (data/queue.json is committed) and started at voices[0].
     """
     from src import queue_store as q
-    voices = voices_for(language)
-    n = sum(1 for i in q.load() if i.kind == "reel" and i.voice and i.language == language)
+    brand = load_brand()
+    voices = brand.get("voices") or [brand["voice"]]
+    n = sum(1 for i in q.load() if i.kind == "reel" and i.voice)
     return voices[n % len(voices)]
 
 
@@ -138,15 +127,14 @@ async def _tts(text: str, voice: str, out: Path) -> list[Word]:
     return words
 
 
-def synthesize(part: Part, voice: str, out: Path, label: str, retries: int = 5, need_words: bool = True) -> None:
-    """need_words=False (Hinglish: no subtitles) accepts audio without word boundaries."""
+def synthesize(part: Part, voice: str, out: Path, label: str, retries: int = 5) -> None:
     for attempt in range(1, retries + 1):
         try:
             part.words = asyncio.run(_tts(speakable(part.narration), voice, out))
             part.audio = out
             with AudioFileClip(str(out)) as a:
                 part.duration = a.duration
-            if not part.words and need_words:
+            if not part.words:
                 raise RuntimeError("no word boundaries returned")
             return
         except Exception as e:  # edge-tts raises various network errors
@@ -383,7 +371,7 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
         from src.reel_v2.render import render_reel as render_v2
         v2.save_scene(spec, out_dir)
         try:
-            return render_v2(spec, out_dir, voice or pick_voice(content.language), language=content.language)
+            return render_v2(spec, out_dir, voice or pick_voice())
         except RuntimeError as e:
             msg = str(e).lower()
             if "no word boundaries" in msg or "edge-tts" in msg:
@@ -395,9 +383,8 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
             log.exception("v2 reel render failed; rendering the classic reel instead")
             v2.warn_fallback("Reel", content.topic, e)
     brand = load_brand()
-    voice = voice or pick_voice(content.language)
-    subtitles = content.language == "en"   # Hinglish reels have no subtitles
-    log.info("voice: %s%s", voice, "" if subtitles else " (Hinglish, no subtitles)")
+    voice = voice or pick_voice()
+    log.info("voice: %s", voice)
     scenes = build_scenes(content)
     if dry_run:
         for s in scenes:
@@ -418,7 +405,7 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
         for i, s in enumerate(scenes):
             off = 0.0
             for j, p in enumerate(s.parts):
-                synthesize(p, voice, work / f"voice_{i}_{j}.mp3", f"{s.kind} part {j}", need_words=subtitles)
+                synthesize(p, voice, work / f"voice_{i}_{j}.mp3", f"{s.kind} part {j}")
                 p.offset = off
                 off += p.duration + PART_GAP
             s.start = t
@@ -460,7 +447,7 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
                     cover.convert("RGB").save(out_dir / "reel_cover.jpg", quality=92)
 
             for j, p in enumerate(s.parts):
-                chunks = chunk_words(p.words) if subtitles else []
+                chunks = chunk_words(p.words)
                 base = s.start + p.offset
                 for ci, chunk in enumerate(chunks):
                     next_start = chunks[ci + 1][0].start if ci + 1 < len(chunks) else p.duration

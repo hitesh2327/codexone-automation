@@ -117,10 +117,3 @@ def test_reel_control_text_never_exceeds_telegram_video_caption_limit():
     text = approve_bot._control_text(item)
     assert len(text) <= 1024
     assert len(text) <= 1020
-
-
-def test_preview_says_hinglish_only_for_hinglish_reels():
-    reel = _item("r-hi", "reel", voice="hi-IN-SwaraNeural", language="hi")
-    assert "Narration: Hinglish" in approve_bot._control_text(reel) and "Voice: Swara" in approve_bot._control_text(reel)
-    assert "Hinglish" not in approve_bot._control_text(_item("r-en", "reel", voice="en-US-EmmaNeural"))
-    assert "Hinglish" not in approve_bot._control_text(_item("c-hi", "carousel", language="hi"))
