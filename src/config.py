@@ -87,16 +87,24 @@ def get_env(name: str, required: bool = True, default: str | None = None) -> str
 def load_brand() -> dict:
     """Brand settings, loaded once per process.
 
-    From the `settings` table (key "brand") when DATABASE_URL is set and the brand has been
-    migrated there; otherwise from brand/config.yaml.
+    Loads brand/config.yaml as the source of truth, overlaid with any database settings if present,
+    or synchronizes config.yaml to the database settings table.
     """
+    with BRAND_FILE.open(encoding="utf-8") as f:
+        file_brand = yaml.safe_load(f)
+
     from src import db  # lazy: src.db imports this module
     if db.enabled():
-        brand = db.get_setting("brand")
-        if brand:
-            return brand
-    with BRAND_FILE.open(encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        db_brand = db.get_setting("brand")
+        if db_brand:
+            # Keep brand/config.yaml authoritative for voices, language, and preferred_hook_formulas
+            # while keeping other dashboard runtime overrides
+            db_brand["voices"] = file_brand.get("voices", db_brand.get("voices"))
+            db_brand["language"] = file_brand.get("language", db_brand.get("language"))
+            db_brand["preferred_hook_formulas"] = file_brand.get("preferred_hook_formulas", db_brand.get("preferred_hook_formulas", []))
+            return db_brand
+
+    return file_brand
 
 
 def ensure_dirs() -> None:
