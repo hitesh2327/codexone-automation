@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from typing import TypeVar
 
+import httpx
 from google import genai
 from google.genai import errors, types
 from pydantic import BaseModel
@@ -19,13 +20,20 @@ DEFAULT_MODEL = "gemini-flash-latest"
 # run is lost if every model is busy at once. Unknown names are skipped on their 404.
 DEFAULT_FALLBACKS = ("gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.7-flash,"
                      "gemini-3.5-flash-lite,gemini-3.6-flash")
+# Without a timeout one stalled request blocked a Regenerate until GitHub killed the job at 30 minutes
+# (28 Oct). A slow but healthy scene call takes ~2 minutes; a stalled one moves on to the next model.
+TIMEOUT_S = 150
+# Whole budget for one generate_json() across all models, so a chain of busy models can't eat the job.
+DEADLINE_S = 600
 _client: genai.Client | None = None
 
 
 def _get_client() -> genai.Client:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=get_env("GEMINI_API_KEY"))
+        timeout_s = float(get_env("GEMINI_TIMEOUT_S", required=False, default=str(TIMEOUT_S)))
+        _client = genai.Client(api_key=get_env("GEMINI_API_KEY"),
+                               http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))  # milliseconds
     return _client
 
 
@@ -51,7 +59,11 @@ def generate_json(prompt: str, schema: type[T], *, system: str = "",
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
     last: Exception | None = None
+    deadline = time.monotonic() + float(get_env("GEMINI_DEADLINE_S", required=False, default=str(DEADLINE_S)))
     for model in _models():
+        if time.monotonic() > deadline:
+            log.warning("Gemini time budget used up; not trying %s", model)
+            break
         for attempt in range(1, retries_per_model + 1):
             try:
                 resp = _get_client().models.generate_content(
@@ -73,8 +85,13 @@ def generate_json(prompt: str, schema: type[T], *, system: str = "",
                 log.warning("Gemini %s on %s (attempt %d/%d); retrying in %ds",
                             e.code, model, attempt, retries_per_model, wait)
                 time.sleep(wait)
+            except (httpx.TimeoutException, httpx.TransportError) as e:  # stalled or dropped: next model
+                last = e
+                log.warning("Gemini %s: %s after up to %ss; trying the next model", model, type(e).__name__,
+                            get_env("GEMINI_TIMEOUT_S", required=False, default=str(TIMEOUT_S)))
+                break
             except ValueError as e:  # malformed / schema-mismatched JSON
                 last = e
                 log.warning("Gemini %s returned invalid JSON (attempt %d): %s", model, attempt, e)
         log.warning("giving up on %s, trying next model", model)
-    raise RuntimeError(f"Gemini failed on all models {_models()}: {last}")
+    raise RuntimeError(f"Gemini failed on all models {_models()} (or ran out of time): {last}")
