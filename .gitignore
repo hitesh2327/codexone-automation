@@ -18,3 +18,6 @@ get_yt_token.py
 data/outbox/
 # generated prototype media
 prototypes/*/out/
+
+.agents
+.claude
