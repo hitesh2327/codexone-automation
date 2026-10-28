@@ -39,6 +39,13 @@
   tr:last-child td { color: #7CF0A6; font-weight: 700; }
   .cta { margin-top: 24px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-radius: 18px; padding: 20px 26px;
     background: linear-gradient(90deg, rgba(59,130,246,.18), rgba(34,197,94,.18)); border: 2px solid rgba(124,240,166,.35); }
+  /* cheat sheet too tall (long code): tighten step by step, see fitPage() */
+  .slide.tight1 .card pre { line-height: 1.3; }
+  .slide.tight1 td { padding: 7px 8px; } .slide.tight1 th { padding: 4px 8px 6px; }
+  .slide.tight2 .card { padding: 16px 22px; } .slide.tight2 .grid2 { margin-top: 16px; }
+  .slide.tight2 .card[style] { margin-top: 12px !important; } .slide.tight2 .cta { margin-top: 14px; padding: 14px 22px; }
+  .slide.tight3 .card li { font-size: 22px; margin-bottom: 2px; } .slide.tight3 table { font-size: 21px; }
+  .slide.tight4 .card pre { font-size: 18px !important; }
   .cta .t { font: 700 30px Poppins; } .cta .f { white-space: nowrap; font: 700 26px 'JetBrains Mono'; color: var(--bg); background: var(--cyan); padding: 10px 20px; border-radius: 12px; }
 </style>
 </head>
@@ -50,6 +57,15 @@
 const T = ReelDiagram.TONE, HI = ReelDiagram.HI;
 
 // Carousel slides from the scene spec: cover, one per on_carousel beat, cheat sheet.
+// The cheat sheet must fit its 1350px slide: tighten one step at a time until nothing overflows.
+function fitPage() {
+  document.querySelectorAll('.slide.cheat').forEach(sl => {
+    for (const k of ['tight1', 'tight2', 'tight3', 'tight4']) {
+      if (sl.scrollHeight <= sl.clientHeight) break;
+      sl.classList.add(k);
+    }
+  });
+}
 function build(spec, handle, category) {
   const beats = spec.beats.map((b, i) => [b, i]).filter(([b]) => b.on_carousel);
   const total = beats.length + 2;
@@ -75,20 +91,21 @@ function build(spec, handle, category) {
     </section>`);
   });
   const c = spec.cheat;
-  slides.push(`<section class="slide">${top(total)}
+  slides.push(`<section class="slide cheat">${top(total)}
     <span class="chip" style="color:${T.cyan}">CHEAT SHEET · SAVE THIS</span>
     <h1 class="fit" style="font-size:62px;margin-bottom:0;white-space:nowrap">${titleHtml(spec.title)} <span style="font-size:.8em">in one page</span></h1>
     <div class="grid2">
       <div class="card"><h3 style="color:${HI.green}">✓ USE WHEN</h3><ul>${c.use_when.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="card"><h3 style="color:${T.amber}">⚠ TRADE-OFFS</h3><ul>${c.tradeoffs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
     </div>
-    <div class="card" style="margin-top:20px"><h3 style="color:${T.cyan}">⚡ ${esc(c.code_title)}</h3><pre>${esc(c.code)}</pre></div>
+    <div class="card" style="margin-top:20px"><h3 style="color:${T.cyan}">⚡ ${esc(c.code_title)}</h3><pre class="fit" data-min="15">${esc(c.code)}</pre></div>
     <div class="card" style="margin-top:20px"><table>
       <tr>${c.compare.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr>
       ${c.compare.rows.map(r => `<tr>${r.map(x => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}</table></div>
     <div class="cta"><div class="t">Save it for your next interview</div><div class="f">Follow ${esc(handle)}</div></div>
   </section>`);
   document.getElementById('deck').innerHTML = slides.join('');
+
   fitAll();
   return slides.length;
 }

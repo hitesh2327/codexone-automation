@@ -17,7 +17,10 @@ function fitWidth(el, minPx = 40) {
   let px = parseFloat(getComputedStyle(el).fontSize);
   while (r.getBoundingClientRect().width > box && px > minPx) el.style.fontSize = `${px -= 2}px`;
 }
-function fitAll() { document.querySelectorAll('.fit').forEach(el => fitWidth(el)); }
+function fitAll() {
+  document.querySelectorAll('.fit').forEach(el => fitWidth(el, +el.dataset.min || 40));  // data-min: smallest px
+  if (typeof fitPage === 'function') fitPage();   // page-specific height fitting (carousel.html)
+}
 // Tween "48,200" -> "52,307" (or "0.0s" -> "1.2s"); non-numeric values switch at the end.
 function tween(a, b, k) {
   if (a === b || k >= 1) return b;

@@ -36,6 +36,8 @@ MAX_WORDS = 75          # ~30s with the brand voices at +6% (95 words came out a
 # On-screen limits validate() enforces and repair() cuts to (the schema asks for 20/40/32/12; a little slack
 # above that still fits the layout).
 HEADING_MAX, CAPTION_MAX, TERM_MAX, LABEL_MAX = 22, 44, 34, 14
+# The cheat-sheet code box shrinks its font to fit (templates/reel_v2/carousel.html), down to 15px.
+CODE_LINES, CODE_WIDTH = 6, 64
 MAX_WORDS_HI = 60       # Hinglish: the Hindi voices speak ~2.3 words/s vs ~2.8 (docs/specs/hinglish-narration-plan.md §7)
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 TRIGGER_STRIP = ".,?!'\"।"   # Hindi sentences end in । (danda)
@@ -114,7 +116,7 @@ class Cheat(BaseModel):
     use_when: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     tradeoffs: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     code_title: str = Field(description="UPPERCASE, max 30 chars, e.g. 'THE SWITCH IN KUBERNETES'")
-    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-4 lines, max 46 chars per line")
+    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-6 lines, max 60 chars per line")
     compare: Compare
 
 
@@ -246,7 +248,7 @@ BEATS (5-8) — total narration MAX {max_words(language)} words, the reel must b
 - Mark 4-5 beats on_carousel (not the hook or the payoff) with a slide_title and slide_text.
   The first carousel beat should show the problem / the naive way.
 
-CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code), and a comparison with
+CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code; at most {CODE_LINES} lines of 60 characters), and a comparison with
 2-3 alternatives (topic itself last). Table cells are plain words, no abbreviations like 'Wr-Thru'.
 
 CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
@@ -330,8 +332,10 @@ def validate(s: SceneSpec, language: str = "en") -> list[str]:
     c = s.cheat
     if len(c.compare.headers) != 4 or any(len(r) != 4 for r in c.compare.rows):
         p.append("cheat.compare needs 4 headers and 4 cells per row")
-    if any(len(l) > 52 for l in c.code.splitlines()) or len(c.code.splitlines()) > 5:
-        p.append("cheat.code: max 4 lines of 46 chars")
+    lines = c.code.splitlines()
+    if len(lines) > CODE_LINES or any(len(l) > CODE_WIDTH for l in lines):
+        widest = max((len(l) for l in lines), default=0)
+        p.append(f"cheat.code: max {CODE_LINES} lines of {CODE_WIDTH} chars (has {len(lines)} lines, widest {widest})")
     if language == "hi":
         p += [f"beat {i}: narration must be Hinglish in Devanagari (with English tech terms), not Latin script"
               for i, b in enumerate(s.beats, 1) if not DEVANAGARI.search(b.narration)]
@@ -371,6 +375,28 @@ def _cut(text: str, limit: int, measure=len) -> str:
     return out.rstrip(" ,;:-")
 
 
+_COMMENT = re.compile(r"\s+(#|//)\s.*$")
+
+
+def _repair_code(code: str) -> str:
+    """Make a snippet fit the code box without changing what it does: trailing spaces and (if over CODE_LINES)
+    blank lines go; on a line over CODE_WIDTH, a trailing # or // comment goes (only when the quotes before it
+    are balanced, so it isn't inside a string), then 4-space indents become 2. Real code is never cut."""
+    lines = [l.rstrip() for l in code.strip("\n").splitlines()]
+    if len(lines) > CODE_LINES:
+        lines = [l for l in lines if l.strip()]
+    out = []
+    for l in lines:
+        if len(l) > CODE_WIDTH and (m := _COMMENT.search(l)):
+            head = l[:m.start()]
+            if head.count("'") % 2 == 0 and head.count('"') % 2 == 0 and head.strip():
+                l = head
+        out.append(l)
+    if any(len(l) > CODE_WIDTH for l in out):
+        out = [" " * ((len(l) - len(l.lstrip(" "))) // 2) + l.lstrip(" ") for l in out]
+    return "\n".join(out)
+
+
 def repair(s: SceneSpec) -> list[str]:
     """Fix the mechanical slips a draft often has, in place, instead of rejecting it. Returns what was fixed.
 
@@ -379,6 +405,10 @@ def repair(s: SceneSpec) -> list[str]:
     unknown nodes are dropped; a trigger that isn't spoken becomes the closest spoken word. Word count,
     beat count, counters and accuracy are left to the rewrite."""
     fixed: list[str] = []
+    code = _repair_code(s.cheat.code)
+    if code != s.cheat.code:
+        s.cheat.code = code
+        fixed.append("cheat code")
     for n in s.nodes:
         if len(n.label) > LABEL_MAX:
             n.label = _cut(n.label, LABEL_MAX)

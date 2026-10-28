@@ -136,3 +136,50 @@ def test_last_attempt_ships_without_another_review(monkeypatch, spec):
     calls = _fake_llm(monkeypatch, [good(), good(), good()], review_ok=False)   # reviewer never satisfied
     specmod.generate("Blue-Green", "SystemDesign")
     assert calls == {"write": 3, "review": 2}
+
+
+# --------------------------------------------------------------------------- #
+# Cheat-sheet code (28 Oct: a Next.js snippet over 4 x 46 failed all 3 attempts)
+# --------------------------------------------------------------------------- #
+from src.reel_v2.spec import CODE_LINES, CODE_WIDTH, _repair_code  # noqa: E402
+
+
+def test_six_lines_of_64_now_pass(spec):
+    spec.cheat.code = "\n".join(["x" * CODE_WIDTH] * CODE_LINES)
+    assert validate(spec) == []
+    spec.cheat.code += "\ny = 1"
+    assert any("cheat.code" in p and "7 lines" in p for p in validate(spec))
+
+
+def test_code_repair_drops_trailing_comments_and_halves_indents():
+    code = ("export async function deletePost(id: string) {\n"
+            "    const s = await auth()      // the session is re-checked here, never trusted from the form\n"
+            "    if (!s) throw new Error('#1 not signed in')\n"
+            "}")
+    out = _repair_code(code)
+    assert "never trusted" not in out and "'#1 not signed in'" in out        # comment gone, string kept
+    assert all(len(l) <= CODE_WIDTH for l in out.splitlines())
+    assert out.splitlines()[1].startswith("    const")                      # it fits now: indents untouched
+
+
+def test_code_repair_halves_indents_when_a_line_still_does_not_fit():
+    deep = "        await db.post.delete({ where: { id, ownerId: user.id } })"   # 65 chars, no comment
+    out = _repair_code("if (ok) {\n" + deep + "\n}")
+    assert out.splitlines()[1] == "    " + deep.lstrip() and len(out.splitlines()[1]) <= CODE_WIDTH
+
+
+def test_code_repair_never_touches_a_hash_inside_a_string():
+    line = 'print("total # of chunks for this whole document, counted right here")'
+    assert len(line) > CODE_WIDTH and _repair_code(line) == line
+
+
+def test_code_repair_drops_blank_lines_only_when_over_the_line_limit():
+    short = "a = 1\n\nb = 2"
+    assert _repair_code(short) == short
+    tall = "\n\n".join(f"v{i} = {i}" for i in range(CODE_LINES))            # 6 code lines + 5 blanks
+    assert _repair_code(tall).splitlines() == [f"v{i} = {i}" for i in range(CODE_LINES)]
+
+
+def test_fitting_code_is_left_alone(spec):
+    before = spec.cheat.code
+    assert _repair_code(before) == before.strip("\n")
