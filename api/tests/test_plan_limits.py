@@ -101,6 +101,50 @@ def test_month_window_rolls_over_the_year():
     assert (start.isoformat()[:10], end.isoformat()[:10]) == ("2026-12-01", "2027-01-01")
 
 
+def paid(renews_at, tier="pro", status="active"):
+    u = user(tier, status)
+    u.subscription_renews_at = renews_at
+    return u
+
+
+def _d(dt: datetime) -> str:
+    return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M")
+
+
+def test_quota_cycle_follows_the_renewal_date_not_the_calendar():
+    # bought on the night of 27 Oct, renews 28 Nov: the quota runs 28 Oct to 28 Nov, not to 1 Nov
+    renews = datetime(2026, 11, 28, 0, 30, tzinfo=IST)
+    start, end = plan_limits.cycle_window(paid(renews), datetime(2026, 10, 28, 10, tzinfo=IST))
+    assert (_d(start), _d(end)) == ("2026-10-28 00:30", "2026-11-28 00:30")
+    s = plan_limits.summary(paid(renews), datetime(2026, 10, 31, 23, tzinfo=IST))
+    assert s["resets_at"].startswith("2026-11-28")
+
+
+def test_yearly_plan_gets_monthly_cycles_on_its_renewal_day():
+    start, end = plan_limits.cycle_window(paid(datetime(2027, 10, 28, 9, tzinfo=IST)), datetime(2026, 12, 5, tzinfo=IST))
+    assert (_d(start), _d(end)) == ("2026-11-28 09:00", "2026-12-28 09:00")
+
+
+@pytest.mark.parametrize("renews,now,expect", [
+    (datetime(2027, 1, 31, tzinfo=IST), datetime(2026, 12, 15, tzinfo=IST), ("2026-11-30", "2026-12-31")),
+    (datetime(2027, 3, 31, tzinfo=IST), datetime(2027, 3, 1, tzinfo=IST), ("2027-02-28", "2027-03-31")),
+])
+def test_cycle_clamps_month_end_renewal_days(renews, now, expect):
+    start, end = plan_limits.cycle_window(paid(renews), now)
+    assert (_d(start)[:10], _d(end)[:10]) == expect
+
+
+def test_cycle_after_a_renewal_the_webhook_has_not_recorded_yet():
+    start, end = plan_limits.cycle_window(paid(datetime(2026, 11, 28, tzinfo=IST)), datetime(2026, 11, 29, tzinfo=IST))
+    assert (_d(start)[:10], _d(end)[:10]) == ("2026-11-28", "2026-12-28")
+
+
+def test_cycle_is_the_calendar_month_without_a_paid_period():
+    now = datetime(2026, 10, 28, tzinfo=IST)
+    for u in (user("free", "inactive"), paid(None), paid(datetime(2026, 11, 28, tzinfo=IST), status="inactive"), None):
+        assert plan_limits.cycle_window(u, now) == plan_limits.month_window(now)
+
+
 def test_slots_per_day_in_every_schedule_mode():
     assert plan_limits.slots_per_day({"slots": ["09:00", "18:00"]}) == 2
     assert plan_limits.slots_per_day({"schedule_mode": "weekly", "weekly_slots": {"mon": ["09:00"], "tue": ["09:00", "12:00", "18:00"]}}) == 3
@@ -123,6 +167,27 @@ def test_usage_counts_this_months_new_posts_only(authed, customer):
     st = authed.get("/api/subscription/status").json()["usage"]
     assert st["plan"] == "starter" and st["used"] == expect and st["exempt"] is False
     assert st["left"] == {k: max(0, 30 - expect[k]) for k in expect}
+
+
+def test_posts_before_the_cycle_started_are_not_counted(authed, customer):
+    uid = customer("pro")
+    now = datetime.now(timezone.utc)
+    with db.session() as s:
+        saved = s.get(User, uid).subscription_renews_at
+        s.get(User, uid).subscription_renews_at = now + timedelta(days=29, hours=12)  # cycle began ~1.5 days ago
+    try:
+        me = plan_limits.load_user(uid)
+        start, end = plan_limits.cycle_window(me)
+        base = plan_limits.usage(uid, window=(start, end))
+        utc = start.astimezone(timezone.utc)                         # posts are stored in UTC
+        _posts(uid, "reel", 2, when=utc - timedelta(hours=2))        # made before buying (still in this calendar month)
+        _posts(uid, "reel", 1, when=utc + timedelta(hours=1))        # made after
+        st = authed.get("/api/subscription/status").json()["usage"]
+        assert st["used"]["reels"] == base["reels"] + 1
+        assert datetime.fromisoformat(st["resets_at"]) == end
+    finally:
+        with db.session() as s:
+            s.get(User, uid).subscription_renews_at = saved
 
 
 def test_generate_without_a_plan_is_refused(authed, customer, gh):

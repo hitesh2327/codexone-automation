@@ -11,7 +11,9 @@
 Rules:
 - A plan counts only while it is paid for: status active, past_due (Razorpay retrying), canceling or changing
   (both run to the end of the paid period). Anything else is "no plan": nothing is generated or published.
-- Quotas are per calendar month in IST and count new posts only (version 1 of each reel and carousel), whatever
+- Quotas are per monthly billing cycle, anchored to the renewal date (renews 28 Nov: 28 Oct to 28 Nov; yearly
+  plans get the same 28th-to-28th months), so a plan bought mid-month gets a full cycle. Without a paid period
+  (no plan, owner) the cycle is the calendar month in IST. They count new posts only (version 1 of each reel and carousel), whatever
   happened to them afterwards: the work was done. Regenerations don't use quota, but each post can be
   regenerated at most MAX_REGENERATIONS times.
 - When the month's reels are used up but carousels remain, a run makes the carousel only.
@@ -72,13 +74,42 @@ def month_window(now: datetime | None = None) -> tuple[datetime, datetime]:
     return start, end
 
 
-def usage(user_id: int, now: datetime | None = None) -> dict[str, int]:
-    """New reels and carousels the user's runs made this month (regenerated versions not counted)."""
+def _add_months(d: datetime, n: int) -> datetime:
+    """d moved n months, with the day clamped to the month's length (31 Jan + 1 = 28/29 Feb)."""
+    import calendar
+    y, m = divmod(d.month - 1 + n, 12)
+    y, m = d.year + y, m + 1
+    return d.replace(year=y, month=m, day=min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def cycle_window(user, now: datetime | None = None) -> tuple[datetime, datetime]:
+    """The user's current quota month: [start, end) anchored to the renewal date of their paid plan.
+
+    Each boundary is computed from the anchor (not by stepping from the last boundary), so a plan renewing on the
+    31st gets 30 Nov, 31 Dec, 28 Feb, 31 Mar... Falls back to the calendar month without a paid period."""
+    now = (now or datetime.now(IST)).astimezone(IST)
+    anchor = getattr(user, "subscription_renews_at", None)
+    if anchor is None or getattr(user, "subscription_status", None) not in PAID:
+        return month_window(now)
+    anchor = (anchor if anchor.tzinfo else anchor.replace(tzinfo=ZoneInfo("UTC"))).astimezone(IST)
+    k = 0                                    # months between the anchor and the window's end
+    while _add_months(anchor, -(k + 1)) > now and k < 1200:
+        k += 1                               # now is further before the renewal: a yearly plan's earlier month
+    while _add_months(anchor, -k) <= now and k > -1200:
+        k -= 1                               # renewal already passed (webhook not in yet): the next month
+    return _add_months(anchor, -(k + 1)), _add_months(anchor, -k)
+
+
+def usage(user_id: int, now: datetime | None = None,
+          window: tuple[datetime, datetime] | None = None) -> dict[str, int]:
+    """New reels and carousels the user's runs made in the window (default: this calendar month; regenerated
+    versions not counted)."""
     if not db.enabled():
         return {"reels": 0, "carousels": 0}
     from sqlalchemy import func, select
     from src.db.models import Post
-    start, end = month_window(now)
+    # posts.created_at is stored in UTC; compare in UTC too (SQLite compares the stored text)
+    start, end = (t.astimezone(ZoneInfo("UTC")) for t in (window or month_window(now)))
     with db.session() as s:
         rows = s.execute(select(Post.kind, func.count()).where(
             Post.user_id == user_id, Post.version == 1, Post.created_at >= start, Post.created_at < end)
@@ -87,15 +118,12 @@ def usage(user_id: int, now: datetime | None = None) -> dict[str, int]:
     return {"reels": counts.get("reel", 0), "carousels": counts.get("carousel", 0)}
 
 
-def _resets(now: datetime | None) -> str:
-    return f"{month_window(now)[1]:%d %b}".lstrip("0")
-
-
 def summary(user, now: datetime | None = None) -> dict:
     """The plan, this month's usage and what's left (None = unlimited), for the dashboard."""
     plan = plan_for(user)
     exempt = is_exempt(user)
-    used = usage(user.id, now) if user is not None else {"reels": 0, "carousels": 0}
+    window = cycle_window(user, now)
+    used = usage(user.id, now, window) if user is not None else {"reels": 0, "carousels": 0}
     quota = plan["quota"]
     return {
         "plan": plan["id"], "exempt": exempt, "used": used,
@@ -104,7 +132,7 @@ def summary(user, now: datetime | None = None) -> dict:
         "platforms": ["ig", "yt"] if exempt else plan["platforms"],
         "posts_per_day": None if exempt else plan["posts_per_day"],
         "max_regenerations": None if exempt else MAX_REGENERATIONS,
-        "resets_at": month_window(now)[1].isoformat(),
+        "resets_at": window[1].isoformat(),
     }
 
 
@@ -115,12 +143,13 @@ def check_generation(user, now: datetime | None = None) -> dict:
     plan = plan_for(user)
     if plan is NO_PLAN:
         raise PlanLimit("plan_required", "Choose a plan to start generating posts.")
-    used, quota = usage(user.id, now), plan["quota"]
+    window = cycle_window(user, now)
+    used, quota = usage(user.id, now, window), plan["quota"]
     if used["carousels"] >= quota["carousels"]:
         raise PlanLimit("quota_reached",
                         f"You've used all {quota['carousels']} posts in your {plan['name']} plan this month. "
-                        f"They reset on {_resets(now)}, or upgrade to post more.",
-                        used=used, quota=quota, resets_at=month_window(now)[1].isoformat())
+                        f"They reset on {window[1].day} {window[1]:%b}, or upgrade to post more.",
+                        used=used, quota=quota, resets_at=window[1].isoformat())
     return {"reel": used["reels"] < quota["reels"]}
 
 
