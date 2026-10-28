@@ -94,7 +94,7 @@ def test_generate_passes_the_language_through(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# gen_content: both engines set Content.language; the classic one skips the hook scorer
+# gen_content sets Content.language
 # --------------------------------------------------------------------------- #
 @pytest.fixture(autouse=True)
 def file_mode(monkeypatch):
@@ -111,29 +111,6 @@ def test_v2_path_sets_language(monkeypatch):
     monkeypatch.setattr("src.reel_v2.pipeline.load_brand", lambda: {"handle": "@t", "reel": {}})
     c = gen_content.generate(TOPIC, language="hi")
     assert c.language == "hi" and c._scene is not None
-
-
-def test_classic_path_sets_language_and_skips_hook_scorer(monkeypatch):
-    from src.reel_v2 import pipeline
-    monkeypatch.setattr(pipeline, "uses_v2", lambda category: False)
-    G = gen_content
-    draft = G.Content(
-        topic="T", category="SystemDesign", caption="c", hashtags=["#x"],
-        reel=G.Reel(hook_on_screen="h", hook_narration="सोचो cache क्या है?",
-                    points=[G.ReelPoint(on_screen=f"p{i}", narration="cache तेज़ है।") for i in range(3)],
-                    cta_on_screen="c", cta_narration="follow करो।"),
-        carousel=[G.Slide(type="title", heading="T", body="b"),
-                  *[G.Slide(type="content", heading=f"H{i}", body="b") for i in range(4)],
-                  G.Slide(type="cta", heading="C", body="b")])
-    prompts = []
-
-    def fake(prompt, schema, **k):
-        prompts.append(prompt)
-        return draft if schema is gen_content.Content else gen_content.Review(ok=True, issues=[])
-    monkeypatch.setattr(gen_content, "generate_json", fake)
-    monkeypatch.setattr(gen_content, "pick_hook", lambda *a: pytest.fail("hook scorer ran on Hinglish"))
-    c = gen_content.generate(TOPIC, language="hi")
-    assert c.language == "hi" and "NARRATION LANGUAGE: HINGLISH" in prompts[0]
 
 
 # --------------------------------------------------------------------------- #

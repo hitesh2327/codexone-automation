@@ -389,11 +389,12 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
             if "no word boundaries" in msg or "edge-tts" in msg:
                 log.error("TTS unavailable in v2 reel (%s); skipping reel — carousel will still publish", e)
                 return None
-            log.exception("v2 reel render failed; rendering the classic reel instead")
-            v2.warn_fallback("Reel", content.topic, e)
-        except Exception as e:  # content.reel mirrors the same beats as a classic text reel
-            log.exception("v2 reel render failed; rendering the classic reel instead")
-            v2.warn_fallback("Reel", content.topic, e)
+            v2.notify_failure("Reel", content.topic, e)
+            raise
+        except Exception as e:
+            v2.notify_failure("Reel", content.topic, e)
+            raise
+    # Classic text reel: only for old posts saved before the scene engine (no scene.json next to them).
     brand = load_brand()
     voice = voice or pick_voice(content.language)
     subtitles = content.language == "en"   # Hinglish reels have no subtitles

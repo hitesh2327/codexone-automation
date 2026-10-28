@@ -32,6 +32,9 @@ NodeState = Literal["idle", "live", "ok", "busy", "boot", "error", "testing", "e
 # idle = standby, boot = starting, testing = being checked, error = failing, empty = not deployed, off = stopped
 
 MAX_WORDS = 75          # ~30s with the brand voices at +6% (95 words came out at ~35s)
+# On-screen limits validate() enforces and repair() cuts to (the schema asks for 20/40/32/12; a little slack
+# above that still fits the layout).
+HEADING_MAX, CAPTION_MAX, TERM_MAX, LABEL_MAX = 22, 44, 34, 14
 MAX_WORDS_HI = 60       # Hinglish: the Hindi voices speak ~2.3 words/s vs ~2.8 (docs/specs/hinglish-narration-plan.md §7)
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 TRIGGER_STRIP = ".,?!'\"।"   # Hindi sentences end in । (danda)
@@ -182,6 +185,26 @@ HINGLISH = """NARRATION LANGUAGE: HINGLISH
 """
 
 
+HOOKS_FILE = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "ig-reel" / "hooks.json"
+
+
+def _hook_block(brand: dict) -> str:
+    """The hook formula library (ig-reel skill) for beat 1, flagging brand reel.preferred_hook_formulas
+    (updated monthly by scripts/run_swipe.py). Empty when the skill file isn't there."""
+    import json
+    try:
+        hooks = json.loads(HOOKS_FILE.read_text(encoding="utf-8"))["hooks"]
+    except Exception:  # noqa: BLE001 -- optional input
+        return ""
+    preferred = brand.get("reel", {}).get("preferred_hook_formulas") or []
+    lines = ["HOOK FORMULA LIBRARY (shape beat 1's narration on ONE of these; never say the formula's name):"]
+    lines += [f"  #{h['id']:02d} {h['name']}: {h['template']}" + ("  <- OVER-INDEXING THIS MONTH" if h["name"] in preferred else "")
+              for h in hooks]
+    if preferred:
+        lines.append(f"Prefer the OVER-INDEXING formulas ({', '.join(preferred)}): they beat this account's median right now.")
+    return "\n\n" + "\n".join(lines)
+
+
 def _prompt(topic: str, category: str, angle: str, brand: dict, feedback: str = "", language: str = "en") -> str:
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
     guide = f"\n\n{CATEGORY_GUIDE[category]}" if category in CATEGORY_GUIDE else ""
@@ -226,7 +249,7 @@ CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code), and a 
 2-3 alternatives (topic itself last). Table cells are plain words, no abbreviations like 'Wr-Thru'.
 
 CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: 10-15; include a few of: {' '.join(brand['hashtags'])}.{guide}{extra}"""
+HASHTAGS: 10-15; include a few of: {' '.join(brand['hashtags'])}.{_hook_block(brand)}{guide}{extra}"""
 
 
 def on_screen_text(s: SceneSpec) -> list[str]:
@@ -258,7 +281,7 @@ def validate(s: SceneSpec, language: str = "en") -> list[str]:
         rows[n.row] = rows.get(n.row, 0) + 1
         if n.group and n.group not in groups:
             p.append(f"node {n.id}: unknown group {n.group}")
-        if len(n.label) > 14:
+        if len(n.label) > LABEL_MAX:
             p.append(f"node {n.id}: label too long (max 12)")
     p += [f"row {r} has {c} nodes (max {MAX_ROW_NODES})" for r, c in rows.items() if c > MAX_ROW_NODES]
     for g in s.groups:
@@ -291,7 +314,7 @@ def validate(s: SceneSpec, language: str = "en") -> list[str]:
         labels = labels or ls
         if ls != labels:
             p.append(f"beat {i}: counter labels must match beat 1 {labels}")
-        if len(b.heading) > 22 or len(b.caption.replace('*', '')) > 44 or len(b.term) > 34:
+        if len(b.heading) > HEADING_MAX or len(b.caption.replace('*', '')) > CAPTION_MAX or len(b.term) > TERM_MAX:
             p.append(f"beat {i}: heading/caption/term too long")
         if b.on_carousel and not (b.slide_title and b.slide_text):
             p.append(f"beat {i}: carousel beats need slide_title and slide_text")
@@ -329,20 +352,102 @@ statements.{hinglish}
 {s.model_dump_json(indent=2)}"""
 
 
+ATTEMPTS = 3   # first draft + 2 rewrites
+
+
+def _cut(text: str, limit: int, measure=len) -> str:
+    """Drop whole words from the end until measure(text) <= limit (one long word is cut hard)."""
+    words = text.split()
+    while len(words) > 1 and measure(" ".join(words)) > limit:
+        words.pop()
+    out = " ".join(words)
+    while measure(out) > limit:
+        out = out[:-1]
+    if out.count("*") % 2:                                   # an *emphasis* pair cut in half
+        i = out.rfind("*")
+        out = out[:i] + out[i + 1:]
+    return out.rstrip(" ,;:-")
+
+
+def repair(s: SceneSpec) -> list[str]:
+    """Fix the mechanical slips a draft often has, in place, instead of rejecting it. Returns what was fixed.
+
+    Over-long on-screen text is shortened at a word; a group's nodes are moved to the group's most common
+    row; a flow along a missing wire gets the wire (a self-loop or unknown node is dropped); states for
+    unknown nodes are dropped; a trigger that isn't spoken becomes the closest spoken word. Word count,
+    beat count, counters and accuracy are left to the rewrite."""
+    fixed: list[str] = []
+    for n in s.nodes:
+        if len(n.label) > LABEL_MAX:
+            n.label = _cut(n.label, LABEL_MAX)
+            fixed.append(f"label {n.id}")
+    for g in s.groups:
+        rows = [n.row for n in s.nodes if n.group == g.id]
+        if len(set(rows)) > 1:
+            row = max(set(rows), key=rows.count)
+            for n in s.nodes:
+                if n.group == g.id:
+                    n.row = row
+            fixed.append(f"group {g.id} onto row {row}")
+    ids = {n.id for n in s.nodes}
+    wires = {(e.src, e.dst) for e in s.edges}
+    for i, b in enumerate(s.beats, 1):
+        if len(b.heading) > HEADING_MAX:
+            b.heading = _cut(b.heading, HEADING_MAX)
+            fixed.append(f"beat {i} heading")
+        if len(b.caption.replace("*", "")) > CAPTION_MAX:
+            b.caption = _cut(b.caption, CAPTION_MAX, lambda t: len(t.replace("*", "")))
+            fixed.append(f"beat {i} caption")
+        if len(b.term) > TERM_MAX:
+            b.term = _cut(b.term, TERM_MAX)
+            fixed.append(f"beat {i} term")
+        keep = []
+        for f in b.flows:
+            if f.src == f.dst or f.src not in ids or f.dst not in ids:
+                fixed.append(f"beat {i} dropped flow {f.src}->{f.dst}")
+                continue
+            if (f.src, f.dst) not in wires and (f.dst, f.src) not in wires:
+                s.edges.append(Edge(src=f.src, dst=f.dst))
+                wires.add((f.src, f.dst))
+                fixed.append(f"wire {f.src}->{f.dst}")
+            keep.append(f)
+        b.flows = keep
+        if any(c.node not in ids for c in b.states):
+            b.states = [c for c in b.states if c.node in ids]
+            fixed.append(f"beat {i} states")
+        spoken = [w.strip(TRIGGER_STRIP) for w in b.narration.split()]
+        spoken = [w for w in spoken if w]
+        if spoken and b.trigger.lower().strip(TRIGGER_STRIP) not in [w.lower() for w in spoken]:
+            t = b.trigger.lower().strip(TRIGGER_STRIP)
+            near = [w for w in spoken if t and w.lower().startswith(t[:4])] or [w for w in spoken if t and t.startswith(w.lower()[:4])]
+            b.trigger = near[0] if near else max(spoken, key=len)
+            fixed.append(f"beat {i} trigger -> {b.trigger!r}")
+    return fixed
+
+
 def generate(topic: str, category: str = "", angle: str = "", feedback: str = "", language: str = "en") -> SceneSpec:
+    """Draft, repair, check and review; rewrite with the remaining issues up to ATTEMPTS times.
+
+    The last attempt is not sent to the reviewer again (an accurate-enough draft beats no post); it must still
+    pass the structural checks, or this raises."""
     brand = load_brand()
     spec = generate_json(_prompt(topic, category, angle, brand, feedback, language), SceneSpec, system=SYSTEM)
-    problems = validate(spec, language)
-    review = generate_json(_review_prompt(spec, language), Review, temperature=0.2)
-    issues = problems + ([] if review.ok else review.issues)
-    if issues:
-        log.info("rewriting draft: %s", "; ".join(issues))
+    for attempt in range(1, ATTEMPTS + 1):
+        if fixed := repair(spec):
+            log.info("attempt %d: repaired %s", attempt, "; ".join(fixed))
+        issues = validate(spec, language)
+        if not issues and attempt < ATTEMPTS:
+            review = generate_json(_review_prompt(spec, language), Review, temperature=0.2)
+            issues = [] if review.ok else review.issues
+        if not issues:
+            return spec
+        if attempt == ATTEMPTS:
+            raise ValueError("scene spec still invalid: " + "; ".join(issues))
+        log.info("attempt %d: rewriting draft: %s", attempt, "; ".join(issues))
         fix = "\n".join(f"- {i}" for i in issues)
-        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + fix).strip(), language),
+        revise = f"{fix}\n\nPrevious draft to revise (keep what is right):\n{spec.model_dump_json()}"
+        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + revise).strip(), language),
                              SceneSpec, system=SYSTEM)
-        left = validate(spec, language)
-        if left:
-            raise ValueError("scene spec still invalid: " + "; ".join(left))
     return spec
 
 
