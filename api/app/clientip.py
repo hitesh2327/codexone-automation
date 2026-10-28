@@ -5,6 +5,8 @@ is shared by everyone on that edge: 20 bad sign-ins from anyone locked out every
 is taken ONLY from a header a trusted proxy sets, chosen by CLIENT_IP_SOURCE:
 
     (unset)                    the TCP peer (request.client.host): direct exposure, or a proxy you don't trust
+    cloudflare                 CF-Connecting-IP (or True-Client-IP), set by Cloudflare. Honoured only when
+                               ORIGIN_VERIFY is set, so a visitor hitting the origin directly can't spoof it.
     cloudfront                 CloudFront-Viewer-Address ("ip:port"), which CloudFront itself sets. Honoured only
                                when ORIGIN_VERIFY is set, i.e. the Lambda rejects anything that did not come
                                through CloudFront (api/lambda_handler.py), so a visitor can't send it directly.
@@ -49,6 +51,16 @@ def client_ip(request: Request) -> str:
     global _warned
     peer = request.client.host if request.client else "unknown"
     source = (os.environ.get("CLIENT_IP_SOURCE") or "").strip().lower()
+    if source == "cloudflare":
+        if not os.environ.get("ORIGIN_VERIFY"):
+            if not _warned:
+                log.warning("CLIENT_IP_SOURCE=cloudflare ignored: ORIGIN_VERIFY isn't set, so the header can't be trusted")
+                _warned = True
+            return peer
+        cf_ip = request.headers.get("cf-connecting-ip") or request.headers.get("true-client-ip") or ""
+        if "," in cf_ip:
+            cf_ip = cf_ip.split(",")[0].strip()
+        return _valid(cf_ip) or peer
     if source == "cloudfront":
         if not os.environ.get("ORIGIN_VERIFY"):
             if not _warned:

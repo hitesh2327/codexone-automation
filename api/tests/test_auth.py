@@ -111,3 +111,12 @@ def test_google_allowlist(client, monkeypatch, email, verified, allowed):
     else:
         assert r.headers["location"].startswith("http://testserver/login?error=")
         assert "cx_session=" not in r.headers.get("set-cookie", "")
+
+
+def test_edge_portable_pbkdf2_password_verification():
+    from api.app.security import hash_password_pbkdf2, verify_password
+    pw = "super-secret-passphrase-42"
+    pbkdf2_hash = hash_password_pbkdf2(pw)
+    assert pbkdf2_hash.startswith("pbkdf2:sha256:100000$")
+    assert verify_password(pw, pbkdf2_hash) is True
+    assert verify_password("wrong-password", pbkdf2_hash) is False

@@ -108,6 +108,12 @@ class _Req:
     ({"CLIENT_IP_SOURCE": "cloudfront", "ORIGIN_VERIFY": "x"}, {"CloudFront-Viewer-Address": "evil"}, "130.176.1.1"),
     ({"CLIENT_IP_SOURCE": "cloudfront", "ORIGIN_VERIFY": "x"}, {"X-Forwarded-For": "198.51.100.66"}, "130.176.1.1"),
     ({"CLIENT_IP_SOURCE": "cloudfront"}, {"CloudFront-Viewer-Address": "203.0.113.7:1"}, "130.176.1.1"),  # not provably CloudFront
+    ({"CLIENT_IP_SOURCE": "cloudflare", "ORIGIN_VERIFY": "x"}, {"CF-Connecting-IP": "203.0.113.19"}, "203.0.113.19"),
+    ({"CLIENT_IP_SOURCE": "cloudflare", "ORIGIN_VERIFY": "x"}, {"CF-Connecting-IP": "2606:4700:4700::1111"}, "2606:4700:4700::1111"),
+    ({"CLIENT_IP_SOURCE": "cloudflare", "ORIGIN_VERIFY": "x"}, {"True-Client-IP": "203.0.113.20"}, "203.0.113.20"),
+    ({"CLIENT_IP_SOURCE": "cloudflare", "ORIGIN_VERIFY": "x"}, {"CF-Connecting-IP": "not-an-ip"}, "130.176.1.1"),
+    ({"CLIENT_IP_SOURCE": "cloudflare", "ORIGIN_VERIFY": "x"}, {"CF-Connecting-IP": "203.0.113.19, 10.0.0.1"}, "203.0.113.19"),
+    ({"CLIENT_IP_SOURCE": "cloudflare"}, {"CF-Connecting-IP": "203.0.113.19"}, "130.176.1.1"),  # not provably Cloudflare
     ({"CLIENT_IP_SOURCE": "x-forwarded-for"}, {"X-Forwarded-For": "6.6.6.6, 203.0.113.8"}, "203.0.113.8"),
     ({"CLIENT_IP_SOURCE": "x-forwarded-for", "TRUSTED_PROXY_HOPS": "2"}, {"X-Forwarded-For": "6.6.6.6, 203.0.113.8, 10.0.0.1"}, "203.0.113.8"),
     ({"CLIENT_IP_SOURCE": "x-forwarded-for"}, {"X-Forwarded-For": "not-an-ip"}, "130.176.1.1"),
@@ -124,7 +130,7 @@ def test_one_viewer_on_a_shared_edge_cannot_lock_out_another(client, monkeypatch
     """The QA repro: 20 failed logins through one CloudFront edge, then the admin from another viewer."""
     monkeypatch.setenv("CLIENT_IP_SOURCE", "cloudfront")
     monkeypatch.setenv("ORIGIN_VERIFY", "sentinel-verify")
-    attacker = {"CloudFront-Viewer-Address": "198.51.100.66:5000"}
+    attacker = {"CloudFront-Viewer-Address": "198.51.100.66:5000", "X-Origin-Verify": "sentinel-verify"}
     for i in range(rl.PER_IP):
         r = client.post("/api/auth/login", json={"username": f"spray{i}", "password": "nope-nope"},
                         headers={**attacker, "X-Forwarded-For": f"10.9.9.{i}"})   # spoofed XFF changes nothing
@@ -132,8 +138,59 @@ def test_one_viewer_on_a_shared_edge_cannot_lock_out_another(client, monkeypatch
     assert client.post("/api/auth/login", json={"username": "spray99", "password": "x"},
                        headers=attacker).status_code == 429                        # the attacker IS limited
     ok = client.post("/api/auth/login", json={"username": "admin", "password": "correct horse battery"},
-                     headers={"CloudFront-Viewer-Address": "203.0.113.200:6000"})
+                     headers={"CloudFront-Viewer-Address": "203.0.113.200:6000", "X-Origin-Verify": "sentinel-verify"})
     assert ok.status_code == 200
+
+
+def test_distributed_credential_stuffing_throttles_across_rotating_ips(client, user_factory, monkeypatch):
+    """An attacker rotating IPs targeting a single account must trip PER_ACCOUNT_GLOBAL."""
+    u = user_factory()
+    monkeypatch.setenv("CLIENT_IP_SOURCE", "cloudflare")
+    monkeypatch.setenv("ORIGIN_VERIFY", "cf-origin-token")
+    for i in range(rl.PER_ACCOUNT_GLOBAL):
+        headers = {"CF-Connecting-IP": f"198.51.100.{i + 1}", "X-Origin-Verify": "cf-origin-token"}
+        r = client.post("/api/auth/login", json={"username": u.username, "password": "bad-password-guess"},
+                        headers=headers)
+        assert r.status_code == 401
+
+    # Attempt from a completely fresh IP that has 0 prior attempts
+    fresh_headers = {"CF-Connecting-IP": "198.51.100.254", "X-Origin-Verify": "cf-origin-token"}
+    limited = client.post("/api/auth/login", json={"username": u.username, "password": "another-bad-guess"},
+                          headers=fresh_headers)
+    assert limited.status_code == 429
+    assert "Retry-After" in limited.headers
+
+    # Another account should NOT be locked out by this
+    other = client.post("/api/auth/login", json={"username": "admin", "password": "correct horse battery"},
+                        headers=fresh_headers)
+    assert other.status_code == 200
+
+
+def test_origin_verify_middleware_rejects_direct_origin_requests(client, monkeypatch):
+    """When ORIGIN_VERIFY is configured, any /api/ request lacking the header receives 403."""
+    monkeypatch.setenv("ORIGIN_VERIFY", "super-secret-token")
+    # Missing header -> 403
+    r_missing = client.get("/api/auth/providers")
+    assert r_missing.status_code == 403
+    assert "Forbidden" in r_missing.json()["detail"]
+
+    # Wrong header -> 403
+    r_wrong = client.get("/api/auth/providers", headers={"X-Origin-Verify": "wrong-secret"})
+    assert r_wrong.status_code == 403
+
+    # Matching header -> 200
+    r_valid = client.get("/api/auth/providers", headers={"X-Origin-Verify": "super-secret-token"})
+    assert r_valid.status_code == 200
+
+
+def test_concurrent_signup_integrity_error_returns_409(client, user_factory):
+    """If database uniqueness is violated during registration, signup gracefully returns 409 Conflict."""
+    u = user_factory(username="raceuser", email="race@example.com")
+    # Submitting the same username/email again returns 409
+    r = client.post("/api/auth/signup", json={"username": u.username, "email": "other@example.com",
+                                              "password": "valid-passphrase-1234"})
+    assert r.status_code == 409
+    assert "already registered" in r.json()["detail"]
 
 
 def test_limits_are_shared_between_processes():
@@ -148,6 +205,23 @@ def test_limits_are_shared_between_processes():
         a.clear()
     with db.session() as s:
         assert not s.scalars(select(RateLimitEvent).where(RateLimitEvent.key.like("qa-shared|%"))).first()
+
+
+def test_prune_expired_cleans_outdated_events():
+    limiter = rl.SharedRateLimiter("qa-prune")
+    from datetime import datetime, timedelta, timezone
+    try:
+        limiter.hit("recent")
+        with db.session() as s:
+            old_time = datetime.now(timezone.utc) - timedelta(days=2)
+            s.add(RateLimitEvent(key=limiter._k("old"), at=old_time))
+        pruned = limiter.prune_expired(max_age=timedelta(days=1))
+        assert pruned >= 1
+        with db.session() as s:
+            assert not s.scalars(select(RateLimitEvent).where(RateLimitEvent.key == limiter._k("old"))).first()
+            assert s.scalars(select(RateLimitEvent).where(RateLimitEvent.key == limiter._k("recent"))).first()
+    finally:
+        limiter.clear()
 
 
 # --------------------------------------------------------------------------- QA-M-06

@@ -93,18 +93,30 @@ class SharedRateLimiter(RateLimiter):
     def hit(self, key: str) -> None:
         if not self._db():
             return super().hit(key)
-        from sqlalchemy import delete
         from src import db
         from src.db.models import RateLimitEvent
         now = datetime.now(timezone.utc)
         try:
             with db.session() as s:
                 s.add(RateLimitEvent(key=self._k(key), at=now))
-                if random.random() < 0.02:  # keep the table small without a scheduled job
-                    s.execute(delete(RateLimitEvent).where(RateLimitEvent.at < now - self.KEEP))
         except Exception as e:  # noqa: BLE001
             log.warning("rate limit store unavailable (%s); counting in this process", type(e).__name__)
             super().hit(key)
+
+    def prune_expired(self, max_age: timedelta | None = None) -> int:
+        """Clean up events older than max_age (default KEEP = 1 day) without in-transaction lock contention."""
+        if not self._db():
+            return 0
+        from sqlalchemy import delete
+        from src import db
+        from src.db.models import RateLimitEvent
+        cutoff = datetime.now(timezone.utc) - (max_age or self.KEEP)
+        try:
+            with db.session() as s:
+                return s.execute(delete(RateLimitEvent).where(RateLimitEvent.at < cutoff)).rowcount or 0
+        except Exception as e:  # noqa: BLE001
+            log.warning("could not prune rate limit events: %s", e)
+            return 0
 
     def reset(self, key: str) -> None:
         super().reset(key)
@@ -136,8 +148,9 @@ class SharedRateLimiter(RateLimiter):
 login_limiter = SharedRateLimiter("login")
 
 WINDOW = 15 * 60
-PER_ACCOUNT = 5      # failed attempts per (IP, username) per window
-PER_IP = 20          # failed attempts per IP per window (password spraying)
+PER_ACCOUNT = 5          # failed attempts per (IP, username) per window
+PER_ACCOUNT_GLOBAL = 15  # failed attempts per username across all IPs (credential stuffing)
+PER_IP = 20              # failed attempts per IP per window (password spraying)
 
 
 # Emailed codes: asking for them and guessing them are limited separately from sign-in.

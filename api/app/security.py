@@ -6,6 +6,7 @@ request. Other sites can't read that response, so they can't forge the header.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -30,9 +31,28 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(raw, bcrypt.gensalt(rounds=12)).decode()
 
 
+def hash_password_pbkdf2(password: str, iterations: int = 100_000) -> str:
+    """Edge-portable password hashing compatible with WebCrypto and Cloudflare Workers."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations).hex()
+    return f"pbkdf2:sha256:{iterations}${salt.hex()}${digest}"
+
+
 def verify_password(password: str, hashed: str | None) -> bool:
+    if not hashed:
+        return False
+    if hashed.startswith("pbkdf2:"):
+        # Edge-compatible WebCrypto PBKDF2 format: pbkdf2:<algo>:<iters>$<salt_hex>$<hash_hex>
+        try:
+            algo_part, salt_hex, hash_hex = hashed.split("$")
+            _, algo, iters_str = algo_part.split(":")
+            salt = bytes.fromhex(salt_hex)
+            derived = hashlib.pbkdf2_hmac(algo, password.encode(), salt, int(iters_str)).hex()
+            return hmac.compare_digest(derived, hash_hex)
+        except Exception:
+            return False
     raw = password.encode()
-    if not hashed or len(raw) > BCRYPT_MAX_BYTES:
+    if len(raw) > BCRYPT_MAX_BYTES:
         return False
     try:
         return bcrypt.checkpw(raw, hashed.encode())
@@ -112,14 +132,17 @@ def decode_session_token(token: str) -> dict | None:
 
 def set_session_cookie(response: Response, token: str) -> None:
     s = settings()
+    # SameSite=None requires Secure=True in modern browsers, otherwise cookies are rejected outright
+    samesite = "none" if (s.cross_site and s.cookie_secure) else "lax"
     response.set_cookie(cookie_name(), token, max_age=s.session_hours * 3600, httponly=True,
-                        secure=s.cookie_secure, samesite="none" if s.cross_site else "lax", path="/")
+                        secure=s.cookie_secure, samesite=samesite, path="/")
 
 
 def clear_session_cookie(response: Response) -> None:
     s = settings()
+    samesite = "none" if (s.cross_site and s.cookie_secure) else "lax"
     response.delete_cookie(cookie_name(), path="/", secure=s.cookie_secure, httponly=True,
-                           samesite="none" if s.cross_site else "lax")
+                           samesite=samesite)
 
 
 def csrf_matches(expected: str | None, provided: str | None) -> bool:

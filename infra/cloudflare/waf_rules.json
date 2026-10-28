@@ -1,0 +1,32 @@
+{
+  "description": "Cloudflare WAF Rate Limiting and Security Rules for CodexOne",
+  "rules": [
+    {
+      "description": "Protect /api/auth/login from brute force and credential stuffing",
+      "expression": "(http.request.uri.path eq \"/api/auth/login\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 600
+      }
+    },
+    {
+      "description": "Protect /api/auth/password/forgot from email flooding",
+      "expression": "(http.request.uri.path eq \"/api/auth/password/forgot\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 8,
+        "mitigation_timeout": 600
+      }
+    },
+    {
+      "description": "Bypass cache for API requests and authenticated session cookies",
+      "expression": "(http.request.uri.path starts_with \"/api/\") or (http.cookie contains \"__Host-cx_session\")",
+      "action": "bypass_cache"
+    }
+  ]
+}

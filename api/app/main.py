@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -141,7 +142,15 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
-        response = await call_next(request)
+        origin_verify = os.environ.get("ORIGIN_VERIFY", "")
+        if origin_verify and request.url.path.startswith("/api/"):
+            sent_verify = request.headers.get("x-origin-verify", "")
+            if not hmac.compare_digest(sent_verify, origin_verify):
+                response = JSONResponse({"detail": "Forbidden: direct origin access not permitted"}, status_code=403)
+            else:
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")

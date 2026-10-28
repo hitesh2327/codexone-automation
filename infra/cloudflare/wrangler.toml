@@ -1,0 +1,13 @@
+name = "codexone-edge-proxy"
+main = "edge_proxy.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+# Origin URL of your FastAPI backend (e.g. AWS Lambda Function URL, ALB, or Container service)
+ORIGIN_URL = "https://origin.codexone.internal"
+
+# Secrets required:
+# Run: wrangler secret put ORIGIN_VERIFY
+# Value must match ORIGIN_VERIFY in your backend .env / SSM Parameter Store

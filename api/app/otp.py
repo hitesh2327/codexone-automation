@@ -48,7 +48,7 @@ def issue(ses: Session, user: User, purpose: str, email: str) -> str:
     assert purpose in PURPOSES
     now = _now()
     live = ses.scalars(select(OtpCode).where(OtpCode.user_id == user.id, OtpCode.purpose == purpose,
-                                             OtpCode.used_at.is_(None))).all()
+                                             OtpCode.used_at.is_(None)).with_for_update()).all()
     for old in live:
         wait = RESEND_COOLDOWN - int((now - _aware(old.created_at)).total_seconds())
         if wait > 0:
@@ -68,7 +68,7 @@ def check(ses: Session, user: User, purpose: str, email: str, code: str) -> OtpC
     now = _now()
     row = ses.scalars(select(OtpCode).where(OtpCode.user_id == user.id, OtpCode.purpose == purpose,
                                             OtpCode.email == email.lower(), OtpCode.used_at.is_(None))
-                      .order_by(OtpCode.id.desc())).first()
+                      .order_by(OtpCode.id.desc()).with_for_update()).first()
     if row is None or _aware(row.expires_at) <= now or row.attempts >= MAX_ATTEMPTS:
         return None
     if not (code.isdigit() and len(code) == 6) or not hmac.compare_digest(row.code_hash, _digest(user.id, purpose, email, code)):

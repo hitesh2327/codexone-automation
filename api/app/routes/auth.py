@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from api.app import ratelimit as rl
 from api.app.clientip import client_ip
@@ -91,6 +92,8 @@ def _user_out(u: User, csrf: str) -> dict:
 def start_session(response: Response, user: User) -> str:
     token, csrf = create_session_token(user.id, user.token_version)
     set_session_cookie(response, token)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
     return csrf
 
 
@@ -101,7 +104,7 @@ def providers() -> dict:
 
 
 @router.post("/signup")
-def signup(body: SignupBody, request: Request, response: Response) -> dict:
+def signup(body: SignupBody, request: Request, response: Response, background_tasks: BackgroundTasks) -> dict:
     if "application/json" not in request.headers.get("content-type", ""):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
     username = body.username.strip().lower()
@@ -146,22 +149,30 @@ def signup(body: SignupBody, request: Request, response: Response) -> dict:
             },
         )
         s.add(user)
-        s.flush()
+        try:
+            s.flush()
+        except IntegrityError:
+            raise HTTPException(status.HTTP_409_CONFLICT, "That username or email is already registered.")
         user.last_login_at = datetime.now(timezone.utc)
         csrf = start_session(response, user)
         log.info("signup: %s (%s) from %s", username, email, ip)
-        activity.record("signup.success", f"Registered new user account {username}", source="auth", actor=username, detail={"user_id": user.id})
+        background_tasks.add_task(activity.record, "signup.success", f"Registered new user account {username}",
+                                  source="auth", actor=username, detail={"user_id": user.id})
         return _user_out(user, csrf)
 
 
 @router.post("/login")
-def login(body: LoginBody, request: Request, response: Response) -> dict:
+def login(body: LoginBody, request: Request, response: Response, background_tasks: BackgroundTasks) -> dict:
     if "application/json" not in request.headers.get("content-type", ""):
         # HTML forms can't send JSON cross-site without a CORS preflight: blocks login CSRF.
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
     ip = client_ip(request)  # the real visitor, not CloudFront's edge (QA-M-05)
-    account_key, ip_key = f"acct:{ip}:{body.username.lower()}", f"ip:{ip}"
-    wait = max(rl.login_limiter.retry_after(account_key, rl.PER_ACCOUNT, rl.WINDOW),
+    ident = body.username.strip().lower()
+    account_ip_key = f"acct:{ip}:{ident}"
+    account_global_key = f"acct:{ident}"
+    ip_key = f"ip:{ip}"
+    wait = max(rl.login_limiter.retry_after(account_ip_key, rl.PER_ACCOUNT, rl.WINDOW),
+               rl.login_limiter.retry_after(account_global_key, rl.PER_ACCOUNT_GLOBAL, rl.WINDOW),
                rl.login_limiter.retry_after(ip_key, rl.PER_IP, rl.WINDOW))
     if wait:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
@@ -169,7 +180,6 @@ def login(body: LoginBody, request: Request, response: Response) -> dict:
                             headers={"Retry-After": str(wait)})
 
     with db.session() as s:
-        ident = body.username.strip().lower()
         user = s.scalars(select(User).where(or_(func.lower(User.username) == ident,
                                                 func.lower(User.email) == ident))).first()
         # bcrypt runs on every attempt (a dummy hash when there is no account / no password), so timing can't tell
@@ -177,29 +187,33 @@ def login(body: LoginBody, request: Request, response: Response) -> dict:
         password_ok = check_password(body.password, user.password_hash if user else None)
         ok = password_ok and bool(user and user.is_active and access_allowed(user))
         if not ok:
-            rl.login_limiter.hit(account_key)
+            rl.login_limiter.hit(account_ip_key)
+            rl.login_limiter.hit(account_global_key)
             rl.login_limiter.hit(ip_key)
             # Never the typed name: it may be a password typed into the wrong box (QA-L-08).
             log.warning("failed login for %s from %s", f"account {user.id}" if user else "an unknown name", ip)
             # Only a real account name is kept (a mistyped password in the username box must not reach the log).
-            activity.record("login.failed", "Failed sign-in" + ("" if user else " (no such account)"), level="warning",
-                            source="auth", actor=(user.username or user.email) if user else "unknown")
+            background_tasks.add_task(activity.record, "login.failed", "Failed sign-in" + ("" if user else " (no such account)"),
+                                      level="warning", source="auth", actor=(user.username or user.email) if user else "unknown")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
         user.last_login_at = datetime.now(timezone.utc)
-        rl.login_limiter.reset(account_key)
+        rl.login_limiter.reset(account_ip_key)
+        rl.login_limiter.reset(account_global_key)
         csrf = start_session(response, user)
         log.info("login: %s from %s", user.username or user.email, ip)
-        activity.record("login.success", "Signed in with password", source="auth", actor=user.username or user.email)
+        background_tasks.add_task(activity.record, "login.success", "Signed in with password", source="auth",
+                                  actor=user.username or user.email)
         return _user_out(user, csrf)
 
 
 @router.post("/logout")
-def logout(response: Response, user: CurrentUser = Depends(require_csrf)) -> dict:
+def logout(response: Response, background_tasks: BackgroundTasks, user: CurrentUser = Depends(require_csrf)) -> dict:
     with db.session() as s:
         row = s.get(User, user.id)
         if row:
             row.token_version += 1  # invalidates every session issued so far
-    activity.record("logout", "Signed out", source="auth", actor=user.username or user.email)
+    background_tasks.add_task(activity.record, "logout", "Signed out", source="auth",
+                              actor=user.username or user.email)
     clear_session_cookie(response)
     return {"ok": True}
 
@@ -225,7 +239,7 @@ async def google_login(request: Request):
 
 
 @router.get("/google/callback")
-async def google_callback(request: Request):
+async def google_callback(request: Request, background_tasks: BackgroundTasks):
     try:
         token = await _google().authorize_access_token(request)
     except OAuthError as e:
@@ -237,8 +251,8 @@ async def google_callback(request: Request):
         return _login_redirect("Your Google account has no verified email.")
     if settings().allowed_google_emails and "*" not in settings().allowed_google_emails and email not in settings().allowed_google_emails:
         log.warning("google login refused for %s (not in ALLOWED_GOOGLE_EMAILS)", email)
-        activity.record("login.failed", "Google sign-in refused: email is not on the allowlist", level="warning",
-                        source="auth", actor=email)
+        background_tasks.add_task(activity.record, "login.failed", "Google sign-in refused: email is not on the allowlist",
+                                  level="warning", source="auth", actor=email)
         return _login_redirect(f"{email} is not allowed to sign in.")
 
     response = RedirectResponse(f"{settings().public_url}/", status_code=303)
@@ -254,11 +268,12 @@ async def google_callback(request: Request):
             )
             s.add(user)
             s.flush()
-            activity.record("signup.google", f"Created account for {email} via Google", source="auth", actor=email)
+            background_tasks.add_task(activity.record, "signup.google", f"Created account for {email} via Google",
+                                      source="auth", actor=email)
         if not user.is_active:
             return _login_redirect("This account is disabled.")
         user.last_login_at = datetime.now(timezone.utc)
         start_session(response, user)
     log.info("login via google: %s", email)
-    activity.record("login.success", "Signed in with Google", source="auth", actor=email)
+    background_tasks.add_task(activity.record, "login.success", "Signed in with Google", source="auth", actor=email)
     return response

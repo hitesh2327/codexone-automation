@@ -23,6 +23,7 @@ TEST_ENV = {
     "CONFIG_MASTER_KEY": "",           # config-store tests set their own throwaway key
     "RECOVERY_MIN_MS": "0",            # no response-time floor on /forgot and /reset (tests that need it set it)
     "CLIENT_IP_SOURCE": "",            # the TCP peer (tests of clientip set their own)
+    "ORIGIN_VERIFY": "",               # direct access in tests (tests of origin verify set their own)
 }
 os.environ.update(TEST_ENV)  # before importing the app (env beats .env)
 
