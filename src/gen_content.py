@@ -1,7 +1,7 @@
-"""Generate reel script, carousel slides, caption and hashtags for a ranked topic.
+"""Generate a post (reel + carousel, caption, hashtags) for a ranked topic.
 
-Two Gemini passes: (1) write the content, (2) a strict technical review. If the
-reviewer finds errors, the content is rewritten once with the issues fed back.
+The animated-diagram engine (src/reel_v2/spec.py) writes, repairs, reviews and rewrites the scene;
+this module wraps it in the `Content` that approval, upload and publishing read.
 
 Output: output/<date>/<slug>/content.json
 
@@ -20,8 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from src.config import DATA_DIR, OUTPUT_DIR, Language, load_brand
-from src.llm import generate_json
+from src.config import DATA_DIR, OUTPUT_DIR, Language
 from src.logger import get_logger
 from src.rank_topics import RankedTopic
 
@@ -94,281 +93,11 @@ class Content(BaseModel):
     _scene: object | None = PrivateAttr(default=None)
 
 
-class Review(BaseModel):
-    ok: bool = Field(description="True only if there are no factual/technical errors")
-    issues: list[str] = Field(description="Each concrete error or misleading claim, with the fix")
-
-
 def slugify(text: str, maxlen: int = 50) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     if len(s) > maxlen:
         s = s[:maxlen].rsplit("-", 1)[0]  # cut at a word boundary
     return s or "post"
-
-
-def _build_system(taste) -> str:
-    """Build the Gemini system prompt from the user's taste settings."""
-    accuracy_note = (
-        "You never invent statistics, benchmarks, quotes or release details. If unsure of a fact, leave it out."
-        if taste.is_tech() else
-        "You never invent facts, claims, statistics or quotes. If unsure, leave it out."
-    )
-    emoji_note = ", no emojis in slide text" if taste.is_tech() else ""
-    tone_lower = taste.tone.lower()
-    return (
-        f"You are the content writer for an Instagram account focused on {taste.niche}.\n"
-        f"You write {tone_lower} content for {taste.target_audience}.\n"
-        f"{accuracy_note}\n"
-        f"No clickbait, no exaggeration{emoji_note}."
-    )
-
-
-def _demo_block(is_tech: bool) -> str:
-    if not is_tech:
-        return "DEMO: Always set demo to null (animated algorithm demos are for tech topics only).\n"
-    return """DEMO (animated walkthrough of a concrete example):
-- If the topic is an algorithm or data structure working on data (array, string, linked list,
-  stack), include `demo`: a SMALL concrete input traced step by step. It is animated in the reel
-  right after point 1 (pointers slide between cells, cells light up) and shown on carousel
-  visual slides. Otherwise set demo to null.
-- 4-7 steps. Each step is the state AFTER the action its narration describes.
-- pointers = variable names at indices; highlight = elements being compared/used now;
-  done = elements finalized/visited; values = full new list only when data changes.
-- The trace MUST exactly follow the algorithm. Simulate it step by step before writing.
-- When there is a demo, keep each of the 3 reel points' narration to ONE sentence.
-"""
-
-
-def _carousel_block(car: dict, is_tech: bool, handle: str) -> str:
-    code_note = (
-        "- Use code where it genuinely helps (at least one code slide if the topic is technical). Code must be correct and runnable."
-        if is_tech else
-        "- No code snippets unless the topic is explicitly about programming or technical commands."
-    )
-    demo_note = (
-        "- If there is a demo: include 1-2 slides type=visual whose `steps` lists exactly 2 demo step indices showing the key moments."
-        if is_tech else
-        "- type=visual slides (which require a demo) should not be used for non-tech topics."
-    )
-    return f"""CAROUSEL ({car['slides']} slides, {car['size']} portrait):
-- Slide 1 type=title: a compelling but honest heading + short body subtitle.
-- Middle slides type=content: one idea per slide. Each slide should be independently valuable.
-{code_note}
-{demo_note}
-- Last slide type=cta: call to action heading, body mentions following {handle}.
-"""
-
-
-# Classic format, Hinglish reel: only the spoken fields change (see src/reel_v2/spec.py HINGLISH for the v2 engine).
-CLASSIC_HINGLISH = """
-NARRATION LANGUAGE: HINGLISH. Only the spoken fields (reel.hook_narration, reel.points[].narration,
-demo.steps[].narration, reel.cta_narration) are conversational Hinglish: Hindi words in Devanagari, tech terms,
-names, code and numbers in Latin script, e.g. "सोचो, हर request सीधा database पे जाए तो क्या होगा?". Never write Hindi
-in Latin letters. Everything else (on-screen text, carousel, caption, hashtags) stays English with no Devanagari.
-Total narration 45-58 words."""
-
-
-def _hook_formula_block(brand: dict) -> str:
-    """Build the hook formula reference block from ig-reel/hooks.json.
-
-    Falls back silently if the file is missing. Also surfaces any formulas
-    flagged as preferred in brand reel.preferred_hook_formulas (set monthly
-    by running scripts/run_swipe.ps1 after the ig-viral research session).
-    """
-    import json as _json
-    hooks_path = Path(__file__).parent.parent / ".claude" / "skills" / "ig-reel" / "hooks.json"
-    if not hooks_path.exists():
-        return ""
-    try:
-        data = _json.loads(hooks_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return ""
-
-    preferred: list[str] = brand.get("reel", {}).get("preferred_hook_formulas") or []
-    lines = ["HOOK FORMULA LIBRARY (pick ONE for hook_narration and hook_on_screen):"]
-    for h in data["hooks"]:
-        flag = "  ← OVER-INDEXING THIS MONTH" if h["name"] in preferred else ""
-        lines.append(f"  #{h['id']:02d} {h['name']}: {h['template']}{flag}")
-
-    pref_note = ""
-    if preferred:
-        pref_note = (
-            f"\nPrefer the OVER-INDEXING formulas ({', '.join(preferred)}) "
-            "— swipe-file data shows they beat this account's median right now."
-        )
-
-    return (
-        "\n".join(lines)
-        + pref_note
-        + "\nWrite hook_on_screen as the short on-screen version (6 words or fewer, all caps)."
-        + "\nNote which formula you chose with a comment in hook_narration: e.g. [#3 Nobody Tells You]"
-    )
-
-
-def _write_prompt(topic: RankedTopic, brand: dict, feedback: str = "", taste=None, language: str = "en") -> str:
-    if taste is None:
-        from src.user_taste import get_user_taste
-        taste = get_user_taste()
-    reel = brand["reel"]
-    car = brand["carousel"]
-    extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
-    instructions = taste.prompt_instructions
-    custom_note = f"\n\nAdditional creator instructions: {instructions}" if instructions else ""
-    hook_block = _hook_formula_block(brand)
-    hook_section = f"\n\n{hook_block}" if hook_block else ""
-    return f"""Create one Instagram reel and one carousel for {brand['handle']}.
-
-Topic: {topic.title}
-Category: {topic.category}
-Angle: {topic.angle}
-Source (for context only, may be empty): {topic.source_url}
-Niche: {taste.niche}
-Content type: {taste.content_type}
-Target audience: {taste.target_audience}
-Language: {brand['language']}
-
-REEL ({reel['duration_sec']} seconds spoken, structure: {reel['structure']}):
-- Total narration 55-70 words; the reel must NEVER exceed 30 seconds. Short sentences, easy to speak aloud.
-- CTA narration should invite the viewer to follow {brand['handle']}.{hook_section}{CLASSIC_HINGLISH if language == "hi" else ""}
-
-{_demo_block(taste.is_tech())}
-{_carousel_block(car, taste.is_tech(), brand['handle'])}
-CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: up to 5 highly specific tags for {taste.niche}; choose from or inspired by: {' '.join(brand['hashtags'][:5])}. No generic tags like #viral #fyp #reels.{custom_note}{extra}"""
-
-
-def _review_prompt(content: Content, taste=None) -> str:
-    if taste is None:
-        from src.user_taste import get_user_taste
-        taste = get_user_taste()
-    if taste.is_tech():
-        review_focus = """Check every claim, complexity, definition and code snippet (does the code run and do what the
-text says?). If there is a `demo`, re-simulate the algorithm yourself on demo.values, step by step, and
-compare EVERY step's pointers, highlight, done, values and caption against your simulation.
-Flag any mismatch with the exact correct state for that step."""
-    else:
-        review_focus = f"""Check every factual claim in this {taste.niche} post.
-Flag any invented statistics, false health/safety claims, or factually incorrect statements.
-Ignore style. Flag only real factual errors."""
-    return f"""You are a strict fact-checker reviewing a social media post for accuracy.
-{review_focus} Ignore style.
-
-{content.model_dump_json(indent=2)}"""
-
-
-def normalize(c: Content) -> Content:
-    """Fix a frequent model slip: code returned as one line with literal backslash-n escapes."""
-    for s in c.carousel:
-        if s.code and "\n" not in s.code and "\\n" in s.code:
-            s.code = s.code.replace("\\n", "\n").replace('\\"', '"').replace("\\t", "    ")
-    return c
-
-
-def validate_shape(c: Content, brand: dict) -> list[str]:
-    """Cheap structural checks the model sometimes gets wrong."""
-    problems = []
-    lo, hi = (int(x) for x in str(brand["carousel"]["slides"]).split("-"))
-    if not lo <= len(c.carousel) <= hi:
-        problems.append(f"carousel must have {lo}-{hi} slides, got {len(c.carousel)}")
-    if c.carousel and c.carousel[0].type != "title":
-        problems.append("first slide must be type=title")
-    if c.carousel and c.carousel[-1].type != "cta":
-        problems.append("last slide must be type=cta")
-    if len(c.reel.points) != 3:
-        problems.append(f"reel must have exactly 3 points, got {len(c.reel.points)}")
-    for i, s in enumerate(c.carousel, 1):
-        over = [(n, l) for n, l in enumerate(s.code.splitlines(), 1) if len(l) > CODE_LINE_HARD_MAX]
-        if over:
-            detail = "; ".join(f"line {n} has {len(l)} chars: {l.strip()[:70]!r}" for n, l in over[:4])
-            problems.append(f"slide {i}: code lines must be at most {CODE_LINE_HARD_MAX} chars "
-                            f"(split long calls/strings across lines) -- {detail}")
-        if s.code and len(s.code.splitlines()) > 14:
-            problems.append(f"slide {i}: code too long (max 12 lines)")
-    problems += validate_demo(c)
-    if len(c.caption) + sum(len(h) + 1 for h in c.hashtags) > 2100:
-        problems.append("caption + hashtags exceed Instagram's 2200 char limit")
-    return problems
-
-
-# The renderer shrinks code until the longest line fits (down to 18px), so a slightly long
-# line still looks fine. CODE_LINE_MAX is what we ask Gemini for; only past CODE_LINE_HARD_MAX
-# does the text get too small to read, and only then is it worth failing a draft over.
-CODE_LINE_MAX = 56
-CODE_LINE_HARD_MAX = 72
-
-
-def cosmetic_problems(c: Content) -> list[str]:
-    """Worth a rewrite, but never worth losing the day's post over."""
-    out = []
-    for i, s in enumerate(c.carousel, 1):
-        long_lines = [(n, l) for n, l in enumerate(s.code.splitlines(), 1)
-                      if CODE_LINE_MAX < len(l) <= CODE_LINE_HARD_MAX]
-        if long_lines:
-            detail = "; ".join(f"line {n} has {len(l)} chars" for n, l in long_lines[:4])
-            out.append(f"slide {i}: keep code lines under {CODE_LINE_MAX} chars -- {detail}")
-    return out
-
-MAX_VALUES = {"array": 10, "string": 10, "linked_list": 7, "stack": 6}
-
-
-def validate_demo(c: Content) -> list[str]:
-    """Index/bounds checks on the demo trace (correctness is checked by the reviewer)."""
-    problems, d = [], c.demo
-    visual_slides = [s for s in c.carousel if s.type == "visual"]
-    if not d:
-        return ["visual slides need a demo"] if visual_slides else []
-    if not d.values:
-        return ["demo.values is empty"]
-    if len(d.values) > MAX_VALUES[d.kind]:
-        problems.append(f"demo: {d.kind} can show at most {MAX_VALUES[d.kind]} elements")
-    if d.kind == "string" and any(len(v) != 1 for v in d.values):
-        problems.append("demo: string values must be single characters")
-    if d.kind != "linked_list" and d.cycle_to != -1:
-        problems.append("demo: cycle_to only applies to linked_list")
-    if not -1 <= d.cycle_to < len(d.values):
-        problems.append("demo: cycle_to out of range")
-    if not 3 <= len(d.steps) <= 8:
-        problems.append(f"demo: needs 4-7 steps, got {len(d.steps)}")
-    n = len(d.values)
-    for k, st in enumerate(d.steps):
-        n = len(st.values) if st.values else n
-        if st.values and len(st.values) > MAX_VALUES[d.kind]:
-            problems.append(f"demo step {k}: too many values")
-        bad = [i for i in [p.index for p in st.pointers] + st.highlight + st.done if not 0 <= i < n]
-        if bad:
-            problems.append(f"demo step {k}: indices {bad} out of range for {n} elements")
-        if len(st.caption) > 32:
-            problems.append(f"demo step {k}: caption too long (max 28 chars)")
-        if len(st.narration.split()) > 18:
-            problems.append(f"demo step {k}: narration too long (max 14 words)")
-        if any(len(p.name) > 8 for p in st.pointers):
-            problems.append(f"demo step {k}: pointer names must be short")
-    for s in visual_slides:
-        if not s.steps or any(not 0 <= i < len(d.steps) for i in s.steps):
-            problems.append(f"visual slide '{s.heading}': steps must be valid demo step indices")
-        if len(s.steps) > 2:
-            problems.append(f"visual slide '{s.heading}': max 2 steps")
-    return problems
-
-
-def pick_hook(c: Content, brand: dict) -> Content:
-    """Speak the strongest of the hook options (src/hookscore.py: length, specificity, stakes, front-loading,
-    addressing the viewer). An option is used only if the reel still passes validate_shape with it, so the
-    length rules hold. The options were part of the reviewed draft, so they were fact-checked with it."""
-    from src.hookscore import run as score
-    current = c.reel.hook_narration
-    options = [current] + [h.strip() for h in c.reel.hook_alternatives if h and h.strip()]
-    ranked = sorted(options, key=lambda h: score(h)[1], reverse=True)
-    for hook in ranked:
-        if hook == current:
-            break
-        c.reel.hook_narration = hook
-        if not validate_shape(c, brand):
-            log.info("hook: %r (score %.0f) over %r (score %.0f)", hook, score(hook)[1], current, score(current)[1])
-            return c
-    c.reel.hook_narration = current
-    log.info("hook: kept %r (score %.0f; %d option(s) considered)", current, score(current)[1], len(options))
-    return c
 
 
 def _extract_formula_from_hook(hook: str) -> str | None:
@@ -387,58 +116,18 @@ def _clean_formula_annotation(hook: str) -> str:
 
 
 def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") -> Content:
-    from src.user_taste import get_user_taste
-    taste = get_user_taste()
-    system = _build_system(taste)
-
-    from src.rank_topics import TECH_CATEGORY_DESCRIPTIONS
+    """Write the post with the animated-diagram engine (src/reel_v2). There is no other format: if no valid
+    scene comes out (after the engine's own repairs and rewrites), this raises and the run fails visibly."""
     from src.reel_v2 import pipeline as v2
-    # v2 animated diagrams only make sense for tech niches; the built-in categories are tech by definition
-    if (taste.is_tech() or topic.category in TECH_CATEGORY_DESCRIPTIONS) and v2.uses_v2(topic.category):
-        try:
-            from src.reel_v2.spec import generate as generate_scene
-            spec = generate_scene(topic.title, topic.category, topic.angle, feedback, language)
-            log.info("v2 scene: %d beats, %d words", len(spec.beats),
-                     sum(len(b.narration.split()) for b in spec.beats))
-            content = v2.to_content(spec, topic.title, topic.category)
-            content = _post_process(content)
-            content.language = language
-            return content
-        except Exception as e:  # never lose the day's post to the new engine
-            log.exception("v2 scene generation failed; falling back to the classic format")
-            v2.warn_fallback("Script", topic.title, e)
-    brand = load_brand()
-    content = generate_json(_write_prompt(topic, brand, feedback, taste, language), Content, system=system)
-    attempts = 3
-    for attempt in range(1, attempts + 1):
-        content = normalize(content)
-        blocking = validate_shape(content, brand)
-        if not blocking:  # only spend a review call on structurally valid drafts
-            review = generate_json(_review_prompt(content, taste), Review, temperature=0.1)
-            blocking = [] if review.ok else review.issues
-        cosmetic = cosmetic_problems(content)
-        problems = blocking + cosmetic
-        if not problems:
-            log.info("content passed review")
-            break
-        log.warning("review found %d issue(s): %s", len(problems), "; ".join(problems))
-        if attempt == attempts:
-            if blocking:
-                raise RuntimeError("content still failing review after rewrites: " + "; ".join(blocking))
-            # Accurate content with a cosmetic nit: ship it rather than lose the day's post.
-            log.warning("shipping despite cosmetic issue(s): %s", "; ".join(cosmetic))
-            break
-        # Revise the previous draft (keeps what was right) instead of starting over.
-        fb = ("\n".join(f"- {p}" for p in problems) + (f"\n- {feedback}" if feedback else "")
-              + "\n\nPrevious draft to revise:\n" + content.model_dump_json())
-        content = generate_json(_write_prompt(topic, brand, fb, taste, language), Content, system=system)
-    if not blocking and language == "en":  # hookscore reads Latin-script words only
-        try:
-            content = pick_hook(content, brand)
-        except Exception:  # noqa: BLE001 -- the scorer is a nicety; never lose the day's post to it
-            log.exception("hook scoring failed; keeping the model's hook")
-    content = _post_process(content)
-    content.topic, content.category, content.language = topic.title, topic.category, language
+    from src.reel_v2.spec import generate as generate_scene
+    try:
+        spec = generate_scene(topic.title, topic.category, topic.angle, feedback, language)
+    except Exception as e:
+        v2.notify_failure("Script", topic.title, e)
+        raise
+    log.info("v2 scene: %d beats, %d words", len(spec.beats), sum(len(b.narration.split()) for b in spec.beats))
+    content = _post_process(v2.to_content(spec, topic.title, topic.category))
+    content.language = language
     return content
 
 

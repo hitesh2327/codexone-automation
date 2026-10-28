@@ -1,10 +1,9 @@
-"""Glue between the v2 scene engine and the classic pipeline.
+"""Glue between the scene engine and the rest of the pipeline.
 
-The classic flow (main.py) calls gen_content.generate -> render_post.render_carousel ->
-render_reel.render_reel. For every category not listed in brand `reel.classic_categories`, generate() writes
-a SceneSpec instead, wraps it in a classic `Content` (caption/hashtags/topic for approval and
-publishing) and attaches the spec; the two renderers then hand off to src.reel_v2.render.
-main.py needs no changes, and any v2 failure falls back to the classic generator.
+main.py calls gen_content.generate -> render_post.render_carousel -> render_reel.render_reel. generate()
+writes a SceneSpec, wraps it in a `Content` (caption/hashtags/topic for approval and publishing) and
+attaches the spec; the two renderers then hand off to src.reel_v2.render. There is no other format: when
+the engine can't produce a valid post, the run fails and Telegram says so.
 """
 from __future__ import annotations
 
@@ -19,24 +18,15 @@ log = get_logger("reel_v2.pipeline")
 SCENE_FILE = "scene.json"
 
 
-def uses_v2(category: str) -> bool:
-    """v2 is opt-out: a category keeps the classic format only when listed in reel.classic_categories.
-
-    The old opt-in key `reel.v2_categories` is ignored on purpose: the production brand is a
-    one-time DB copy of brand/config.yaml, so a stale list there silently kept DSA and
-    Interview on the classic format.
-    """
-    return category not in (load_brand().get("reel", {}).get("classic_categories") or [])
-
-
-def warn_fallback(what: str, topic: str, err: BaseException | None = None) -> None:
-    """Say on Telegram that a post fell back to the classic design (it was only in the logs)."""
-    detail = f": {type(err).__name__}: {str(err)[:200]}" if err else ""
+def notify_failure(what: str, topic: str, err: BaseException | None = None) -> None:
+    """Say on Telegram that a post couldn't be made (it used to fall back to the classic design silently)."""
+    detail = f": {type(err).__name__}: {str(err)[:300]}" if err else ""
     try:
         from src.approve_bot import notify
-        notify(f"⚠️ {what} for “{topic}” fell back to the classic design{detail}")
-    except Exception:  # noqa: BLE001 -- the warning must never cost the post
-        log.exception("could not send the fallback warning")
+        notify(f"⚠️ {what} for “{topic}” failed{detail}. Try Generate again (Gemini is often busy), "
+               "or Regenerate with feedback.")
+    except Exception:  # noqa: BLE001 -- the notice must never mask the real error
+        log.exception("could not send the failure notice")
 
 
 def _plain(text: str) -> str:

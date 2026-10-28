@@ -53,9 +53,10 @@ def render_carousel(content: Content, out_dir: Path, dry_run: bool = False) -> l
         v2.save_scene(spec, out_dir.parent)
         try:
             return render_v2(spec, out_dir, content.category)
-        except Exception as e:  # the classic slides mirror the same story
-            log.exception("v2 carousel render failed; rendering the classic slides instead")
-            v2.warn_fallback("Carousel", content.topic, e)
+        except Exception as e:
+            v2.notify_failure("Carousel", content.topic, e)
+            raise
+    # Classic slides: only for old posts saved before the scene engine (no scene.json next to them).
     slides = content.carousel
     if dry_run:
         for i, s in enumerate(slides, 1):

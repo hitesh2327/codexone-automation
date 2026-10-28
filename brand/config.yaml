@@ -37,9 +37,6 @@ reel:
   size: "1080x1920"
   duration_sec: "20-30"
   structure: "hook, 3 points, CTA"   # hard max 30s
-  # Every category uses the animated-diagram engine (src/reel_v2). List a category here to
-  # switch it back to the classic text + demo reel and slides.
-  classic_categories: []
   # Updated monthly after running `python scripts/run_swipe.py` (ig-viral skill).
   # These formula names appear most in the top-third outlier reels in this niche.
   # Empty = Gemini picks freely from all 26 formulas.
