@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.caption_lint import MAX_HASHTAGS
 from src.config import load_brand
 from src.gen_content import Content, Reel, ReelPoint, Slide
 from src.logger import get_logger
@@ -47,7 +48,7 @@ def to_content(spec: SceneSpec, title: str, category: str) -> Content:
                   points=[ReelPoint(on_screen=x.heading, narration=x.narration) for x in b[1:-1]],
                   cta_on_screen=b[-1].heading, cta_narration=b[-1].narration),
         caption=spec.caption,
-        hashtags=[h if h.startswith("#") else f"#{h}" for h in spec.hashtags][:15])
+        hashtags=[h if h.startswith("#") else f"#{h}" for h in spec.hashtags][:MAX_HASHTAGS])
     content._scene = spec
     return content
 
