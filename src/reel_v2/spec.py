@@ -17,6 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.caption_lint import DEAD_HASHTAGS, MAX_HASHTAGS
 from src.config import load_brand
 from src.llm import generate_json
 from src.logger import get_logger
@@ -131,7 +132,7 @@ class SceneSpec(BaseModel):
     payoff_sub: str = Field(description="Mono summary under the payoff, max 40 chars, e.g. '1 switch · 0s down · rollback in 1s'")
     cheat: Cheat
     caption: str = Field(description="Instagram caption without hashtags, 60-150 words, ends with a question")
-    hashtags: list[str] = Field(description="10-15 hashtags, each starting with #")
+    hashtags: list[str] = Field(description=f"Exactly {MAX_HASHTAGS} specific hashtags (Instagram's limit), each starting with #")
 
 
 class Review(BaseModel):
@@ -249,7 +250,8 @@ CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code), and a 
 2-3 alternatives (topic itself last). Table cells are plain words, no abbreviations like 'Wr-Thru'.
 
 CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: 10-15; include a few of: {' '.join(brand['hashtags'])}.{_hook_block(brand)}{guide}{extra}"""
+HASHTAGS: exactly {MAX_HASHTAGS} (Instagram's limit), specific to the topic; you may use some of: {' '.join(brand['hashtags'])}.
+No generic tags that add no reach ({' '.join(sorted(DEAD_HASHTAGS))}).{_hook_block(brand)}{guide}{extra}"""
 
 
 def on_screen_text(s: SceneSpec) -> list[str]:

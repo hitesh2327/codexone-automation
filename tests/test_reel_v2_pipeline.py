@@ -103,3 +103,18 @@ def test_hook_formulas_reach_the_scene_prompt(monkeypatch, tmp_path):
 def test_older_content_without_alternatives_still_loads():
     assert Reel(hook_on_screen="h", hook_narration="h", points=[], cta_on_screen="c",
                 cta_narration="c").hook_alternatives == []
+
+
+def test_prompt_asks_for_instagrams_hashtag_limit():
+    from src.caption_lint import MAX_HASHTAGS
+    p = _prompt("t", "AI", "", BRAND)
+    assert f"HASHTAGS: exactly {MAX_HASHTAGS}" in p and "#fyp" in p and "10-15" not in p
+    assert str(MAX_HASHTAGS) in SceneSpec.model_fields["hashtags"].description
+
+
+def test_post_never_carries_more_than_the_limit(monkeypatch):
+    from src.caption_lint import MAX_HASHTAGS
+    monkeypatch.setattr(v2, "load_brand", lambda: {"handle": "@t"})
+    s = SceneSpec.model_validate_json(EXAMPLE.read_text())
+    s.hashtags = [f"#tag{i}" for i in range(11)]
+    assert len(v2.to_content(s, "Blue-Green", "SystemDesign").hashtags) == MAX_HASHTAGS
