@@ -98,17 +98,21 @@ def load_brand() -> dict:
 
     from src import db  # lazy: src.db imports this module
     if db.enabled():
-        db_brand = db.get_setting("brand")
-        if db_brand:
-            # Keep brand/config.yaml authoritative for voices, narration, language, and preferred_hook_formulas
-            # while keeping other dashboard runtime overrides
-            for key in ("voices", "voices_hi", "narration_language", "language"):
-                if key in file_brand:
-                    db_brand[key] = file_brand[key]
-            db_brand["preferred_hook_formulas"] = file_brand.get("preferred_hook_formulas", db_brand.get("preferred_hook_formulas", []))
-            return db_brand
+        try:
+            db_brand = db.get_setting("brand")
+            if db_brand:
+                # Keep brand/config.yaml authoritative for voices, narration, language, and preferred_hook_formulas
+                # while keeping other dashboard runtime overrides
+                for key in ("voices", "voices_hi", "narration_language", "language"):
+                    if key in file_brand:
+                        db_brand[key] = file_brand[key]
+                db_brand["preferred_hook_formulas"] = file_brand.get("preferred_hook_formulas", db_brand.get("preferred_hook_formulas", []))
+                return db_brand
+        except Exception:
+            pass
 
     return file_brand
+
 
 
 def default_narration() -> Language:

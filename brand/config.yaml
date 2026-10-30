@@ -35,22 +35,23 @@ posts_per_day: 2
 post_times_ist: ["10:00", "19:00"]
 reel:
   size: "1080x1920"
-  duration_sec: "20-30"
-  structure: "hook, 3 points, CTA"   # hard max 30s
-  # Updated monthly after running `python scripts/run_swipe.py` (ig-viral skill).
-  # These formula names appear most in the top-third outlier reels in this niche.
-  # Empty = Gemini picks freely from all 26 formulas.
-  preferred_hook_formulas: []
+  duration_sec: "18-24"
+  structure: "hook, problem, architecture shift, loop bridge"   # 18-24s high retention
+  # Top outlier formulas in tech engineering (ig-viral / ig-audit)
+  preferred_hook_formulas:
+    - "Negative Command"
+    - "Nobody Tells You"
+    - "The Trap"
+    - "Counter-Intuitive"
+    - "The Test"
 carousel: { size: "1080x1350", slides: "5-7" }
-cta: "Follow @codexonebyhitesh for daily dev content"
+cta: "Comment 'SCALE' to get the full architecture cheat sheet + code in your DMs"
 hashtags:
   [
-    "#coding",
-    "#programming",
     "#systemdesign",
-    "#dsa",
-    "#ai",
-    "#developer",
-    "#softwareengineer",
-    "#techindia",
+    "#softwareengineering",
+    "#backend",
+    "#codingtips",
+    "#devcommunity",
   ]
+

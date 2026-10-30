@@ -32,7 +32,7 @@ NodeState = Literal["idle", "live", "ok", "busy", "boot", "error", "testing", "e
 # live = actively serving traffic (glows), busy = overloaded (amber), ok = healthy but not serving,
 # idle = standby, boot = starting, testing = being checked, error = failing, empty = not deployed, off = stopped
 
-MAX_WORDS = 75          # ~30s with the brand voices at +6% (95 words came out at ~35s)
+MAX_WORDS = 75          # Hard ceiling (~30s with brand voices at +6%; prompt instructs 18-24s)
 # On-screen limits validate() enforces and repair() cuts to (the schema asks for 20/40/32/12; a little slack
 # above that still fits the layout).
 HEADING_MAX, CAPTION_MAX, TERM_MAX, LABEL_MAX = 22, 44, 34, 14
@@ -41,6 +41,8 @@ CODE_LINES, CODE_WIDTH = 6, 64
 MAX_WORDS_HI = 60       # Hinglish: the Hindi voices speak ~2.3 words/s vs ~2.8 (docs/specs/hinglish-narration-plan.md §7)
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 TRIGGER_STRIP = ".,?!'\"।"   # Hindi sentences end in । (danda)
+
+
 
 
 def max_words(language: str = "en") -> int:
@@ -188,7 +190,15 @@ HINGLISH = """NARRATION LANGUAGE: HINGLISH
 """
 
 
-HOOKS_FILE = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "ig-reel" / "hooks.json"
+_ROOT_DIR = Path(__file__).resolve().parents[2]
+HOOKS_FILE = _ROOT_DIR / ".agents" / "skills" / "ig-reel" / "resources" / "hooks.json"
+if not HOOKS_FILE.exists():
+    HOOKS_FILE = _ROOT_DIR / ".agents" / "skills" / "ig-reel" / "hooks.json"
+if not HOOKS_FILE.exists():
+    HOOKS_FILE = _ROOT_DIR / "src" / "hooks.json"
+if not HOOKS_FILE.exists():
+    HOOKS_FILE = _ROOT_DIR / ".claude" / "skills" / "ig-reel" / "hooks.json"
+
 
 
 def _hook_block(brand: dict) -> str:
@@ -229,12 +239,13 @@ DIAGRAM
 - Show the problem AND the fix on the same diagram (e.g. a node goes error, then traffic is
   rerouted, a cache starts answering, a queue absorbs a spike...).
 
-BEATS (5-8) — total narration MAX {max_words(language)} words, the reel must be at most 30 seconds
-- Beat 1 is the hook: a curiosity question + the topic name. It must already have flows (motion
-  from the first frame).
+BEATS (5-7) — total narration MAX {max_words(language)} words, target duration 18–24s (high-retention sweet spot)
+- Beat 1 is the scroll-stopping hook: must deliver curiosity + payload in under 2.5 seconds using one of the proven hook formulas. It must already have flows (motion from the first frame).
 - Middle beats: ONE change each (short beats are fine), the trigger word is the verb that causes
   it (flip, crash, cache...). Two changes in a row = two beats (e.g. 'Found a bug?' then 'Flip back.').
-- Last beat: payoff + "Follow {brand['handle']} for more ..." (it shows the payoff card).
+- Last beat: payoff + SEAMLESS INFINITY LOOP. NEVER say "Follow for more" or "Thanks for watching" (this kills retention).
+  Instead, the final spoken sentence must end on a setup that grammatically and logically connects directly back into Beat 1's opening hook line, so when the video replays, it loops seamlessly like one continuous thought.
+- On-screen Payoff & CTA: Display a 1-word keyword lead magnet (e.g., 'Comment "SCALE" for the full architecture cheat sheet').
 - Counters: exactly 3, identical labels in every beat, values reflect the moment (e.g. LIVE,
   REQUESTS, DOWNTIME / HIT RATE, LATENCY, DB LOAD). A counter changes only in the beat whose
   action causes it (latency drops when hits START, not while the cache is being filled).
@@ -251,9 +262,13 @@ BEATS (5-8) — total narration MAX {max_words(language)} words, the reel must b
 CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code; at most {CODE_LINES} lines of 60 characters), and a comparison with
 2-3 alternatives (topic itself last). Table cells are plain words, no abbreviations like 'Wr-Thru'.
 
-CAPTION: 60-150 words, hook first line, value in the middle, question at the end. No hashtags.
-HASHTAGS: exactly {MAX_HASHTAGS} (Instagram's limit), specific to the topic; you may use some of: {' '.join(brand['hashtags'])}.
+CAPTION: 60-120 words.
+- First line (under 125 chars): Punchy SEO hook that survives the "... more" fold, containing the primary topic keyword.
+- Body: Concrete production insight and architecture trade-off.
+- Final line: 1-word keyword CTA: 'Comment "SCALE" and I will DM you the complete architecture cheat sheet + code.' (No generic questions).
+HASHTAGS: exactly {MAX_HASHTAGS} specific, targeted niche hashtags (Instagram limit); you may use some of: {' '.join(brand['hashtags'])}.
 No generic tags that add no reach ({' '.join(sorted(DEAD_HASHTAGS))}).{_hook_block(brand)}{guide}{extra}"""
+
 
 
 def on_screen_text(s: SceneSpec) -> list[str]:
