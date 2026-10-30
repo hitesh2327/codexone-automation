@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E1B4B"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#DB2777"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- vertical video frame (9:16) -->
+  <rect x="146" y="76" width="200" height="356" rx="34" fill="url(#screen)"/>
+  <rect x="146" y="76" width="200" height="356" rx="34" fill="none" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="10"/>
+  <!-- code brackets -->
+  <path d="M214 196 L184 226 L214 256" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M278 196 L308 226 L278 256" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M258 186 L234 266" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+  <!-- script lines -->
+  <rect x="182" y="310" width="128" height="14" rx="7" fill="#FFFFFF" fill-opacity="0.85"/>
+  <rect x="182" y="340" width="88" height="14" rx="7" fill="#FFFFFF" fill-opacity="0.6"/>
+  <!-- verified badge -->
+  <circle cx="352" cy="388" r="62" fill="#10B981" stroke="#0F172A" stroke-width="14"/>
+  <path d="M322 389 L344 411 L384 368" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
