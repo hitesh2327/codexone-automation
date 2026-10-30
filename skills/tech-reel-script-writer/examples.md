@@ -67,7 +67,7 @@ you up most? Drop it in the comments.
 - none
 
 ### Validation
-PASS (see `python scripts/check.py examples.md`)
+PASS (`python3 scripts/check.py examples.md`)
 
 ---
 
@@ -130,4 +130,4 @@ here, and why this role is your next step. Keep it short and rehearse it out lou
 - none
 
 ### Validation
-PASS (see `python scripts/check.py examples.md`)
+PASS (`python3 scripts/check.py examples.md`)

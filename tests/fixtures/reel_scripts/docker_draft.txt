@@ -1,0 +1,5 @@
+Hey guys! Today I'm going to show you something amazing about Docker. Docker always rebuilds everything
+from scratch every single time, which makes builds super slow, 100% of the time. The solution is simple:
+just run docker build --cache=true and your builds become instant. Also make sure you copy all your files
+at the start of your Dockerfile with COPY . . so Docker has everything it needs, then run npm install.
+This will save you hours every day. Follow me for more Docker tips and don't forget to like and subscribe!

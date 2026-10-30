@@ -1,0 +1,12 @@
+Tech Reel Script Writer
+Copyright (c) 2026 Anjanex Labs. All rights reserved.
+
+The purchaser may use this skill, and the scripts written with it, in their own content and projects,
+including commercial ones. The skill itself (SKILL.md, examples.md, scripts/ and this file) may not be
+resold, redistributed or published, in whole or in part.
+
+If you got this skill through a marketplace, that marketplace's licence terms apply and take precedence
+over this file where they differ.
+
+The skill is provided "as is", without warranty of any kind. You are responsible for checking the
+scripts you publish.
