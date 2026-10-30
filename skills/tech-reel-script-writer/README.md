@@ -59,29 +59,32 @@ literally true). Exit code 0 means every script passed.
 
 What was run for 1.2.0, and what wasn't:
 
-- **The checker:** 50 automated tests, all passing. They cover every limit, plus the inputs that broke
+- **The checker:** 56 automated tests, all passing. They cover every limit, plus the inputs that broke
   1.1.0: shell pipes in table cells, Markdown variants (`~~~` fences, `1)` numbering, headings inside
-  code, lines that wrap, unclosed code blocks), Windows consoles (cp1252), CRLF, UTF-8 with a BOM and UTF-16 files, and Hindi
-  text. 23 of these tests fail on 1.1.0's checker, so they catch the bugs that were fixed.
-- **Ten scripts written by following SKILL.md:** they cover all six categories, three platforms,
-  three formats and three audience levels. They include a Hinglish narration, a fix-mode rewrite of a
-  bad draft, and a two-script batch.
-  - **First drafts:** 7 of the 10 passed the checker. The three failures were over the word cap (83 and
-    81 words, and 61 against the Hinglish cap of 60). One of them also used `*` as a multiplication sign
-    in a caption. These are exactly what the checker is for.
-  - **After one round of fixes:** all 10 pass.
-- **The facts in those scripts were checked by running them:**
-  - every snippet was executed;
-  - `git bisect` was run on a 64-commit repository, for each of the 64 possible bad commits: 6 test
-    runs every time;
-  - Docker layer caching was measured with real builds, and the `--cache=true` flag from the bad draft
-    was confirmed not to exist;
-  - library defaults were read from the installed code.
+  code, lines that wrap, unclosed code blocks), Windows consoles (cp1252), CRLF, UTF-8 with a BOM and
+  UTF-16 files, and Hindi text.
+- **Ten fresh agent sessions, each given only this skill folder and a one-line request** (Claude Code
+  sub-agents that saw nothing else). Together they wrote 12 scripts:
+  - all six categories, three platforms, three formats and three audience levels;
+  - a Hinglish narration;
+  - a fix-mode rewrite of a deliberately wrong draft (all five false Big-O claims in it were caught and
+    corrected);
+  - a batch of three.
+  - **Results:** all 12 first drafts passed the checker, and so did all 12 final scripts. Every agent
+    verified its facts by running code: real `pip` installs, C programs that count page faults, the
+    source code of LLM libraries, and Java's `HashMap`.
+  - **What the agents found unclear** was fixed in this version: the comparison-table shape, what goes
+    in the Validation section before the first run, which hook needs the topic name, how `#Shorts`
+    counts, and how to write numbers and the handle for a TTS voice. Their remaining checker warnings
+    were false alarms on Hindi narration and on rates such as "one every 6 s"; both are fixed.
+- **Ten more scripts written by the skill's author** across the same range: 7 of 10 first drafts
+  passed. The three failures were over the word cap and one `*` used as multiplication in a caption,
+  exactly what the checker is for. All 10 pass after one round of fixes. Their facts were checked by
+  running them too (`git bisect` on all 64 positions in a 64-commit repository, real Docker builds).
 - **Not tested yet:**
-  - The ten scripts were written by the skill's author following SKILL.md, not by a fresh agent
-    session that only had the skill.
   - No agent other than Claude Code has been tried.
   - Windows behaviour is simulated in the tests, not run on a Windows machine.
+  - A real TTS voice reading the scripts: lengths are estimates from the word count.
 
 ## Changelog
 
@@ -102,7 +105,11 @@ What was run for 1.2.0, and what wasn't:
     - `--wps` sets the speaking rate for the time estimate;
     - batch files get a summary, and non-script sections are skipped;
     - exit code 2 for an unreadable file or bad arguments.
+  - **From the fresh-agent test:** no topic or CTA warning on Hindi narration; rates ("one every 6 s")
+    and indexes ("pop zero") are not flagged as absolutes.
   - **SKILL.md:**
+    - clearer rules found by the fresh-agent test: comparison table shape, the Validation section,
+      which hook needs the topic name, `#Shorts`, numbers and the handle for TTS, the batch plan;
     - fix mode for existing drafts;
     - rules per audience level;
     - where to save scripts, and `python3`/`py`;

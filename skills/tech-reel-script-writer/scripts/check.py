@@ -43,9 +43,15 @@ RECOMMENDED = re.compile(r"^[\s*_]*(?:\(\s*recommended\s*\)|recommended\s*:)[\s*
 HASHTAG = re.compile(r"(?<![\w&#/])#(?=[0-9_]*[^\W\d_])\w+")
 # "..." is a placeholder unless it is glued to a name: JS spread (...args) and git ranges (main...dev) are real.
 PLACEHOLDER = re.compile(r"…|(?<![\w.])\.{3}(?![\w.])")
-ABSOLUTES = re.compile(r"(?<![\w-])(always|never|every|everyone|everything|zero|instant(?:ly)?|infinite(?:ly)?"
-                       r"|guaranteed?)(?![\w-])|(?<![\d.])100\s?%", re.IGNORECASE)
-CTA = re.compile(r"\b(follow|subscribe|save|share|comment)\b", re.IGNORECASE)
+# Not absolutes: a rate ("one every 12 seconds") or an index ("pop zero", "index zero").
+TIME = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|few|other)?\s*" \
+       r"(?:s|ms|milliseconds?|seconds?|minutes?|hours?|days?|weeks?|months?|years?)\b"
+ABSOLUTES = re.compile(r"(?<![\w-])(always|never|every(?!\s+" + TIME + r")|everyone|everything"
+                       r"|(?<!index )(?<!pop )(?<!insert )(?<!position )(?<!at )zero"
+                       r"|instant(?:ly)?|infinite(?:ly)?|guaranteed?)(?![\w-])|(?<![\d.])100\s?%", re.IGNORECASE)
+# English, plus the Hindi spellings TTS scripts use (Devanagari has no \b word boundaries).
+CTA = re.compile(r"\b(follow|subscribe|save|share|comment)\b|\u092b\u093c?\u0949\u0932\u094b|सब्सक्राइब|सेव|शेयर",
+                 re.IGNORECASE)
 STOP = {"the", "a", "an", "and", "or", "of", "in", "on", "to", "for", "how", "why", "what", "your", "you",
         "with", "is", "are", "vs", "about", "into", "from", "by", "at", "it"}
 PROSE = {"", "text", "txt", "plain", "plaintext", "md", "markdown"}   # snippet languages that aren't code
@@ -244,7 +250,10 @@ def check_script(script: dict, platform, max_words: int) -> tuple:
         fails.append(f"narration is {total} words (max {max_words})")
     if beats:
         topic = [t for t in tokens(script["title"]) if t not in STOP and len(t) > 2]
-        if topic and not set(topic) & set(tokens(" ".join(beats[0].split()[:6]))):
+        opening = " ".join(beats[0].split()[:6])
+        letters = [ch for ch in opening if ch.isalpha()]   # a mostly Devanagari opening can't match an English title
+        latin = sum(ch.isascii() for ch in letters) * 2 > len(letters)
+        if topic and latin and not set(topic) & set(tokens(opening)):
             warns.append("beat 1: the topic name isn't in the first 6 words")
         if not CTA.search(beats[-1]):
             warns.append("last beat has no CTA (follow / subscribe / save)")

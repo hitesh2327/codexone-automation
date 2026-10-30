@@ -105,6 +105,26 @@ def test_technical_terms_are_not_absolutes(tmp_path):
     assert code == 0 and "absolute" not in out, out
 
 
+@pytest.mark.parametrize("text,flagged", [
+    ("Every request is logged.", True),
+    ("Zero downtime, guaranteed.", True),
+    ("It refills one every twelve seconds.", False),     # a rate, not an absolute
+    ("Refills 1 every 6 s.", False),
+    ("Then pop zero again.", False),                     # an index, spelled out as SKILL.md asks
+])
+def test_absolutes_skip_rates_and_indexes(tmp_path, text, flagged):
+    code, out = run(edited(("2. A linear scan checks each number in turn: six comparisons here.", "2. " + text)), tmp_path)
+    assert code == 0 and ("absolute word" in out) == flagged, out
+
+
+def test_hindi_narration_gets_no_english_only_warnings(tmp_path):
+    text = (FIXTURES / "two_pointers_hinglish.md").read_text(encoding="utf-8")
+    text = text.replace("1. Two pointers से string को O of n में reverse करो।", "1. दो पॉइंटर्स से स्ट्रिंग को O of n में उलटो।")
+    text = text.replace("7. ऐसे और DSA tricks के लिए follow करो @yourhandle।", "7. ऐसे और DSA tricks के लिए फॉलो करो @yourhandle।")
+    code, out = run(text, tmp_path, *SLOW_TTS)
+    assert code == 0 and "topic name" not in out and "no CTA" not in out, out
+
+
 def test_no_script_found(tmp_path):
     code, out = run("just some notes", tmp_path)
     assert code == 1 and "no '## <Title>' script" in out

@@ -43,13 +43,17 @@ Follow these steps in order. Never skip 5 and 6.
    `python3 <this skill's folder>/scripts/check.py <file>` (on Windows: `py` instead of `python3`).
    For a slower voice or non-English narration add `--max-words 60 --wps 2.3`. The checker counts words,
    beats and every on-screen limit, and checks the hooks, the snippet, the comparison table, the hashtags
-   and the YouTube title. Fix every FAIL, read every WARN, and re-run until it passes. If you can't run code, do the same checks by hand,
-   beat by beat, counting words one at a time.
+   and the YouTube title. Fix every FAIL, read every WARN, and re-run until it passes. Write `pending` under
+   `### Validation` before the first run (the checker ignores that section), then paste the final output
+   there; no re-run is needed for that. If you can't run code, do the same checks by hand, beat by beat,
+   counting words one at a time. The checker reads English: for non-English narration, check absolute
+   words yourself, and ignore a topic or CTA warning when the word is there in another script.
 7. **Hand over** the final script and the checker's result.
 
-**Batch mode:** plan all topics first as a numbered list (title + one-line mechanism), make sure no two
-share a mechanism, example or hook pattern, then write each script and validate them all in one file
-(`reel-scripts/<YYYY-MM-DD>-batch.md`, one `## Title` per script).
+`<YYYY-MM-DD>` is the day you write it. **Batch mode:** plan all topics first as a numbered list (title +
+one-line mechanism), make sure no two share a mechanism, example or hook pattern, then write each script
+and validate them all in one file (`reel-scripts/<YYYY-MM-DD>-batch.md`: the plan under a `# ` heading
+at the top, then one `## Title` per script).
 
 **Fix mode** (the user gives you their own draft, in any shape):
 1. Read it and write down its mechanism in one sentence and every claim it makes.
@@ -71,9 +75,14 @@ A beat is one moment: one change on screen, 1-2 short spoken sentences, **max 16
 
 **Length:** total narration **max 75 words** (about 27 s at ~2.7 words per second, a normal speaking
 rate; most TTS voices land within 25-30 s). Use **60** for slower voices and non-English narration.
+A word is anything between spaces, so `@yourhandle` and `0.5` count as one each. Write numbers the way
+they are spoken ("zero point five", "about a quarter million") so the count matches the audio, and
+for a TTS voice spell the handle as it should be read (keep `@handle` on screen).
 
 **Hooks:** always give 3 options of 5-12 words, each with a different angle (a question, a
-counter-intuitive true fact, a common mistake), and mark the strongest `(recommended)`. Beat 1 uses it.
+counter-intuitive true fact, a common mistake), and mark the strongest `(recommended)`. Beat 1 uses it,
+so the recommended hook needs the topic name (a key word of the title) in its first 6 words; the other
+two don't.
 
 **Audience:**
 - `beginner`: define each term the first time it appears (in 6 words or fewer), at most one analogy, no
@@ -146,7 +155,7 @@ A model reviewing its own draft tends to approve it, so make the check explicit:
      changes, treat your knowledge as possibly outdated and verify or mark it **unverified**.
 3. **Fix or remove** anything wrong; move anything you couldn't verify to the "Unverified" section
    instead of keeping it as fact. If your environment can start a fresh session or sub-agent, have it
-   review the draft without seeing your reasoning.
+   review the draft without seeing your reasoning; if it can't, say so under Validation.
 
 Common catches:
 - A command that doesn't do what's claimed (`cat doc.pdf | wc -w` doesn't count words: PDFs are
@@ -169,7 +178,7 @@ Platform rules change; these are current guidance, not guarantees. Check the app
   5 from December 2025; if a post with 5 fails or the Help Center says otherwise, follow the app). Skip
   generic tags such as `#fyp`, `#viral`, `#reels`: they say nothing about a niche topic.
 - **YouTube Shorts:** a **title** (max 100 characters; the topic first) instead of a long caption, plus a
-  2-3 line description. Up to **3 hashtags**, which can include `#Shorts`.
+  2-3 line description. Up to **3 hashtags** in total, counting a `#Shorts` in the title.
 - **TikTok:** a short caption (1-2 lines, a hook plus a question) and **3-5 hashtags**.
 
 ## 8. Output format
@@ -196,13 +205,14 @@ Category: <category> · Platform: <platform> · Format: <format> · Audience: <a
 3. <hook>
 
 ### Cheat sheet
-- Use when: <3 short bullets>
-- Trade-offs: <3 short bullets>
+- Use when: <3 short items on one line, separated by " · ">
+- Trade-offs: <3 short items, the same way>
 - Snippet:
 ```<language>
 <real code, max 6 lines of 60>
 ```
-- Comparison: <2-4 rows x 4 columns (usually 3), the topic itself last>
+- Comparison: <a table of exactly 4 columns and 2-4 rows (usually 3); the topic itself is the last row,
+  or the last two rows for an "X vs Y" topic>
 
 ### Caption
 <Instagram/TikTok caption, or for YouTube: "Title: ..." then the description>
@@ -216,7 +226,7 @@ Category: <category> · Platform: <platform> · Format: <format> · Audience: <a
 - <claim you couldn't verify, or "none">
 
 ### Validation
-<the checker's output, or "checked by hand" with the counts>
+<"pending" until the checker runs; then its output, or "checked by hand" with the counts>
 
 ### Changes
 <fix mode only: each change and why>
