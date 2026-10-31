@@ -1,7 +1,8 @@
 # Marketplace listing: Tech Reel Scriptwriter
 
 Logo: `logo.svg` (source), `logo-1024.png`, `logo-512.png`, `logo-128.png`, `logo-64.png`.
-A vertical-video frame with code brackets and script lines, plus a green check for "fact-checked".
+A tilted phone showing a reel: code brackets, a voice-over waveform and script lines, with a green
+check badge for "fact-checked" and sparkles, on a deep indigo tile with soft pink and cyan glows.
 
 ## Name
 

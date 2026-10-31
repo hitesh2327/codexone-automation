@@ -1,26 +1,93 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1E1B4B"/>
-      <stop offset="1" stop-color="#0F172A"/>
+    <radialGradient id="bg" cx="0.3" cy="0.2" r="1">
+      <stop offset="0" stop-color="#3B2A8C"/>
+      <stop offset="0.55" stop-color="#1A1446"/>
+      <stop offset="1" stop-color="#0A0B1F"/>
+    </radialGradient>
+    <radialGradient id="glowPink" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#EC4899" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#EC4899" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBlue" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.55" stop-color="#D946EF"/>
+      <stop offset="1" stop-color="#FB7185"/>
     </linearGradient>
-    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7C3AED"/>
-      <stop offset="1" stop-color="#DB2777"/>
+    <linearGradient id="gloss" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#05040F" flood-opacity="0.6"/>
+    </filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#059669" flood-opacity="0.55"/>
+    </filter>
+    <clipPath id="tile"><rect width="512" height="512" rx="116"/></clipPath>
+    <clipPath id="screenClip"><rect x="-96" y="-172" width="192" height="344" rx="36"/></clipPath>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <!-- vertical video frame (9:16) -->
-  <rect x="146" y="76" width="200" height="356" rx="34" fill="url(#screen)"/>
-  <rect x="146" y="76" width="200" height="356" rx="34" fill="none" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="10"/>
-  <!-- code brackets -->
-  <path d="M214 196 L184 226 L214 256" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M278 196 L308 226 L278 256" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M258 186 L234 266" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
-  <!-- script lines -->
-  <rect x="182" y="310" width="128" height="14" rx="7" fill="#FFFFFF" fill-opacity="0.85"/>
-  <rect x="182" y="340" width="88" height="14" rx="7" fill="#FFFFFF" fill-opacity="0.6"/>
+
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <g clip-path="url(#tile)">
+    <circle cx="420" cy="430" r="230" fill="url(#glowPink)"/>
+    <circle cx="70" cy="90" r="200" fill="url(#glowBlue)"/>
+  </g>
+  <rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
+
+  <!-- phone, slightly tilted -->
+  <g transform="translate(246 252) rotate(-8)">
+    <g filter="url(#shadow)">
+      <rect x="-108" y="-184" width="216" height="368" rx="46" fill="#14112E"/>
+    </g>
+    <rect x="-108" y="-184" width="216" height="368" rx="46" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="2"/>
+    <g clip-path="url(#screenClip)">
+      <rect x="-96" y="-172" width="192" height="344" fill="url(#screen)"/>
+      <path d="M-96 -172 H96 L-96 40 Z" fill="url(#gloss)"/>
+    </g>
+    <!-- story progress bars -->
+    <rect x="-72" y="-150" width="44" height="6" rx="3" fill="#FFFFFF"/>
+    <rect x="-22" y="-150" width="44" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.55"/>
+    <rect x="28" y="-150" width="44" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.3"/>
+    <!-- code brackets -->
+    <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M-26 -78 L-58 -46 L-26 -14" stroke-width="16"/>
+      <path d="M26 -78 L58 -46 L26 -14" stroke-width="16"/>
+      <path d="M10 -86 L-10 -6" stroke-width="12"/>
+    </g>
+    <!-- voice-over waveform -->
+    <g fill="#FFFFFF">
+      <rect x="-62" y="38" width="10" height="20" rx="5" fill-opacity="0.7"/>
+      <rect x="-44" y="26" width="10" height="44" rx="5" fill-opacity="0.85"/>
+      <rect x="-26" y="14" width="10" height="68" rx="5"/>
+      <rect x="-8" y="30" width="10" height="36" rx="5" fill-opacity="0.85"/>
+      <rect x="10" y="20" width="10" height="56" rx="5"/>
+      <rect x="28" y="34" width="10" height="28" rx="5" fill-opacity="0.8"/>
+      <rect x="46" y="40" width="10" height="16" rx="5" fill-opacity="0.6"/>
+    </g>
+    <!-- script lines -->
+    <rect x="-62" y="108" width="124" height="10" rx="5" fill="#FFFFFF" fill-opacity="0.75"/>
+    <rect x="-62" y="128" width="84" height="10" rx="5" fill="#FFFFFF" fill-opacity="0.5"/>
+  </g>
+
   <!-- verified badge -->
-  <circle cx="352" cy="388" r="62" fill="#10B981" stroke="#0F172A" stroke-width="14"/>
-  <path d="M322 389 L344 411 L384 368" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <g filter="url(#soft)">
+    <circle cx="368" cy="380" r="64" fill="url(#badge)"/>
+  </g>
+  <circle cx="368" cy="380" r="64" fill="none" stroke="#0E0B26" stroke-width="10"/>
+  <circle cx="368" cy="380" r="52" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="2"/>
+  <path d="M338 381 L359 402 L399 360" fill="none" stroke="#FFFFFF" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- sparkles -->
+  <path d="M398 92 Q402 112 422 116 Q402 120 398 140 Q394 120 374 116 Q394 112 398 92 Z" fill="#FDE68A"/>
+  <path d="M440 168 Q442 178 452 180 Q442 182 440 192 Q438 182 428 180 Q438 178 440 168 Z" fill="#FFFFFF" fill-opacity="0.85"/>
+  <circle cx="96" cy="404" r="5" fill="#FFFFFF" fill-opacity="0.5"/>
 </svg>
