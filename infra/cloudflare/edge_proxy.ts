@@ -18,6 +18,31 @@ export interface Env {
   ORIGIN_VERIFY: string;
 }
 
+function syntheticJsonError(status: number, code: string, message: string): Response {
+  return new Response(
+    JSON.stringify({
+      detail: {
+        code,
+        message,
+      },
+    }),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private",
+        "CDN-Cache-Control": "no-store",
+        "Cloudflare-CDN-Cache-Control": "no-store",
+        "Surrogate-Control": "no-store",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+      },
+    }
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -32,22 +57,10 @@ export default {
 
     // 2. Inject origin verification secret so backend accepts the connection (fail closed if unset)
     if (!env.ORIGIN_VERIFY) {
-      return new Response(
-        JSON.stringify({
-          detail: {
-            code: "gateway_misconfigured",
-            message: "Origin verification secret is not configured at edge proxy.",
-          },
-        }),
-        {
-          status: 502,
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store, no-cache, must-revalidate, private",
-            "CDN-Cache-Control": "no-store",
-            "Cloudflare-CDN-Cache-Control": "no-store",
-          },
-        }
+      return syntheticJsonError(
+        502,
+        "gateway_misconfigured",
+        "Origin verification secret is not configured at edge proxy."
       );
     }
     originHeaders.set("X-Origin-Verify", env.ORIGIN_VERIFY);
@@ -81,23 +94,10 @@ export default {
     try {
       response = await fetch(originRequest, { cf: cfOptions });
     } catch (error) {
-      return new Response(
-        JSON.stringify({
-          detail: {
-            code: "gateway_timeout",
-            message: "Upstream origin service is unreachable or timed out. Please try again in a few moments.",
-          },
-        }),
-        {
-          status: 504,
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store, no-cache, must-revalidate, private",
-            "CDN-Cache-Control": "no-store",
-            "Cloudflare-CDN-Cache-Control": "no-store",
-            "Surrogate-Control": "no-store",
-          },
-        }
+      return syntheticJsonError(
+        504,
+        "gateway_timeout",
+        "Upstream origin service is unreachable or timed out. Please try again in a few moments."
       );
     }
 

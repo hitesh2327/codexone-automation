@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.middleware.sessions import SessionMiddleware
@@ -158,6 +158,10 @@ def create_app() -> FastAPI:
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         if request.url.path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
+            response.headers.setdefault("CDN-Cache-Control", "no-store")
+            response.headers.setdefault("Cloudflare-CDN-Cache-Control", "no-store")
+            response.headers.setdefault("Surrogate-Control", "no-store")
+            response.headers.setdefault("Pragma", "no-cache")
         return response
 
     app.include_router(public.router)
@@ -187,14 +191,32 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": "Not found"}, status_code=404)
 
     if WEB_DIST.exists():  # production: serve the built SPA from the same origin
-        app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+        class ImmutableStaticFiles(StaticFiles):
+            def file_response(self, *args, **kwargs) -> Response:
+                resp = super().file_response(*args, **kwargs)
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return resp
+
+        app.mount("/assets", ImmutableStaticFiles(directory=WEB_DIST / "assets"), name="assets")
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
-            f = (WEB_DIST / path).resolve()
-            if path and f.is_file() and WEB_DIST in f.parents:
-                return FileResponse(f)
-            return FileResponse(WEB_DIST / "index.html")
+            dist_root = WEB_DIST.resolve()
+            f = (dist_root / path).resolve()
+            if path and f.is_file() and dist_root in f.parents:
+                return FileResponse(
+                    f,
+                    headers={
+                        "Cache-Control": "public, max-age=3600, must-revalidate",
+                    },
+                )
+            return FileResponse(
+                dist_root / "index.html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate, private",
+                    "Pragma": "no-cache",
+                },
+            )
 
     return app
 

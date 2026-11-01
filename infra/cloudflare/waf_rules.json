@@ -52,6 +52,39 @@
         "requests_per_period": 12,
         "mitigation_timeout": 180
       }
+    },
+    {
+      "description": "Protect /api/auth/signup from mass registration and credential generation",
+      "expression": "(http.request.uri.path eq \"/api/auth/signup\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 5,
+        "mitigation_timeout": 600
+      }
+    },
+    {
+      "description": "Protect /api/auth/password/reset from token brute-forcing",
+      "expression": "(http.request.uri.path eq \"/api/auth/password/reset\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 6,
+        "mitigation_timeout": 600
+      }
+    },
+    {
+      "description": "Protect /api/generate from job dispatch flood and runner exhaustion",
+      "expression": "(http.request.uri.path eq \"/api/generate\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 300
+      }
     }
   ]
 }
