@@ -480,3 +480,12 @@ def test_explicit_english_overrides_a_hinglish_default(authed, gh, monkeypatch):
 
 def test_job_language_of_no_job_is_none():
     assert generation.job_language(None) is None and generation.job_language("not-a-valid-id!") is None
+
+
+def test_daily_cap_is_isolated_per_user():
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    for _ in range(4):
+        j = generation.create(trigger="dashboard", user_id=1)
+        generation.finish(j["id"], "succeeded")
+    assert generation.used_today(day_start, user_id=1) == 4
+    assert generation.used_today(day_start, user_id=2) == 0

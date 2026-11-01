@@ -497,13 +497,20 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
     video = video.with_audio(CompositeAudioClip(audio_clips).with_duration(total))
 
     out = out_dir / "reel.mp4"
-    video.write_videofile(
-        str(out), fps=FPS, codec="libx264", audio_codec="aac", audio_fps=44100,
-        audio_bitrate="128k", preset="medium", threads=4, logger=None,
-        ffmpeg_params=["-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart",
-                       "-profile:v", "high", "-level", "4.1"],
-    )
-    video.close()
+    try:
+        video.write_videofile(
+            str(out), fps=FPS, codec="libx264", audio_codec="aac", audio_fps=44100,
+            audio_bitrate="128k", preset="medium", threads=4, logger=None,
+            ffmpeg_params=["-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart",
+                           "-profile:v", "high", "-level", "4.1"],
+        )
+    finally:
+        video.close()
+        for clip in audio_clips:
+            try:
+                clip.close()
+            except Exception:
+                pass
     log.info("reel %.1fs → %s (%.1f MB)", total, out, out.stat().st_size / 1e6)
     return out
 
