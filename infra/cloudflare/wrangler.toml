@@ -8,6 +8,10 @@ ENVIRONMENT = "production"
 # Origin URL of your FastAPI backend (e.g. AWS Lambda Function URL, ALB, or Container service)
 ORIGIN_URL = "https://origin.codexone.internal"
 
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
 # Secrets required:
 # Run: wrangler secret put ORIGIN_VERIFY
 # Value must match ORIGIN_VERIFY in your backend .env / SSM Parameter Store

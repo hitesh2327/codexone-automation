@@ -1,0 +1,13 @@
+{
+  "description": "Cloudflare Cache Rules for CodexOne API & Session State",
+  "rules": [
+    {
+      "description": "Bypass edge and browser cache for all API requests and authenticated session cookies",
+      "expression": "(http.request.uri.path starts_with \"/api/\") or (http.cookie contains \"__Host-cx_session\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": false
+      }
+    }
+  ]
+}

@@ -2,6 +2,14 @@
   "description": "Cloudflare WAF Rate Limiting and Security Rules for CodexOne",
   "rules": [
     {
+      "description": "Exempt Razorpay Webhook from interactive challenges to prevent dropped renewals",
+      "expression": "(http.request.uri.path eq \"/api/subscription/razorpay/webhook\" and http.request.method eq \"POST\")",
+      "action": "skip",
+      "action_parameters": {
+        "ruleset": "current"
+      }
+    },
+    {
       "description": "Protect /api/auth/login from brute force and credential stuffing",
       "expression": "(http.request.uri.path eq \"/api/auth/login\" and http.request.method eq \"POST\")",
       "action": "managed_challenge",
@@ -24,9 +32,26 @@
       }
     },
     {
-      "description": "Bypass cache for API requests and authenticated session cookies",
-      "expression": "(http.request.uri.path starts_with \"/api/\") or (http.cookie contains \"__Host-cx_session\")",
-      "action": "bypass_cache"
+      "description": "Protect /api/subscription/checkout from automated card testing and session exhaustion",
+      "expression": "(http.request.uri.path eq \"/api/subscription/checkout\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 5,
+        "mitigation_timeout": 300
+      }
+    },
+    {
+      "description": "Protect /api/subscription/quote from quote calculation spam",
+      "expression": "(http.request.uri.path eq \"/api/subscription/quote\" and http.request.method eq \"POST\")",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 12,
+        "mitigation_timeout": 180
+      }
     }
   ]
 }
