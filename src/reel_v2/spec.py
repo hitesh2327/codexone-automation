@@ -37,7 +37,9 @@ MAX_WORDS = 75          # Hard ceiling (~30s with brand voices at +6%; prompt in
 # above that still fits the layout).
 HEADING_MAX, CAPTION_MAX, TERM_MAX, LABEL_MAX = 22, 44, 34, 14
 # The cheat-sheet code box shrinks its font to fit (templates/reel_v2/carousel.html), down to 15px.
-CODE_LINES, CODE_WIDTH = 6, 64
+# 8 x 64 still renders at the full 22px with the longest bullets and a 4-row table (measured 3 Nov);
+# 10 lines fit only at 18px.
+CODE_LINES, CODE_WIDTH = 8, 64
 MAX_WORDS_HI = 60       # Hinglish: the Hindi voices speak ~2.3 words/s vs ~2.8 (docs/specs/hinglish-narration-plan.md §7)
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 TRIGGER_STRIP = ".,?!'\"।"   # Hindi sentences end in । (danda)
@@ -118,7 +120,7 @@ class Cheat(BaseModel):
     use_when: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     tradeoffs: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     code_title: str = Field(description="UPPERCASE, max 30 chars, e.g. 'THE SWITCH IN KUBERNETES'")
-    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-6 lines, max 60 chars per line")
+    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-8 lines, max 60 chars per line")
     compare: Compare
 
 

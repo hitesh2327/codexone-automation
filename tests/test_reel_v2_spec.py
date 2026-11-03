@@ -148,11 +148,12 @@ def test_last_attempt_ships_without_another_review(monkeypatch, spec):
 from src.reel_v2.spec import CODE_LINES, CODE_WIDTH, _repair_code  # noqa: E402
 
 
-def test_six_lines_of_64_now_pass(spec):
+def test_code_at_the_limit_passes_and_one_more_line_fails(spec):
+    assert (CODE_LINES, CODE_WIDTH) == (8, 64)
     spec.cheat.code = "\n".join(["x" * CODE_WIDTH] * CODE_LINES)
     assert validate(spec) == []
     spec.cheat.code += "\ny = 1"
-    assert any("cheat.code" in p and "7 lines" in p for p in validate(spec))
+    assert any("cheat.code" in p and "9 lines" in p for p in validate(spec))
 
 
 def test_code_repair_drops_trailing_comments_and_halves_indents():
@@ -189,8 +190,8 @@ def test_fitting_code_is_left_alone(spec):
     assert _repair_code(before) == before.strip("\n")
 
 
-# 2 Nov: a 7-line topological sort failed all 3 full rewrites, so the whole post failed.
-SEVEN = "\n".join(f"step{i}()" for i in range(7))
+# 2 Nov: a 7-line topological sort (then over the limit) failed all 3 full rewrites, so the whole post failed.
+SEVEN = "\n".join(f"step{i}()" for i in range(CODE_LINES + 1))      # one line over the limit
 
 
 def _long_code(s: SceneSpec) -> SceneSpec:
@@ -199,7 +200,7 @@ def _long_code(s: SceneSpec) -> SceneSpec:
 
 
 def test_comment_only_lines_go_when_over_the_line_limit():
-    code = "#!/bin/sh\n# build the graph\n" + "\n".join(f"echo {i}" for i in range(5)) + "\n// done"
+    code = "#!/bin/sh\n# build the graph\n" + "\n".join(f"echo {i}" for i in range(CODE_LINES - 1)) + "\n// done"
     out = _repair_code(code).splitlines()
     assert out[0] == "#!/bin/sh" and len(out) == CODE_LINES and "# build the graph" not in out
 
