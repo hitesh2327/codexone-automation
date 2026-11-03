@@ -97,13 +97,17 @@ def test_repair_leaves_a_valid_spec_alone(spec):
     assert repair(spec) == [] and spec.model_dump_json() == before
 
 
-def _fake_llm(monkeypatch, drafts, review_ok=True):
+def _fake_llm(monkeypatch, drafts, review_ok=True, shrunk=None):
+    shrunk = list(shrunk or [])
     calls = {"write": 0, "review": 0}
 
     def fake(prompt, schema, **k):
         if schema is SceneSpec:
             calls["write"] += 1
             return drafts.pop(0)
+        if schema is specmod.Snippet:
+            calls["shrink"] = calls.get("shrink", 0) + 1
+            return specmod.Snippet(code=shrunk.pop(0)) if shrunk else specmod.Snippet(code="x\n" * 9)
         calls["review"] += 1
         return specmod.Review(ok=review_ok, issues=[] if review_ok else ["counter says 100%"])
     monkeypatch.setattr(specmod, "generate_json", fake)
@@ -183,3 +187,34 @@ def test_code_repair_drops_blank_lines_only_when_over_the_line_limit():
 def test_fitting_code_is_left_alone(spec):
     before = spec.cheat.code
     assert _repair_code(before) == before.strip("\n")
+
+
+# 2 Nov: a 7-line topological sort failed all 3 full rewrites, so the whole post failed.
+SEVEN = "\n".join(f"step{i}()" for i in range(7))
+
+
+def _long_code(s: SceneSpec) -> SceneSpec:
+    s.cheat.code = SEVEN
+    return s
+
+
+def test_comment_only_lines_go_when_over_the_line_limit():
+    code = "#!/bin/sh\n# build the graph\n" + "\n".join(f"echo {i}" for i in range(5)) + "\n// done"
+    out = _repair_code(code).splitlines()
+    assert out[0] == "#!/bin/sh" and len(out) == CODE_LINES and "# build the graph" not in out
+
+
+def test_long_snippet_is_shrunk_instead_of_failing_the_post(monkeypatch):
+    draft = _long_code(SceneSpec.model_validate_json(EXAMPLE.read_text(encoding="utf-8")))
+    calls = _fake_llm(monkeypatch, [draft], shrunk=["a = 1\nb = a + 1\nprint(b)"])
+    out = specmod.generate("Topological Sort", "DSA")
+    assert out.cheat.code == "a = 1\nb = a + 1\nprint(b)"
+    assert calls == {"write": 1, "review": 1, "shrink": 1}
+
+
+def test_a_shrink_that_still_does_not_fit_falls_back_to_a_rewrite(monkeypatch):
+    good = SceneSpec.model_validate_json(EXAMPLE.read_text(encoding="utf-8"))
+    draft = _long_code(good.model_copy(deep=True))
+    calls = _fake_llm(monkeypatch, [draft, good], shrunk=[SEVEN])
+    assert specmod.generate("Topological Sort", "DSA") is good
+    assert calls["write"] == 2 and calls["shrink"] == 1
