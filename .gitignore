@@ -8,7 +8,9 @@ logs/*
 !logs/.gitkeep
 data/topics_*.json
 data/ranked_*.json
+data/post_log*
 client_secret.json
+
 # Google OAuth (YouTube) -- local only
 client_secret.json
 client_secret*.json
@@ -19,5 +21,6 @@ data/outbox/
 # generated prototype media
 prototypes/*/out/
 
-.agents
+.agents/*
+!.agents/skills/
 .claude

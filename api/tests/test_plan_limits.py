@@ -267,3 +267,20 @@ def test_each_post_can_be_regenerated_three_times(authed, customer):
     r = authed.post("/api/posts/regenerate", json={"item_ids": [item.id]})
     assert r.status_code == 409 and "regenerated 3 times" in r.text
     assert q.get(item.id).status == "pending"
+
+
+def test_in_flight_jobs_count_towards_quota(customer):
+    from src import generation
+    from src.db.models import GenerationJob
+    with db.session() as s:
+        s.execute(GenerationJob.__table__.delete())
+    uid = customer("starter")
+    _posts(uid, "carousel", 29)
+    assert plan_limits.check_generation(plan_limits.load_user(uid)) == {"reel": True}
+    job = generation.create(trigger="dashboard", user_id=uid)
+    try:
+        with pytest.raises(plan_limits.PlanLimit) as exc:
+            plan_limits.check_generation(plan_limits.load_user(uid))
+        assert exc.value.code == "quota_reached"
+    finally:
+        generation.finish(job["id"], "failed")

@@ -36,7 +36,7 @@ def telegram(monkeypatch):
 
 @pytest.mark.parametrize("category", ["SystemDesign", "DSA", "Interview", "Cooking"])   # any category, any niche
 def test_every_post_uses_the_scene_engine(monkeypatch, telegram, category):
-    monkeypatch.setattr(specmod, "generate", lambda *a, **k: SceneSpec.model_validate_json(EXAMPLE.read_text()))
+    monkeypatch.setattr(specmod, "generate", lambda *a, **k: SceneSpec.model_validate_json(EXAMPLE.read_text(encoding="utf-8")))
     monkeypatch.setattr(v2, "load_brand", lambda: {"handle": "@t"})
     c = gen_content.generate(topic(category))
     assert c._scene is not None and c.category == category and not telegram
@@ -60,7 +60,7 @@ def test_a_failed_scene_fails_the_run_and_says_so(monkeypatch, telegram):
 def test_a_failed_render_fails_instead_of_rendering_the_old_style(monkeypatch, telegram, tmp_path):
     from src import render_post
     from src.reel_v2 import render
-    monkeypatch.setattr(specmod, "generate", lambda *a, **k: SceneSpec.model_validate_json(EXAMPLE.read_text()))
+    monkeypatch.setattr(specmod, "generate", lambda *a, **k: SceneSpec.model_validate_json(EXAMPLE.read_text(encoding="utf-8")))
     monkeypatch.setattr(v2, "load_brand", lambda: {"handle": "@t"})
     content = gen_content.generate(topic())
 
@@ -115,6 +115,6 @@ def test_prompt_asks_for_instagrams_hashtag_limit():
 def test_post_never_carries_more_than_the_limit(monkeypatch):
     from src.caption_lint import MAX_HASHTAGS
     monkeypatch.setattr(v2, "load_brand", lambda: {"handle": "@t"})
-    s = SceneSpec.model_validate_json(EXAMPLE.read_text())
+    s = SceneSpec.model_validate_json(EXAMPLE.read_text(encoding="utf-8"))
     s.hashtags = [f"#tag{i}" for i in range(11)]
     assert len(v2.to_content(s, "Blue-Green", "SystemDesign").hashtags) == MAX_HASHTAGS

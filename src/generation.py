@@ -32,7 +32,7 @@ CATEGORIES = ("AI", "SystemDesign", "DSA", "Interview", "OS", "Dev")  # default 
 RETENTION_DAYS = 90
 RUN_LIMIT = timedelta(minutes=45)          # the workflow's own timeout is 40
 QUEUE_LIMIT = timedelta(minutes=90)        # a run may legitimately wait behind another generate run
-NOT_STARTED_AFTER = timedelta(seconds=90)  # dispatched, but GitHub never created the run
+NOT_STARTED_AFTER = timedelta(seconds=int(os.getenv("GENERATE_NOT_STARTED_SECONDS", "150")))  # dispatched, but GitHub never created the run
 QUOTA_COOLDOWN = timedelta(minutes=60)
 DUPLICATE_RATIO = 0.85
 
@@ -257,12 +257,15 @@ def by_idempotency_key(key: str) -> dict | None:
         return to_dict(row) if row else None
 
 
-def used_today(day_start: datetime) -> int:
+def used_today(day_start: datetime, user_id: int | None = None) -> int:
     """Dashboard requests since `day_start` (IST midnight). Ones GitHub refused cost nothing."""
     with db.session() as s:
-        return s.scalar(select(func.count()).select_from(GenerationJob).where(
+        stmt = select(func.count()).select_from(GenerationJob).where(
             GenerationJob.trigger == "dashboard", GenerationJob.created_at >= _utc(day_start),
-            func.coalesce(GenerationJob.failure_reason, "").notin_(("dispatch_rejected", "dispatch_failed")))) or 0
+            func.coalesce(GenerationJob.failure_reason, "").notin_(("dispatch_rejected", "dispatch_failed")))
+        if user_id is not None:
+            stmt = stmt.where(GenerationJob.user_id == user_id)
+        return s.scalar(stmt) or 0
 
 
 def last_quota_failure(now: datetime) -> datetime | None:
@@ -289,13 +292,14 @@ def create(*, trigger: str, requested_by: str | None = None, slot_at: datetime |
            category: str | None = None, topic: str | None = None, source_url: str | None = None,
            force: bool = False, allow_duplicate: bool = False, idempotency_key: str | None = None,
            status: str = "queued", run_id: int | None = None, run_url: str | None = None,
-           language: str = "en") -> dict:
+           language: str = "en", user_id: int | None = None) -> dict:
     """Insert a job. Raises JobActive when this trigger already has a queued/running one, Replay on a repeated key."""
     row = GenerationJob(id=new_id(), trigger=trigger, requested_by=requested_by, slot_at=slot_at and _utc(slot_at),
                         category=category, topic=topic, source_url=source_url, force=force,
                         allow_duplicate=allow_duplicate, idempotency_key=idempotency_key, status=status, language=language,
                         phase="starting" if status == "running" else None, github_run_id=run_id,
-                        github_run_url=run_url, started_at=utcnow() if status == "running" else None)
+                        github_run_url=run_url, started_at=utcnow() if status == "running" else None,
+                        user_id=user_id)
     try:
         with db.session() as s:
             s.add(row)

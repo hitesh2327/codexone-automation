@@ -176,38 +176,43 @@ def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, previe
     ff = imageio_ffmpeg.get_ffmpeg_exe()
     with sync_playwright() as p:
         browser = launch(p)
-        page = browser.new_page(viewport={"width": W, "height": H}, device_scale_factor=1)
-        page.goto((TPL / "reel.html").as_uri())
-        page.evaluate("document.fonts.ready")
-        page.evaluate("tl => setTimeline(tl)", tl)
-        page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
-        if preview is not None:
-            page.evaluate("t => renderAt(t)", preview)
-            shot = out_dir / f"preview_{preview:.1f}.png"
-            page.screenshot(path=str(shot))
+        try:
+            page = browser.new_page(viewport={"width": W, "height": H}, device_scale_factor=1)
+            page.goto((TPL / "reel.html").as_uri())
+            page.evaluate("document.fonts.ready")
+            page.evaluate("tl => setTimeline(tl)", tl)
+            page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
+            if preview is not None:
+                page.evaluate("t => renderAt(t)", preview)
+                shot = out_dir / f"preview_{preview:.1f}.png"
+                page.screenshot(path=str(shot))
+                return shot
+            # cover: the moment the story is solved (start of the payoff beat)
+            page.evaluate("t => renderAt(t)", max(0.0, tl["starts"][-1] - 0.05))
+            page.screenshot(path=str(out_dir / "reel_cover.jpg"), type="jpeg", quality=90)
+            n = int(tl["total"] * FPS)
+            proc = subprocess.Popen(
+                [ff, "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(FPS), "-i", "-",
+                 "-i", str(audio), "-map", "0:v", "-map", "1:a",
+                 "-c:v", "libx264", "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p", "-color_range", "tv",
+                 "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "160k",
+                 "-movflags", "+faststart", "-shortest", str(out)],
+                stdin=subprocess.PIPE)
+            assert proc.stdin
+            try:
+                for f in range(n):
+                    page.evaluate("t => renderAt(t)", f / FPS)
+                    proc.stdin.write(page.screenshot(type="jpeg", quality=92))
+                    if f % 150 == 0:
+                        log.info("frame %d/%d", f, n)
+            finally:
+                if proc.stdin and not proc.stdin.closed:
+                    proc.stdin.close()
+                proc.wait()
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg failed with exit code {proc.returncode}")
+        finally:
             browser.close()
-            return shot
-        # cover: the moment the story is solved (start of the payoff beat)
-        page.evaluate("t => renderAt(t)", max(0.0, tl["starts"][-1] - 0.05))
-        page.screenshot(path=str(out_dir / "reel_cover.jpg"), type="jpeg", quality=90)
-        n = int(tl["total"] * FPS)
-        proc = subprocess.Popen(
-            [ff, "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(FPS), "-i", "-",
-             "-i", str(audio), "-map", "0:v", "-map", "1:a",
-             "-c:v", "libx264", "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p", "-color_range", "tv",
-             "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "160k",
-             "-movflags", "+faststart", "-shortest", str(out)],
-            stdin=subprocess.PIPE)
-        assert proc.stdin
-        for f in range(n):
-            page.evaluate("t => renderAt(t)", f / FPS)
-            proc.stdin.write(page.screenshot(type="jpeg", quality=92))
-            if f % 150 == 0:
-                log.info("frame %d/%d", f, n)
-        proc.stdin.close()
-        if proc.wait():
-            raise RuntimeError("ffmpeg failed")
-        browser.close()
     log.info("reel %.1fs → %s (%.1f MB)", tl["total"], out, out.stat().st_size / 1e6)
     return out
 
@@ -219,17 +224,19 @@ def render_carousel(spec: SceneSpec, folder: Path, category: str = "") -> list[P
     paths = []
     with sync_playwright() as p:
         browser = launch(p)
-        page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
-        page.goto((TPL / "carousel.html").as_uri())
-        page.evaluate("document.fonts.ready")
-        n = page.evaluate("([s, h, c]) => build(s, h, c)", [spec.model_dump(), load_brand()["handle"], category])
-        page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
-        page.wait_for_timeout(200)
-        for i, el in enumerate(page.query_selector_all(".slide"), 1):
-            path = folder / f"slide_{i:02d}.png"
-            el.screenshot(path=str(path))
-            paths.append(path)
-        browser.close()
+        try:
+            page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
+            page.goto((TPL / "carousel.html").as_uri())
+            page.evaluate("document.fonts.ready")
+            n = page.evaluate("([s, h, c]) => build(s, h, c)", [spec.model_dump(), load_brand()["handle"], category])
+            page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
+            page.wait_for_timeout(200)
+            for i, el in enumerate(page.query_selector_all(".slide"), 1):
+                path = folder / f"slide_{i:02d}.png"
+                el.screenshot(path=str(path))
+                paths.append(path)
+        finally:
+            browser.close()
     log.info("carousel: %d slides → %s", n, folder)
     return paths
 

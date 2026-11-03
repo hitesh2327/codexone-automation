@@ -153,7 +153,7 @@ def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
         "dispatch_configured": github_actions.configured(),
         "slots": _user_slots(cu),
         "categories": _user_categories(cu),
-        "daily_cap": cap, "used_today": generation.used_today(_day_start(now)), "resets_at": tomorrow.isoformat(),
+        "daily_cap": cap, "used_today": generation.used_today(_day_start(now), user_id=cu.id), "resets_at": tomorrow.isoformat(),
         "quota_cooldown_until": (quota_at + generation.QUOTA_COOLDOWN).isoformat() if quota_at else None,
         "late_limit_hours": generation.LATE_LIMIT_HOURS,
         "publishing_enabled": publishing_enabled(), "telegram_sync": approve_bot.sync_enabled(),
@@ -277,7 +277,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
         if live["active"]:
             raise _fail(409, "job_active", "A generation is already running.", job=live)
     cap = _daily_cap()
-    if generation.used_today(_day_start(now)) >= cap:
+    if generation.used_today(_day_start(now), user_id=user.id) >= cap:
         raise _fail(409, "cap_reached", f"Daily limit ({cap}) reached; resets at 00:00 IST.",
                     resets_at=(_day_start(now) + timedelta(days=1)).isoformat())
     last = generation.last_dashboard_request(_actor(user))
@@ -305,7 +305,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
         job = generation.create(trigger="dashboard", requested_by=_actor(user), slot_at=slot_at, category=body.category,
                                 topic=body.topic, source_url=body.source_url, force=body.force,
                                 allow_duplicate=body.allow_duplicate, idempotency_key=body.idempotency_key,
-                                language=body.language or default_narration())
+                                language=body.language or default_narration(), user_id=user.id)
     except generation.Replay as r:  # two identical requests raced: the first one owns the dispatch
         response.status_code = status.HTTP_200_OK
         return r.job

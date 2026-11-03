@@ -136,6 +136,18 @@ def summary(user, now: datetime | None = None) -> dict:
     }
 
 
+def in_flight_jobs(user_id: int | None) -> int:
+    """Number of generation jobs currently queued or running for this user."""
+    if not db.enabled() or not user_id:
+        return 0
+    from sqlalchemy import func, select
+    from src.db.models import GenerationJob
+    with db.session() as s:
+        return s.scalar(select(func.count()).select_from(GenerationJob).where(
+            GenerationJob.user_id == user_id,
+            GenerationJob.status.in_(("queued", "running")))) or 0
+
+
 def check_generation(user, now: datetime | None = None) -> dict:
     """May this user start a run now? Returns {"reel": bool}: False means make the carousel only."""
     if is_exempt(user):
@@ -145,12 +157,13 @@ def check_generation(user, now: datetime | None = None) -> dict:
         raise PlanLimit("plan_required", "Choose a plan to start generating posts.")
     window = cycle_window(user, now)
     used, quota = usage(user.id, now, window), plan["quota"]
-    if used["carousels"] >= quota["carousels"]:
+    in_flight = in_flight_jobs(user.id)
+    if used["carousels"] + in_flight >= quota["carousels"]:
         raise PlanLimit("quota_reached",
                         f"You've used all {quota['carousels']} posts in your {plan['name']} plan this month. "
                         f"They reset on {window[1].day} {window[1]:%b}, or upgrade to post more.",
                         used=used, quota=quota, resets_at=window[1].isoformat())
-    return {"reel": used["reels"] < quota["reels"]}
+    return {"reel": used["reels"] + in_flight < quota["reels"]}
 
 
 def slots_per_day(cadence: dict | None) -> int:

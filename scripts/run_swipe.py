@@ -22,9 +22,13 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-SWIPE_SCRIPT = ROOT / ".claude" / "skills" / "ig-viral" / "swipe.py"
+SWIPE_SCRIPT = ROOT / ".agents" / "skills" / "ig-viral" / "scripts" / "swipe.py"
+if not SWIPE_SCRIPT.exists():
+    SWIPE_SCRIPT = ROOT / ".claude" / "skills" / "ig-viral" / "swipe.py"
 SWIPE_DIR = ROOT / "data" / "swipe"
+WORKSPACE_SWIPE_OUT = ROOT / "data" / "swipe" / "swipe.md"
 CLAUDE_OUT = Path.home() / ".claude" / "instagram" / "swipe.md"
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,10 +66,19 @@ def main(argv: list[str] | None = None) -> int:
     if result.returncode != 0:
         return result.returncode
 
-    # Also write to ~/.claude/instagram/swipe.md so ig-reel / ig-plan pick it up
-    CLAUDE_OUT.parent.mkdir(parents=True, exist_ok=True)
-    CLAUDE_OUT.write_text(md_out.read_text(encoding="utf-8"), encoding="utf-8")
-    print(f"Also wrote {CLAUDE_OUT} (for ig-reel / ig-plan Claude sessions)")
+    # Also write to data/swipe/swipe.md for workspace skills
+    WORKSPACE_SWIPE_OUT.parent.mkdir(parents=True, exist_ok=True)
+    WORKSPACE_SWIPE_OUT.write_text(md_out.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"Wrote workspace swipe: {WORKSPACE_SWIPE_OUT}")
+
+    # Fallback to ~/.claude/instagram/swipe.md if possible
+    try:
+        CLAUDE_OUT.parent.mkdir(parents=True, exist_ok=True)
+        CLAUDE_OUT.write_text(md_out.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"Also wrote {CLAUDE_OUT}")
+    except Exception:
+        pass
+
 
     print("\nNext steps:")
     print(f"  1. Read {md_out}")

@@ -193,9 +193,10 @@ def login(body: LoginBody, request: Request, response: Response, background_task
             # Never the typed name: it may be a password typed into the wrong box (QA-L-08).
             log.warning("failed login for %s from %s", f"account {user.id}" if user else "an unknown name", ip)
             # Only a real account name is kept (a mistyped password in the username box must not reach the log).
-            background_tasks.add_task(activity.record, "login.failed", "Failed sign-in" + ("" if user else " (no such account)"),
-                                      level="warning", source="auth", actor=(user.username or user.email) if user else "unknown")
+            activity.record("login.failed", "Failed sign-in" + ("" if user else " (no such account)"),
+                            level="warning", source="auth", actor=(user.username or user.email) if user else "unknown")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
+
         user.last_login_at = datetime.now(timezone.utc)
         rl.login_limiter.reset(account_ip_key)
         rl.login_limiter.reset(account_global_key)

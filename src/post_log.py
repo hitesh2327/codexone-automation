@@ -56,11 +56,12 @@ def record(
 
 
 def export_to_markdown(out_path: Path | None = None) -> Path:
-    """Convert post_log.jsonl to ~/.claude/instagram/log.md for ig-audit."""
-    out = out_path or Path.home() / ".claude" / "instagram" / "log.md"
+    """Convert post_log.jsonl to data/post_log.md (and fallback to ~/.claude/instagram/log.md) for ig-audit."""
+    out = out_path or (DATA_DIR / "post_log.md")
     if not LOG_FILE.exists():
         log.error("No post_log.jsonl found — generate some posts first")
         return out
+
     entries = [json.loads(line) for line in LOG_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
     lines = [
         "# Post Log\n",
