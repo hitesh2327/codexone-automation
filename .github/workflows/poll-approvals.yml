@@ -46,13 +46,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Anything waiting?
         id: gate
         run: python3 scripts/has_work.py
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
         with:
           python-version: "3.11"
