@@ -115,7 +115,8 @@ def usage(user_id: int, now: datetime | None = None,
             Post.user_id == user_id, Post.version == 1, Post.created_at >= start, Post.created_at < end)
             .group_by(Post.kind)).all()
     counts = {kind: n for kind, n in rows}
-    return {"reels": counts.get("reel", 0), "carousels": counts.get("carousel", 0)}
+    # An image reel takes the carousel's place in a post, so it counts against the carousel quota.
+    return {"reels": counts.get("reel", 0), "carousels": counts.get("carousel", 0) + counts.get("image", 0)}
 
 
 def summary(user, now: datetime | None = None) -> dict:

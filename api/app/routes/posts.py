@@ -76,8 +76,8 @@ def _group_meta(items: list) -> list[dict]:
         by_group.setdefault(i.group_id, []).append(i)
     out = []
     for gid, members in by_group.items():
-        current = {k: _current([m for m in members if m.kind == k]) for k in ("carousel", "reel")}
-        head = current["reel"] or current["carousel"]
+        current = {k: _current([m for m in members if m.kind == k]) for k in ("carousel", "image", "reel")}
+        head = current["reel"] or current["carousel"] or current["image"]
         out.append({"group_id": gid, "topic": head.topic, "category": head.category, "date": head.date,
                     "key": (_slot(head), max(_created(m) for m in members), gid),
                     "members": members, "current": current})
@@ -91,7 +91,7 @@ def _order(g: dict) -> tuple[float, float, str]:
 def _groups(items: list[q.Item]) -> list[dict]:
     out = []
     for g in _group_meta(items):
-        head = g["current"]["reel"] or g["current"]["carousel"]
+        head = g["current"]["reel"] or g["current"]["carousel"] or g["current"]["image"]
         out.append({"group_id": g["group_id"], "topic": g["topic"], "category": g["category"], "date": g["date"],
                     "publish_at": item_publish_at(head).isoformat(),
                     "created_at": max(m.created_at for m in g["members"]),

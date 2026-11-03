@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowRight, ArrowUpRight, FilterX, Film, Images, RefreshCw, Search } from "lucide-react";
+import { ArrowRight, ArrowUpRight, FilterX, Film, Images, Music, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
 import {
-  ACTIVE_STATUSES, formatIST, listPosts, PLATFORM_LABEL, syncTelegram, type Filters, type Group, type Item, type PostsResponse,
+  ACTIVE_STATUSES, formatIST, KIND_LABEL, listPosts, PLATFORM_LABEL, syncTelegram, type Filters, type Group, type Item, type Kind,
+  type PostsResponse,
 } from "@/lib/posts";
 import { stageOf } from "@/lib/stage";
 import { cn } from "@/lib/utils";
@@ -46,10 +47,10 @@ function PlatformMarks({ item }: { item: Item }) {
   );
 }
 
-/** One format (reel or carousel) of a topic: what it is, where it stands, where it goes. */
-function Lane({ item, kind, now }: { item: Item | null; kind: "reel" | "carousel"; now: number }) {
-  const Icon = kind === "reel" ? Film : Images;
-  const name = kind === "reel" ? "Reel" : "Carousel";
+/** One format (reel, carousel or image reel) of a topic: what it is, where it stands, where it goes. */
+function Lane({ item, kind, now }: { item: Item | null; kind: Kind; now: number }) {
+  const Icon = kind === "reel" ? Film : kind === "image" ? Music : Images;
+  const name = KIND_LABEL[kind];
   if (!item) {
     return (
       <div className="grid content-start gap-1.5 opacity-60">
@@ -74,9 +75,11 @@ function Lane({ item, kind, now }: { item: Item | null; kind: "reel" | "carousel
 function MediaStrip({ group, className }: { group: Group; className?: string }) {
   const [broken, setBroken] = useState<Set<string>>(new Set());
   const cover = group.items.reel?.media.cover;
+  const image = group.items.image?.media.image_cover;     // a 9:16 frame of the image reel
   const slides = group.items.carousel?.media.carousel ?? [];
   const shots = [
     ...(cover ? [{ src: cover, shape: "aspect-[9/16]" }] : []),
+    ...(image ? [{ src: image, shape: "aspect-[9/16]" }] : []),
     ...slides.slice(0, 2).map((src) => ({ src, shape: "aspect-[4/5]" })),
   ].filter((s) => !broken.has(s.src));
   if (!shots.length) return null;
@@ -126,7 +129,9 @@ function TopicRow({ g, now, selected, onOpen }: { g: Group; now: number; selecte
       </div>
       <div className="col-span-2 grid grid-cols-2 gap-x-5 gap-y-4 lg:col-span-2">
         <Lane item={g.items.reel} kind="reel" now={now} />
-        <Lane item={g.items.carousel} kind="carousel" now={now} />
+        {g.items.image && !g.items.carousel
+          ? <Lane item={g.items.image} kind="image" now={now} />
+          : <Lane item={g.items.carousel} kind="carousel" now={now} />}
       </div>
       <MediaStrip group={g} className="col-span-2 xl:col-span-1 xl:self-center" />
     </li>
@@ -165,7 +170,7 @@ function byDay(groups: Group[]): Day[] {
 function DayMark({ day, now }: { day: Day; now: number }) {
   const d = new Date(day.at);
   const rel = relative(dayDiff(day.key, now));
-  const items = day.groups.reduce((n, g) => n + (g.items.reel ? 1 : 0) + (g.items.carousel ? 1 : 0), 0);
+  const items = day.groups.reduce((n, g) => n + (g.items.reel ? 1 : 0) + (g.items.carousel ? 1 : 0) + (g.items.image ? 1 : 0), 0);
   return (
     <div className="flex items-baseline gap-3 lg:sticky lg:top-6 lg:grid lg:content-start lg:gap-1 lg:self-start">
       <span className="font-heading text-[2.5rem] leading-none font-semibold tracking-tight tabular-nums lg:text-5xl">{day.key.slice(8)}</span>
@@ -270,12 +275,12 @@ export default function Posts() {
   }
 
   function open(group: Group) {
-    const id = (group.items.reel ?? group.items.carousel)!.id;
+    const id = (group.items.reel ?? group.items.carousel ?? group.items.image)!.id;
     setOpenId(id);
     setFilter("post", id);
   }
 
-  const openGroup = data?.groups.find((g) => g.items.reel?.id === openId || g.items.carousel?.id === openId) ?? null;
+  const openGroup = data?.groups.find((g) => g.items.reel?.id === openId || g.items.carousel?.id === openId || g.items.image?.id === openId) ?? null;
   const hasFilters = ["status", "platform", "category", "date_from", "date_to", "q"].some((k) => params.get(k));
   const pendingCount = data?.counts.pending ?? 0;
   const days = useMemo(() => byDay(data?.groups ?? []), [data]);

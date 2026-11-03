@@ -20,6 +20,7 @@ export type Job = {
   force: boolean;
   allow_duplicate: boolean;
   language: Narration;
+  post_format: PostFormat;
   github_run_id: number | null;
   github_run_url: string | null;
   created_at: string;
@@ -45,7 +46,8 @@ export type Slot = {
   group_id: string | null;
   topic: string | null;
   category: string | null;
-  items: { reel: { id: string; status: string } | null; carousel: { id: string; status: string } | null };
+  /** carousel: the post's second item, a carousel or an image reel (kind "image"). */
+  items: { reel: { id: string; status: string; kind?: string } | null; carousel: { id: string; status: string; kind?: string } | null };
   job: Pick<Job, "id" | "status" | "phase" | "failure_reason" | "message" | "trigger"> | null;
 };
 
@@ -63,6 +65,8 @@ export type GenConfig = {
   topic_length: [number, number];
   /** Narration every run uses unless the request picks the other one (brand narration_language). */
   default_language: Narration;
+  /** The post's second item unless the request picks the other one (brand post_format). */
+  default_post_format: PostFormat;
 };
 
 export type GithubState = { ok: boolean; as_of: string };
@@ -76,6 +80,7 @@ export type GenerateRequest = {
   force: boolean;
   allow_duplicate: boolean;
   language: Narration | null;
+  post_format: PostFormat | null;
   confirm_quota: boolean;
   idempotency_key: string;
 };
@@ -93,6 +98,21 @@ export function narrationOptions(def: Narration): { value: Narration; label: str
   return (["hi", "en"] as Narration[])
     .sort((a, b) => Number(b === def) - Number(a === def))
     .map((v) => ({ value: v, label: v === def ? `${NARRATION_LABEL[v]} (default)` : NARRATION_LABEL[v] }));
+}
+
+/** A post is a reel plus a carousel, or plus an image reel: the cheat-sheet slide as a short video with music. */
+export type PostFormat = "carousel" | "image_reel";
+export const POST_FORMAT_LABEL: Record<PostFormat, string> = { carousel: "Carousel", image_reel: "Image reel" };
+export const POST_FORMAT_NOTE: Record<PostFormat, string> = {
+  carousel: "Reel plus a carousel of 5 to 7 slides.",
+  image_reel: "Reel plus the cheat-sheet slide as a 12-second reel with background music, posted instead of the carousel.",
+};
+
+/** Segment labels: the default format is marked so a change from it is a visible choice. */
+export function postFormatOptions(def: PostFormat): { value: PostFormat; label: string }[] {
+  return (["carousel", "image_reel"] as PostFormat[])
+    .sort((a, b) => Number(b === def) - Number(a === def))
+    .map((v) => ({ value: v, label: v === def ? `${POST_FORMAT_LABEL[v]} (default)` : POST_FORMAT_LABEL[v] }));
 }
 
 // ---------------------------------------------------------------------------

@@ -80,7 +80,7 @@ def delete_media(urls: list[str]) -> int:
 
 
 def upload_post(post_dir: Path, only: str | None = None, dry_run: bool = False) -> dict:
-    """Upload carousel slides / reel / cover from post_dir. Returns and saves media.json."""
+    """Upload carousel slides / reel / cover / image reel from post_dir. Returns and saves media.json."""
     rel = post_dir.resolve().relative_to(OUTPUT_DIR.resolve()).as_posix()  # <date>/<slug>
     base = f"{FOLDER}/{rel}"
     media_file = post_dir / "media.json"
@@ -88,11 +88,14 @@ def upload_post(post_dir: Path, only: str | None = None, dry_run: bool = False) 
 
     slides = sorted((post_dir / "carousel").glob("slide_*.png"))
     reel, cover = post_dir / "reel.mp4", post_dir / "reel_cover.jpg"
+    image_reel, image_cover = post_dir / "image_reel.mp4", post_dir / "image_reel_cover.jpg"
     plan = []
     if only in (None, "carousel"):
         plan += [("carousel", s) for s in slides]
     if only in (None, "reel"):
         plan += [("reel", p) for p in (reel, cover) if p.exists()]
+    if only in (None, "image"):
+        plan += [("image", p) for p in (image_reel, image_cover) if p.exists()]
     if not plan:
         raise FileNotFoundError(f"nothing to upload in {post_dir} (render first)")
 
@@ -111,6 +114,11 @@ def upload_post(post_dir: Path, only: str | None = None, dry_run: bool = False) 
         if cover.exists():
             media["cover"] = _upload(cover, f"{base}/reel_cover", "image")
         log.info("uploaded reel")
+    if only in (None, "image") and image_reel.exists():
+        media["image_reel"] = _upload(image_reel, f"{base}/image_reel", "video")
+        if image_cover.exists():
+            media["image_cover"] = _upload(image_cover, f"{base}/image_reel_cover", "image")
+        log.info("uploaded image reel")
     media_file.write_text(json.dumps(media, indent=2), encoding="utf-8")
     return media
 
@@ -118,7 +126,7 @@ def upload_post(post_dir: Path, only: str | None = None, dry_run: bool = False) 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Upload rendered media to Cloudinary")
     ap.add_argument("post_dir", type=Path)
-    ap.add_argument("--only", choices=["carousel", "reel"])
+    ap.add_argument("--only", choices=["carousel", "reel", "image"])
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
     media = upload_post(args.post_dir, args.only, args.dry_run)

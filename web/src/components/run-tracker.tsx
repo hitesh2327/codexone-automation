@@ -3,7 +3,7 @@ import { ExternalLink, RotateCcw, ScrollText } from "lucide-react";
 
 import { JobStatusBadge, PhaseTrack } from "@/components/phase-track";
 import { Button } from "@/components/ui/button";
-import { NARRATION_LABEL, elapsedSeconds, elapsedText, type GithubState, type Job } from "@/lib/generate-format";
+import { NARRATION_LABEL, POST_FORMAT_LABEL, elapsedSeconds, elapsedText, type GithubState, type Job } from "@/lib/generate-format";
 import { safeHref } from "@/lib/utils";
 import { formatIST } from "@/lib/posts";
 
@@ -92,6 +92,7 @@ export function RunTracker({ job, now, github, onRetry }: {
         <Fact label="Category">{job.topic_category ?? job.category ?? "Auto"}</Fact>
         <Fact label="Started by">{job.trigger === "scheduled" ? "Scheduler" : job.requested_by ?? "Dashboard"}</Fact>
         <Fact label="Narration">{NARRATION_LABEL[job.language] ?? "English"}</Fact>
+        <Fact label="With the reel">{POST_FORMAT_LABEL[job.post_format] ?? "Carousel"}</Fact>
         {job.topic && <div className="col-span-2 sm:col-span-4"><Fact label="Your topic">{job.topic}</Fact></div>}
       </dl>
 

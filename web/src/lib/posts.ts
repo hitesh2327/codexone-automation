@@ -1,7 +1,9 @@
 import { api } from "./api";
 
 export type Platform = "ig" | "yt";
-export type Kind = "carousel" | "reel";
+/** "image": an image reel, the cheat-sheet slide as a short video with music, posted instead of the carousel. */
+export type Kind = "carousel" | "reel" | "image";
+export const KIND_LABEL: Record<Kind, string> = { reel: "Reel", carousel: "Carousel", image: "Image reel" };
 export type Status =
   | "pending" | "approved" | "publishing" | "rejected" | "regenerate"
   | "replaced" | "published" | "failed" | "expired";
@@ -27,7 +29,7 @@ export type Item = {
   caption: string;
   hashtags: string[];
   caption_length: number;
-  media: { carousel?: string[]; reel?: string; cover?: string };
+  media: { carousel?: string[]; reel?: string; cover?: string; image_reel?: string; image_cover?: string };
   publish_at: string;
   targets: Platform[];
   allowed_targets: Platform[];
@@ -65,7 +67,7 @@ export type Group = {
   publish_at: string;
   created_at: string;
   versions: number;
-  items: { carousel: Item | null; reel: Item | null };
+  items: { carousel: Item | null; reel: Item | null; image?: Item | null };
 };
 
 export type PostsResponse = {

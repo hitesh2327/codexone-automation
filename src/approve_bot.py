@@ -146,12 +146,11 @@ def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "
     day = day or post_dir.parent.name
     slug = slug or post_dir.name
     out = []
-    for kind in ("carousel", "reel"):
+    keys = {"carousel": ("carousel",), "reel": ("reel", "cover"), "image": ("image_reel", "image_cover")}
+    for kind in ("carousel", "image", "reel"):
         if only and kind != only:
             continue
-        if kind == "carousel" and not media.get("carousel"):
-            continue
-        if kind == "reel" and not media.get("reel"):
+        if not media.get(keys[kind][0]):        # not rendered for this post (image reel replaces the carousel)
             continue
         out.append(q.Item(
             id=q.make_id(day, kind, slug, version), kind=kind, date=day,
@@ -162,8 +161,7 @@ def items_from_post(post_dir: Path, only: str | None = None, source_url: str = "
             voice=voice if kind == "reel" else "",
             language=content.language,  # on both items, so a Regenerate of either keeps it
             user_id=active_user_id.get(),
-            media={k: v for k, v in media.items()
-                   if (kind == "carousel" and k == "carousel") or (kind == "reel" and k in ("reel", "cover"))},
+            media={k: v for k, v in media.items() if k in keys[kind]},
         ))
     return out
 
@@ -176,10 +174,10 @@ def _control_text(item: q.Item, max_caption: int = 3500, max_total: int | None =
 
     Video captions are limited to 1024 chars in Telegram (automatically budgeted for reels).
     """
-    if item.kind == "reel" and max_total is None:
+    if item.kind != "carousel" and max_total is None:   # sent as a video caption
         max_total = 1020
 
-    kind = "🖼 CAROUSEL" if item.kind == "carousel" else "🎬 REEL"
+    kind = {"carousel": "🖼 CAROUSEL", "image": "🎵 IMAGE REEL"}.get(item.kind, "🎬 REEL")
     ver = f" · v{item.version}" if item.version > 1 else ""
     at = item_publish_at(item)
     when = (f"🕒 Posts as soon as you approve (the {at:%H:%M} IST slot has passed)\n"
@@ -276,7 +274,7 @@ async def _send_preview(item: q.Item) -> q.Item:
                                             caption=_control_text(item, max_total=1020),
                                             parse_mode=ParseMode.HTML, reply_markup=keyboard(item.id))
 
-            ctrl = await _with_upload_fallback(send_reel, item.media["reel"])
+            ctrl = await _with_upload_fallback(send_reel, item.video)
         ids.append(ctrl.message_id)
         item.tg_message_ids, item.tg_control_id = ids, ctrl.message_id
     return item
@@ -497,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p1 = sub.add_parser("preview", help="queue a rendered+uploaded post and send its previews")
     p1.add_argument("post_dir", type=Path)
-    p1.add_argument("--only", choices=["carousel", "reel"])
+    p1.add_argument("--only", choices=["carousel", "reel", "image"])
     p1.add_argument("--dry-run", action="store_true")
     p2 = sub.add_parser("poll", help="apply button presses / replies to the queue")
     p2.add_argument("--dry-run", action="store_true")

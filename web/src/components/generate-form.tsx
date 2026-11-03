@@ -16,10 +16,14 @@ import { ApiError } from "@/lib/api";
 import { checkTopic, requestGeneration } from "@/lib/generate";
 import { cn } from "@/lib/utils";
 import {
-  NARRATION_NOTE, SLOT_LABEL, narrationOptions, newIdempotencyKey, type GenConfig, type Job, type Narration, type Slot,
+  NARRATION_NOTE, POST_FORMAT_LABEL, POST_FORMAT_NOTE, SLOT_LABEL, narrationOptions, newIdempotencyKey, postFormatOptions,
+  type GenConfig, type Job, type Narration, type PostFormat, type Slot,
 } from "@/lib/generate-format";
 
-export type Prefill = { nonce: number; slot?: string; category?: string; topic?: string; source_url?: string; language?: Narration };
+export type Prefill = {
+  nonce: number; slot?: string; category?: string; topic?: string; source_url?: string; language?: Narration;
+  post_format?: PostFormat;
+};
 
 
 const AUTO = "auto";
@@ -53,6 +57,8 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
   const [allowDup, setAllowDup] = useState(false);
   const defaultLanguage: Narration = cfg.default_language ?? "en";
   const [language, setLanguage] = useState<Narration>(defaultLanguage);
+  const defaultFormat: PostFormat = cfg.default_post_format ?? "carousel";
+  const [format, setFormat] = useState<PostFormat>(defaultFormat);
   const [dup, setDup] = useState<{ title: string; date: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -67,6 +73,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
     if (prefill.topic !== undefined) setTopic(prefill.topic);
     if (prefill.source_url !== undefined) setUrl(prefill.source_url);
     setLanguage(prefill.language ?? defaultLanguage);
+    setFormat(prefill.post_format ?? defaultFormat);
     setForce(false);
     setAllowDup(false);
     setError(null);
@@ -104,10 +111,12 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
     try {
       const job = await requestGeneration({
         slot, category: category === AUTO ? null : category, topic: t || null, source_url: url.trim() || null,
-        force, allow_duplicate: allowDup, language, confirm_quota: !!quotaWarn, idempotency_key: key.current,
+        force, allow_duplicate: allowDup, language, post_format: format, confirm_quota: !!quotaWarn,
+        idempotency_key: key.current,
       });
       key.current = newIdempotencyKey();
-      setLanguage(defaultLanguage);  // the other narration is picked per run
+      setLanguage(defaultLanguage);  // the other narration and format are picked per run
+      setFormat(defaultFormat);
       toast.success("Request sent. Previews arrive in Telegram when it finishes.");
       onRequested(job);
     } catch (e) {
@@ -134,7 +143,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
       <div>
         <p className="label-mono mb-1.5">New request</p>
         <h2 id={`${uid}-title`} className="font-heading text-xl font-semibold tracking-tight">Generate now</h2>
-        <p className="mt-1 text-sm text-muted-foreground">One reel and one carousel. Nothing is posted until you approve it.</p>
+        <p className="mt-1 text-sm text-muted-foreground">One reel and {format === "image_reel" ? "one image reel" : "one carousel"}. Nothing is posted until you approve it.</p>
       </div>
 
       {blocked && (
@@ -192,6 +201,12 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
           <Label id={`${uid}-voice`} className="label-mono">Narration</Label>
           <Segmented<Narration> label="Narration" value={language} onChange={setLanguage} options={narrationOptions(defaultLanguage)} className="w-fit" />
           <Hint id={`${uid}-voice-note`}>{NARRATION_NOTE[language]}</Hint>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label id={`${uid}-format`} className="label-mono">With the reel</Label>
+          <Segmented<PostFormat> label="With the reel" value={format} onChange={setFormat} options={postFormatOptions(defaultFormat)} className="w-fit" />
+          <Hint id={`${uid}-format-note`}>{POST_FORMAT_NOTE[format]}</Hint>
         </div>
 
         <div className="grid gap-1.5">
@@ -264,6 +279,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
                   <li><span className="text-muted-foreground">Category:</span> {category === AUTO ? "Auto (by weight)" : category}</li>
                   <li><span className="text-muted-foreground">Topic:</span> {t || "Picked from today's trending topics"}</li>
                   <li><span className="text-muted-foreground">Narration:</span> {language === "hi" ? "Hinglish (Hindi voice, no subtitles)" : "English"}</li>
+                  <li><span className="text-muted-foreground">With the reel:</span> {format === "image_reel" ? "Image reel (cheat sheet + music)" : POST_FORMAT_LABEL.carousel}</li>
                   {url.trim() && <li className="break-all"><span className="text-muted-foreground">Link:</span> {url.trim()} (cited, not read)</li>}
                   {force && <li>Adds an extra post to a slot that has one or has long passed.</li>}
                 </ul>

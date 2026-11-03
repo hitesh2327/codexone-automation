@@ -134,7 +134,8 @@ def _fill_thumbs(overview: dict) -> None:
     except Exception:  # noqa: BLE001
         return
     for item in sec["items"]:
-        slides = (media.get(item.get("carousel_id")) or {}).get("carousel") if isinstance(media.get(item.get("carousel_id")), dict) else None
+        m = media.get(item.get("carousel_id"))
+        slides = (m.get("carousel") or ([m["image_cover"]] if m.get("image_cover") else None)) if isinstance(m, dict) else None
         if isinstance(slides, list) and slides and isinstance(slides[0], str) and slides[0].startswith("https://"):
             item["thumb"] = slides[0]
 

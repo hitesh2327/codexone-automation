@@ -191,7 +191,7 @@ def _publish_ig(item: q.Item) -> dict:
     if item.kind == "carousel":
         media_id = publish_carousel(item.media["carousel"], item.caption)
     else:
-        media_id = publish_reel(item.media["reel"], item.caption)
+        media_id = publish_reel(item.video, item.caption)      # a reel, or an image reel
     item.ig_media_id = media_id
     permalink = ""
     try:
@@ -204,7 +204,7 @@ def _publish_ig(item: q.Item) -> dict:
 def _publish_yt(item: q.Item) -> dict:
     if not yt.configured():
         return {"status": "skipped", "error": "YT_CLIENT_ID/YT_CLIENT_SECRET/YT_REFRESH_TOKEN not set"}
-    vid, url = yt.publish_reel(item.media["reel"], item.caption, title=item.yt_title,
+    vid, url = yt.publish_reel(item.video, item.caption, title=item.yt_title,
                                description=item.yt_description, audio_language=item.language)
     return {"status": "published", "id": vid, "url": url, "privacy": yt.privacy()}
 
@@ -273,7 +273,7 @@ def _publish_item(item: q.Item, dry_run: bool, platforms: tuple[str, ...], claim
         for p in todo:
             if p == "ig":
                 check()
-                urls = item.media.get("carousel", []) if item.kind == "carousel" else [item.media.get("reel")]
+                urls = item.media.get("carousel", []) if item.kind == "carousel" else [item.video]
                 for u in urls:
                     r = requests.head(u, timeout=20)
                     log.info("[dry-run] media %s → %s %s", u.rsplit("/", 1)[-1], r.status_code,
@@ -283,7 +283,7 @@ def _publish_item(item: q.Item, dry_run: bool, platforms: tuple[str, ...], claim
                 log.info("[dry-run] would publish %s %s to Instagram with %d-char caption",
                          item.kind, item.id, len(item.caption))
             elif yt.configured():
-                yt.publish_reel(item.media["reel"], item.caption, dry_run=True, title=item.yt_title,
+                yt.publish_reel(item.video, item.caption, dry_run=True, title=item.yt_title,
                                 description=item.yt_description, audio_language=item.language)
             else:
                 log.info("[dry-run] YouTube not configured (YT_* unset); would skip")

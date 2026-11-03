@@ -71,3 +71,12 @@ console.log("generate.test.mts: ok");
   assert.deepEqual(narrationOptions("hi"), [{ value: "hi", label: "Hinglish (default)" }, { value: "en", label: "English" }]);
   assert.deepEqual(narrationOptions("en"), [{ value: "en", label: "English (default)" }, { value: "hi", label: "Hinglish" }]);
 }
+
+// post format: carousel or image reel, the brand default first and marked
+{
+  const { POST_FORMAT_LABEL, POST_FORMAT_NOTE, postFormatOptions } = await import("../src/lib/generate-format.ts");
+  assert.deepEqual(Object.keys(POST_FORMAT_LABEL), ["carousel", "image_reel"]);
+  assert.match(POST_FORMAT_NOTE.image_reel, /music/);
+  assert.deepEqual(postFormatOptions("carousel"), [{ value: "carousel", label: "Carousel (default)" }, { value: "image_reel", label: "Image reel" }]);
+  assert.deepEqual(postFormatOptions("image_reel"), [{ value: "image_reel", label: "Image reel (default)" }, { value: "carousel", label: "Carousel" }]);
+}

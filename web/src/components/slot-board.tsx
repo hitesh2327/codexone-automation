@@ -81,7 +81,7 @@ export function SlotBoard({ slots, lateLimit, onPick, pickDisabled, picked }: {
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           {(["reel", "carousel"] as const).map((k) => s.items[k] && (
                             <span key={k} className="inline-flex items-center gap-1.5">
-                              {k === "reel" ? "Reel" : "Carousel"}
+                              {k === "reel" ? "Reel" : s.items[k]!.kind === "image" ? "Image reel" : "Carousel"}
                               <StatusBadge status={s.items[k]!.status as Status} short />
                             </span>
                           ))}

@@ -10,13 +10,14 @@ Mounted under /api (signed in + CSRF on writes, see main.py).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.app.deps import CurrentUser, current_user
 from api.app.ratelimit import RateLimiter
-from src import activity, approve_bot, generation, github_actions, plan_limits
+from src import activity, approve_bot, generation, github_actions, image_reel, plan_limits
 from src import queue_store as q
 from src.actions import publishing_enabled
 from src.approve_bot import IST
@@ -85,6 +86,7 @@ class GenerateBody(BaseModel):
     force: bool = False                             # extra post for a slot that has one / a slot long past
     allow_duplicate: bool = False
     language: Language | None = None                # reel narration: hi Hinglish / en English; None = brand default
+    post_format: Literal["carousel", "image_reel"] | None = None   # second item; None = brand post_format
     confirm_quota: bool = False                     # go ahead although Gemini's quota ran out recently
     idempotency_key: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
@@ -159,6 +161,7 @@ def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
         "publishing_enabled": publishing_enabled(), "telegram_sync": approve_bot.sync_enabled(),
         "topic_length": [5, 120],
         "default_language": default_narration(),   # the Generate page preselects it
+        "default_post_format": image_reel.default_format(),
     }
 
 
@@ -195,7 +198,7 @@ def get_slots(days: int = Query(2, ge=1, le=3), cu: CurrentUser = Depends(curren
                 state = job["status"]
             else:
                 state = "upcoming" if hours_late < 0 else "late" if hours_late <= generation.LATE_LIMIT_HOURS else "stale"
-            reel, carousel = _current(there, "reel"), _current(there, "carousel")
+            reel, carousel = _current(there, "reel"), _current(there, "carousel") or _current(there, "image")
             head = reel or carousel
             out.append({
                 "slot_at": at.isoformat(), "time": hhmm, "date": day.isoformat(),
@@ -204,7 +207,7 @@ def get_slots(days: int = Query(2, ge=1, le=3), cu: CurrentUser = Depends(curren
                 "can_generate": offset == 0 and state != "generated" and state != "generating",
                 "group_id": head.group_id if head else None, "topic": head.topic if head else None,
                 "category": head.category if head else None,
-                "items": {k: {"id": v.id, "status": v.status} if v else None
+                "items": {k: {"id": v.id, "status": v.status, "kind": v.kind} if v else None
                           for k, v in (("reel", reel), ("carousel", carousel))},
                 "job": {k: job[k] for k in ("id", "status", "phase", "failure_reason", "message", "trigger")} if job else None,
             })
@@ -305,7 +308,8 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
         job = generation.create(trigger="dashboard", requested_by=_actor(user), slot_at=slot_at, category=body.category,
                                 topic=body.topic, source_url=body.source_url, force=body.force,
                                 allow_duplicate=body.allow_duplicate, idempotency_key=body.idempotency_key,
-                                language=body.language or default_narration(), user_id=user.id)
+                                language=body.language or default_narration(), user_id=user.id,
+                                post_format=body.post_format or image_reel.default_format())
     except generation.Replay as r:  # two identical requests raced: the first one owns the dispatch
         response.status_code = status.HTTP_200_OK
         return r.job
@@ -318,7 +322,8 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                     source="generate", actor=_actor(user),
                     detail={"request_id": job["id"], "slot": slot_at.isoformat(), "category": body.category,
                             "topic": body.topic, "source_url": body.source_url, "force": body.force,
-                            "language": body.language or default_narration()})
+                            "language": body.language or default_narration(),
+                            "post_format": body.post_format or image_reel.default_format()})
     # The slot the API validated (taken/stale) and showed, not "auto": a run that waits in the queue past the
     # 30-minute lead would otherwise resolve "auto" to the NEXT slot (QA-L-10).
     inputs = {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": body.category or "", "topic": body.topic or "",
