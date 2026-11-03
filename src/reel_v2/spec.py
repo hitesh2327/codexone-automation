@@ -37,7 +37,9 @@ MAX_WORDS = 75          # Hard ceiling (~30s with brand voices at +6%; prompt in
 # above that still fits the layout).
 HEADING_MAX, CAPTION_MAX, TERM_MAX, LABEL_MAX = 22, 44, 34, 14
 # The cheat-sheet code box shrinks its font to fit (templates/reel_v2/carousel.html), down to 15px.
-CODE_LINES, CODE_WIDTH = 6, 64
+# 8 x 64 still renders at the full 22px with the longest bullets and a 4-row table (measured 3 Nov);
+# 10 lines fit only at 18px.
+CODE_LINES, CODE_WIDTH = 8, 64
 MAX_WORDS_HI = 60       # Hinglish: the Hindi voices speak ~2.3 words/s vs ~2.8 (docs/specs/hinglish-narration-plan.md §7)
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 TRIGGER_STRIP = ".,?!'\"।"   # Hindi sentences end in । (danda)
@@ -118,7 +120,7 @@ class Cheat(BaseModel):
     use_when: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     tradeoffs: list[str] = Field(description="Exactly 3 bullets, max 6 words each")
     code_title: str = Field(description="UPPERCASE, max 30 chars, e.g. 'THE SWITCH IN KUBERNETES'")
-    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-6 lines, max 60 chars per line")
+    code: str = Field(description="Real, correct snippet (or, for non-code topics, a short template), 1-8 lines, max 60 chars per line")
     compare: Compare
 
 
@@ -391,15 +393,18 @@ def _cut(text: str, limit: int, measure=len) -> str:
 
 
 _COMMENT = re.compile(r"\s+(#|//)\s.*$")
+_COMMENT_LINE = re.compile(r"^\s*(#(?![!\w])|//)")      # "# note" or "// note"; not #!/bin/sh or #include
 
 
 def _repair_code(code: str) -> str:
     """Make a snippet fit the code box without changing what it does: trailing spaces and (if over CODE_LINES)
-    blank lines go; on a line over CODE_WIDTH, a trailing # or // comment goes (only when the quotes before it
+    blank and comment-only lines go; on a line over CODE_WIDTH, a trailing # or // comment goes (only when the quotes before it
     are balanced, so it isn't inside a string), then 4-space indents become 2. Real code is never cut."""
     lines = [l.rstrip() for l in code.strip("\n").splitlines()]
     if len(lines) > CODE_LINES:
         lines = [l for l in lines if l.strip()]
+    if len(lines) > CODE_LINES:
+        lines = [l for l in lines if not _COMMENT_LINE.match(l)]
     out = []
     for l in lines:
         if len(l) > CODE_WIDTH and (m := _COMMENT.search(l)):
@@ -410,6 +415,34 @@ def _repair_code(code: str) -> str:
     if any(len(l) > CODE_WIDTH for l in out):
         out = [" " * ((len(l) - len(l.lstrip(" "))) // 2) + l.lstrip(" ") for l in out]
     return "\n".join(out)
+
+
+class Snippet(BaseModel):
+    code: str
+
+
+def _code_only(issues: list[str]) -> bool:
+    return bool(issues) and all(i.startswith("cheat.code:") for i in issues)
+
+
+def shrink_code(s: SceneSpec, topic: str) -> bool:
+    """Ask for just the snippet again, shorter, when it is the only thing wrong (2 Nov: a 7-line topological
+    sort failed all 3 full rewrites). A focused request fits far more often than redrafting the whole spec.
+    Applies the new snippet and returns True only if it fits."""
+    prompt = (f"This code snippet for a cheat sheet on \"{topic}\" is too long for the code box. Rewrite it in at "
+              f"most {CODE_LINES} lines of at most 60 characters. Keep it real, working code that does the same "
+              "thing (shorter names, fewer comments, combine simple statements); no '...' placeholders, no "
+              f"markdown fences.\n\n{s.cheat.code}")
+    try:
+        code = _repair_code(generate_json(prompt, Snippet, temperature=0.2).code)
+    except Exception as e:                                      # noqa: BLE001 - fall back to a full rewrite
+        log.warning("snippet shrink failed: %s", e)
+        return False
+    lines = code.splitlines()
+    if not lines or len(lines) > CODE_LINES or any(len(l) > CODE_WIDTH for l in lines):
+        return False
+    s.cheat.code = code
+    return True
 
 
 def repair(s: SceneSpec) -> list[str]:
@@ -483,6 +516,9 @@ def generate(topic: str, category: str = "", angle: str = "", feedback: str = ""
         if fixed := repair(spec):
             log.info("attempt %d: repaired %s", attempt, "; ".join(fixed))
         issues = validate(spec, language)
+        if _code_only(issues) and shrink_code(spec, topic):
+            log.info("attempt %d: shortened the cheat-sheet snippet", attempt)
+            issues = validate(spec, language)
         if not issues and attempt < ATTEMPTS:
             review = generate_json(_review_prompt(spec, language), Review, temperature=0.2)
             issues = [] if review.ok else review.issues
