@@ -48,7 +48,7 @@ carousel: { size: "1080x1350", slides: "5-7" }
 # A post is a reel plus, as its second item, either a carousel or an image reel: the carousel's last slide
 # (the cheat sheet, everything on one page) as a short video with background music, published as a Reel.
 # This is the default; the dashboard's Generate page can choose per post. carousel | image_reel
-post_format: carousel
+post_format: image_reel
 image_reel:
   duration_sec: 12
   music: brand/music              # MP3s; the category's mood track if it exists, else one picked per post
