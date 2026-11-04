@@ -74,6 +74,7 @@ def _user_out(u: User, csrf: str) -> dict:
         "has_password": bool(u.password_hash),
         "avatar_v": avatar_version(u),
         "config_completed": bool(u.config_completed),
+        "role": u.role or "client",
         "subscription_tier": u.subscription_tier or "free",
         "subscription_status": u.subscription_status or "active",
         "taste": u.taste or {
@@ -134,6 +135,7 @@ def signup(body: SignupBody, request: Request, response: Response, background_ta
             email=email,
             name=name or username,
             password_hash=hash_password(body.password),
+            role="client",
             config_completed=False,
             subscription_tier="free",
             subscription_status="active",
@@ -263,6 +265,7 @@ async def google_callback(request: Request, background_tasks: BackgroundTasks):
             user = User(
                 email=email,
                 name=info.get("name") or "",
+                role="client",
                 via_google=True,
                 email_verified_at=datetime.now(timezone.utc),
                 config_completed=False,

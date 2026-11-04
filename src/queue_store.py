@@ -156,9 +156,9 @@ def _valid_items(rows, convert) -> list[Item]:
     return out
 
 
-def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = None) -> list[Item]:
-    """Queue items, oldest first. `statuses` / `group_ids` narrow it in the query (QA-M-08: the table grows forever,
-    so request paths read only what they need)."""
+def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = None,
+         user_id: int | None = None) -> list[Item]:
+    """Queue items, oldest first. `statuses` / `group_ids` / `user_id` narrow it in the query."""
     if db.enabled():
         from sqlalchemy import select
         from src.db.models import Post
@@ -167,28 +167,33 @@ def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = 
             stmt = stmt.where(Post.status.in_(statuses))
         if group_ids is not None:
             stmt = stmt.where(Post.group_id.in_(group_ids))
+        if user_id is not None:
+            stmt = stmt.where(Post.user_id == user_id)
         with db.session() as s:
             return _valid_items(s.scalars(stmt), _from_row)
     if not QUEUE_FILE.exists():
         return []
     items = _valid_items(json.loads(QUEUE_FILE.read_text(encoding="utf-8") or "[]"), Item.model_validate)
     return [i for i in items if (statuses is None or i.status in statuses)
-            and (group_ids is None or i.group_id in group_ids)]
+            and (group_ids is None or i.group_id in group_ids)
+            and (user_id is None or i.user_id == user_id)]
 
 
-def load_window(start: datetime, end: datetime) -> list[Item]:
+def load_window(start: datetime, end: datetime, user_id: int | None = None) -> list[Item]:
     """Items whose slot (publish_at) is within [start, end]."""
     if db.enabled():
         from sqlalchemy import select
         from src.db.models import Post
+        stmt = select(Post).where(Post.publish_at >= start, Post.publish_at <= end).order_by(Post.created_at)
+        if user_id is not None:
+            stmt = stmt.where(Post.user_id == user_id)
         with db.session() as s:
-            return _valid_items(s.scalars(select(Post).where(Post.publish_at >= start, Post.publish_at <= end)
-                                          .order_by(Post.created_at)), _from_row)
-    return [i for i in load() if i.publish_at and start <= datetime.fromisoformat(i.publish_at) <= end]
+            return _valid_items(s.scalars(stmt), _from_row)
+    return [i for i in load(user_id=user_id) if i.publish_at and start <= datetime.fromisoformat(i.publish_at) <= end]
 
 
 _LIGHT = ("id", "kind", "date", "topic", "category", "status", "version", "publish_at", "created_at", "group_id",
-          "targets", "post_dir")
+          "targets", "post_dir", "user_id")
 _STATUSES = frozenset(get_args(Status))
 
 
@@ -207,6 +212,7 @@ class Light:
     created_dt: datetime | None
     group_id: str
     targets: list[str] | None
+    user_id: int | None = None
 
     @property
     def publish_at(self) -> str | None:
@@ -222,10 +228,10 @@ class Light:
         return [p for p in (self.targets if self.targets is not None else allowed) if p in allowed]
 
 
-def load_light() -> list[Light]:
+def load_light(user_id: int | None = None) -> list[Light]:
     """Every item, light (QA-M-08: the Posts list pages over these and reads full items only for its page)."""
     if not db.enabled():
-        return load()  # type: ignore[return-value] -- file mode is small; full items have the same attributes
+        return load(user_id=user_id)  # type: ignore[return-value]
     from sqlalchemy import select
     from src.db.models import Post
 
@@ -234,22 +240,34 @@ def load_light() -> list[Light]:
             raise ValueError(f"unknown status/kind {r.status!r}/{r.kind!r}")
         return Light(r.id, r.kind, r.date.isoformat(), r.topic or "", r.category or "", r.status, r.version or 1,
                      r.publish_at, r.created_at, r.group_id or group_of(r.post_dir or "", r.date.isoformat()),
-                     r.targets if isinstance(r.targets, list) else None)
+                     r.targets if isinstance(r.targets, list) else None,
+                     getattr(r, "user_id", None))
+    stmt = select(*(getattr(Post, c) for c in _LIGHT)).order_by(Post.created_at)
+    if user_id is not None:
+        stmt = stmt.where(Post.user_id == user_id)
     with db.session() as s:
-        return _valid_items(s.execute(select(*(getattr(Post, c) for c in _LIGHT)).order_by(Post.created_at)), convert)
+        return _valid_items(s.execute(stmt), convert)
 
 
-def recent_topic_rows(limit: int) -> list[tuple[str, str]]:
+def recent_topic_rows(limit: int, user_id: int | None = None) -> list[tuple[str, str]]:
     """(title, date) of the newest posts, then of the newest publishing records; newest first, bounded."""
     if db.enabled():
         from sqlalchemy import select
         from src.db.models import Post, PostedTopic
         with db.session() as s:
-            posts = s.execute(select(Post.topic, Post.date).order_by(Post.created_at.desc()).limit(limit * 3)).all()
-            hist = s.execute(select(PostedTopic.title, PostedTopic.date)
-                             .order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)).all()
+            p_stmt = select(Post.topic, Post.date).order_by(Post.created_at.desc()).limit(limit * 3)
+            if user_id is not None:
+                p_stmt = p_stmt.where(Post.user_id == user_id)
+            posts = s.execute(p_stmt).all()
+            if user_id is not None:
+                h_stmt = select(PostedTopic.title, PostedTopic.date).join(Post, PostedTopic.item_id == Post.id) \
+                    .where(Post.user_id == user_id).order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
+            else:
+                h_stmt = select(PostedTopic.title, PostedTopic.date) \
+                    .order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
+            hist = s.execute(h_stmt).all()
         return [(t or "", d.isoformat() if d else "") for t, d in [*posts, *hist]]
-    rows = [(i.topic, i.date) for i in sorted(load(), key=lambda i: i.created_at, reverse=True)]
+    rows = [(i.topic, i.date) for i in sorted(load(user_id=user_id), key=lambda i: i.created_at, reverse=True)]
     return rows + [(p.get("title", ""), p.get("date") or "") for p in reversed(posted_entries())]
 
 
@@ -300,14 +318,17 @@ def update_if(item: Item, from_status: str | tuple[str, ...]) -> bool:
     return True
 
 
-def get(item_id: str) -> Item | None:
+def get(item_id: str, user_id: int | None = None) -> Item | None:
     if db.enabled():
         from src.db.models import Post
         with db.session() as s:
             row = s.get(Post, item_id)
+            if row and user_id is not None and row.user_id != user_id:
+                return None
             found = _valid_items([row], _from_row) if row else []
             return found[0] if found else None
-    return next((i for i in load() if i.id == item_id), None)
+    items = [i for i in load(user_id=user_id) if i.id == item_id]
+    return items[0] if items else None
 
 
 # --------------------------------------------------------------------------- #

@@ -20,6 +20,7 @@ class CurrentUser:
     email: str | None
     name: str
     csrf: str
+    role: str = "client"
 
 
 def access_allowed(user: User) -> bool:
@@ -38,7 +39,7 @@ def current_user(request: Request) -> CurrentUser:
         user = s.get(User, int(claims["sub"]))
         if not user or not user.is_active or user.token_version != claims["tv"] or not access_allowed(user):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired")
-        return CurrentUser(user.id, user.username, user.email, user.name, claims["csrf"])
+        return CurrentUser(user.id, user.username, user.email, user.name, claims["csrf"], user.role or "client")
 
 
 def require_csrf(request: Request, user: CurrentUser = Depends(current_user)) -> CurrentUser:

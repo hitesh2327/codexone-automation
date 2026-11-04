@@ -38,6 +38,7 @@ CACHE_SECONDS = 15
 # without a bound every failed post ever made was read and aggregated on each refresh (QA-M-09).
 OPEN_LOOKBACK_DAYS = 30
 LIMIT_PER_MIN = 30
+CACHE_MAX_ITEMS = 500
 _limiter = RateLimiter()
 _cache: dict[tuple, tuple[float, bytes, str]] = {}
 _lock = threading.Lock()
@@ -51,7 +52,7 @@ def demo_enabled() -> bool:
     return not settings().cookie_secure
 
 
-def _config() -> Config:
+def _config(user_id: int | None = None) -> Config:
     try:
         brand = load_brand() or {}
     except Exception:  # noqa: BLE001 -- a broken brand setting must not blank the page
@@ -59,12 +60,29 @@ def _config() -> Config:
         brand = {}
     weights = {str(k): float(v) for k, v in (brand.get("topics_weight") or {}).items()}
     slots = [str(s) for s in (brand.get("post_times_ist") or [])]
+    handle = str(brand.get("handle") or "")
+    if user_id and db.enabled():
+        try:
+            from src.db.models import User
+            with db.session() as s:
+                u = s.get(User, user_id)
+                if u:
+                    taste = u.taste or {}
+                    cadence = u.cadence or {}
+                    if cadence.get("slots"):
+                        slots = [str(x) for x in cadence["slots"]]
+                    if taste.get("handle"):
+                        handle = str(taste["handle"])
+                    elif u.username:
+                        handle = u.username
+        except Exception:
+            pass
     from src.publish import MAX_ATTEMPTS  # noqa: PLC0415
-    return Config(slots=slots, weights=weights, max_attempts=MAX_ATTEMPTS, handle=str(brand.get("handle") or ""),
+    return Config(slots=slots, weights=weights, max_attempts=MAX_ATTEMPTS, handle=handle,
                   demo_enabled=demo_enabled())
 
 
-def _load_posts(now: datetime, days: int) -> list[PostRow] | None:
+def _load_posts(now: datetime, days: int, user_id: int | None = None) -> list[PostRow] | None:
     since = now - timedelta(days=days + 8)
     cols = (Post.id, Post.kind, Post.group_id, Post.topic, Post.category, Post.status, Post.version, Post.publish_at,
             Post.created_at, Post.decided_at, Post.published_at, Post.updated_at, Post.attempts, Post.platforms,
@@ -75,6 +93,8 @@ def _load_posts(now: datetime, days: int) -> list[PostRow] | None:
              Post.updated_at >= now - timedelta(days=OPEN_LOOKBACK_DAYS)),
         and_(Post.status == "expired", Post.updated_at >= now - timedelta(days=8)),
     ))
+    if user_id is not None:
+        stmt = stmt.where(Post.user_id == user_id)
     try:
         with db.session() as s:
             return [PostRow(id=r.id, kind=r.kind, status=r.status, group_id=r.group_id or "", topic=r.topic or "",
@@ -89,12 +109,14 @@ def _load_posts(now: datetime, days: int) -> list[PostRow] | None:
         return None
 
 
-def _load_jobs(now: datetime) -> list[JobRow] | None:
+def _load_jobs(now: datetime, user_id: int | None = None) -> list[JobRow] | None:
     """The table is new and may not exist yet: that is 'unavailable', not an error."""
     try:
         with db.session() as s:
             stmt = select(GenerationJob.id, GenerationJob.status, GenerationJob.created_at, GenerationJob.trigger,
                           GenerationJob.failure_reason).where(GenerationJob.created_at >= now - timedelta(days=90))
+            if user_id is not None:
+                stmt = stmt.where(GenerationJob.user_id == user_id)
             return [JobRow(id=r.id, status=r.status, created_at=r.created_at, trigger=r.trigger,
                            failure_reason=r.failure_reason) for r in s.execute(stmt)]
     except Exception:  # noqa: BLE001
@@ -102,16 +124,19 @@ def _load_jobs(now: datetime) -> list[JobRow] | None:
         return None
 
 
-def _load_events(now: datetime, days: int) -> list[EventRow] | None:
+def _load_events(now: datetime, days: int, user_id: int | None = None) -> list[EventRow] | None:
     cols = (ActivityLog.id, ActivityLog.created_at, ActivityLog.event, ActivityLog.source, ActivityLog.level,
             ActivityLog.message, ActivityLog.post_id)
     try:
         with db.session() as s:
-            feed = s.execute(select(*cols).where(ActivityLog.event.in_(sorted(FEED_EVENTS)))
-                             .order_by(ActivityLog.id.desc()).limit(FEED_SIZE)).all()
-            appr = s.execute(select(*cols).where(ActivityLog.event.in_(sorted(APPROVAL_EVENTS)),
-                                                 ActivityLog.created_at >= now - timedelta(days=days + 1))
-                             .order_by(ActivityLog.id.desc()).limit(1500)).all()
+            stmt_feed = select(*cols).where(ActivityLog.event.in_(sorted(FEED_EVENTS)))
+            stmt_appr = select(*cols).where(ActivityLog.event.in_(sorted(APPROVAL_EVENTS)),
+                                             ActivityLog.created_at >= now - timedelta(days=days + 1))
+            if user_id is not None:
+                stmt_feed = stmt_feed.where(ActivityLog.user_id == user_id)
+                stmt_appr = stmt_appr.where(ActivityLog.user_id == user_id)
+            feed = s.execute(stmt_feed.order_by(ActivityLog.id.desc()).limit(FEED_SIZE)).all()
+            appr = s.execute(stmt_appr.order_by(ActivityLog.id.desc()).limit(1500)).all()
         seen: dict[int, EventRow] = {}
         for r in [*feed, *appr]:
             seen[r.id] = EventRow(id=r.id, created_at=r.created_at, event=r.event, source=r.source, level=r.level,
@@ -140,13 +165,13 @@ def _fill_thumbs(overview: dict) -> None:
             item["thumb"] = slides[0]
 
 
-def compute(workspace: str, days: int, now: datetime | None = None) -> dict:
+def compute(workspace: str, days: int, now: datetime | None = None, user_id: int | None = None) -> dict:
     now = aware(now or datetime.now(timezone.utc))
     if workspace == "demo":
         posts, jobs, events, cfg = dashboard_demo.build_demo(now)   # no database access on this path
         return build_overview(posts, jobs, events, now=now, cfg=cfg, days=days, workspace="demo")
-    cfg = _config()
-    out = build_overview(_load_posts(now, days), _load_jobs(now), _load_events(now, days), now=now, cfg=cfg,
+    cfg = _config(user_id)
+    out = build_overview(_load_posts(now, days, user_id), _load_jobs(now, user_id), _load_events(now, days, user_id), now=now, cfg=cfg,
                          days=days, workspace="live")
     _fill_thumbs(out)
     return out
@@ -173,13 +198,21 @@ def overview(request: Request, user: CurrentUser = Depends(current_user),
                             headers={"Retry-After": str(wait)})
     _limiter.hit(key)
 
-    ck = (workspace, range_)
+    ck = (user.id, workspace, range_)
     with _lock:
         hit = _cache.get(ck)
     if not hit or time.monotonic() - hit[0] > CACHE_SECONDS:
-        body, etag = _encode(compute(workspace, range_))
+        body, etag = _encode(compute(workspace, range_, user_id=user.id))
         hit = (time.monotonic(), body, etag)
         with _lock:
+            if len(_cache) >= CACHE_MAX_ITEMS:
+                now = time.monotonic()
+                expired = [k for k, v in _cache.items() if now - v[0] > CACHE_SECONDS]
+                for k in expired:
+                    _cache.pop(k, None)
+                if len(_cache) >= CACHE_MAX_ITEMS:
+                    oldest = min(_cache.keys(), key=lambda k: _cache[k][0])
+                    _cache.pop(oldest, None)
             _cache[ck] = hit
     _, body, etag = hit
     headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}

@@ -104,11 +104,13 @@ export default {
     // 7. Enforce multi-CDN and edge cache restrictions on API responses
     const responseHeaders = new Headers(response.headers);
     if (url.pathname.startsWith("/api/")) {
-      responseHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
       responseHeaders.set("CDN-Cache-Control", "no-store");
       responseHeaders.set("Cloudflare-CDN-Cache-Control", "no-store");
       responseHeaders.set("Surrogate-Control", "no-store");
-      responseHeaders.set("Pragma", "no-cache");
+      if (!response.headers.has("ETag")) {
+        responseHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+        responseHeaders.set("Pragma", "no-cache");
+      }
     }
 
     // 8. Asynchronous background auditing/metrics via ctx.waitUntil
@@ -118,6 +120,11 @@ export default {
           if (response.status >= 400) {
             console.warn(`[Payment Audit] ${request.method} ${url.pathname} -> ${response.status}`);
           }
+        } else if (
+          response.status === 403 ||
+          (response.status === 404 && (url.pathname.startsWith("/api/posts/") || url.pathname.startsWith("/api/generate/jobs/")))
+        ) {
+          console.warn(`[Access Audit] Unauthorized or cross-tenant attempt: ${request.method} ${url.pathname} -> ${response.status} from ${clientIp || "unknown"}`);
         } else if (response.status >= 500) {
           console.error(`Upstream error: ${request.method} ${url.pathname} -> ${response.status}`);
         }

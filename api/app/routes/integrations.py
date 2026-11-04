@@ -37,7 +37,7 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
     data = user_config_store.snapshot(cu.id)
     return {
         "values": {
-            k: {"set": v is not None, "masked": _mask(k, v)}
+            k: {"set": data.get(k) is not None, "masked": _mask(k, data.get(k))}
             for k in PER_USER_FIELD_NAMES
             if (f := FIELDS_BY_NAME.get(k)) and not f.advanced
         }

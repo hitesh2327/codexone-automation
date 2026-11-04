@@ -140,7 +140,7 @@ class User(Base):
     billing_gstin: Mapped[str | None] = mapped_column(String(15))
     # Config completion gate flag (QA Task 2)
     config_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    role: Mapped[str] = mapped_column(String(16), default="admin", server_default="admin")
+    role: Mapped[str] = mapped_column(String(16), default="client", server_default="client")
 
 
 class OtpCode(Base):

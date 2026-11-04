@@ -420,9 +420,9 @@ export default function ConfigPage() {
   const [confirm, setConfirm] = useState<Confirm>(null);
   const location = useLocation();
   const isOnboarding = user?.config_completed === false || !!(location.state as { onboarding?: boolean })?.onboarding;
-  const isAdmin = user?.role === "admin" || !user?.role;
+  const isAdmin = user?.role === "admin" || user?.role === "owner";
 
-  const load = useCallback(() => getOverview().then((d) => { setData(d); setError(null); }).catch((x) => setError(errText(x, "Couldn't load the configuration."))), []);
+  const load = useCallback(() => { if (!isAdmin) return; getOverview().then((d) => { setData(d); setError(null); }).catch((x) => setError(errText(x, "Couldn't load the configuration."))); }, [isAdmin]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {  // deep links like /config#telegram
     if (!data || !location.hash) return;

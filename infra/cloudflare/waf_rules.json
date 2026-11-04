@@ -85,6 +85,17 @@
         "requests_per_period": 10,
         "mitigation_timeout": 300
       }
+    },
+    {
+      "description": "Protect /api/integrations from credential rotation flooding",
+      "expression": "(http.request.uri.path starts_with \"/api/integrations\" and http.request.method in {\"PUT\", \"POST\"})",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 300
+      }
     }
   ]
 }

@@ -25,11 +25,12 @@ from src.config import Language, default_narration, get_env, load_brand
 
 
 def require_admin(user: CurrentUser = Depends(current_user)) -> CurrentUser:
-    """The one place to enforce a role once there is more than one kind of user (today: signed in = admin)."""
+    if user.role not in ("owner", "admin"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
     return user
 
 
-router = APIRouter(prefix="/generate", tags=["generate"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/generate", tags=["generate"])
 
 limiter = RateLimiter()
 RATE_LIMIT, RATE_WINDOW = 5, 60          # requests per user per minute
@@ -178,8 +179,8 @@ def _current(items: list[q.Item], kind: str) -> q.Item | None:
 def get_slots(days: int = Query(2, ge=1, le=3), cu: CurrentUser = Depends(current_user)) -> dict:
     now = datetime.now(IST)
     first = approve_bot.slot_at(now.date().isoformat(), "00:00")
-    items = q.load_window(first, first + timedelta(days=days + 1))  # only these days' slots (QA-M-08)
-    jobs = generation.since(now.astimezone(timezone.utc) - timedelta(days=2))
+    items = q.load_window(first, first + timedelta(days=days + 1), user_id=cu.id)  # only these days' slots (QA-M-08)
+    jobs = generation.since(now.astimezone(timezone.utc) - timedelta(days=2), user_id=cu.id)
     slots = _user_slots(cu)
     out = []
     for offset in range(days):
@@ -215,38 +216,38 @@ def get_slots(days: int = Query(2, ge=1, le=3), cu: CurrentUser = Depends(curren
 
 
 @router.get("/jobs")
-def list_jobs(limit: int = Query(20, ge=1, le=50)) -> dict:
+def list_jobs(limit: int = Query(20, ge=1, le=50), cu: CurrentUser = Depends(current_user)) -> dict:
     reachable = True
-    if live := generation.active():
+    if live := generation.active(user_id=cu.id):
         _, reachable = generation.reconcile(live)
-    jobs = generation.recent(limit)
+    jobs = generation.recent(limit, user_id=cu.id)
     return {"jobs": jobs, "active": next((j for j in jobs if j["active"]), None), "github": _github_state(reachable)}
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str) -> dict:
+def get_job(job_id: str, cu: CurrentUser = Depends(current_user)) -> dict:
     job = generation.get(job_id)
-    if not job:
+    if not job or (cu.role not in ("owner", "admin") and job.get("user_id") and job.get("user_id") != cu.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     job, reachable = generation.reconcile(job)
     return {"job": job, "github": _github_state(reachable)}
 
 
 @router.get("/for-group")
-def job_for_group(group_id: str = Query(..., min_length=1, max_length=120)) -> dict:
+def job_for_group(group_id: str = Query(..., min_length=1, max_length=120), cu: CurrentUser = Depends(current_user)) -> dict:
     """Which request generated a post group (shown in the Posts panel), or null for older posts."""
-    job = generation.for_group(group_id)
+    job = generation.for_group(group_id, user_id=cu.id if cu.role not in ("owner", "admin") else None)
     return {"job": {k: job[k] for k in ("id", "trigger", "requested_by", "created_at", "status")} if job else None}
 
 
 @router.get("/check")
-def check_topic(topic: str = Query(..., max_length=400)) -> dict:
+def check_topic(topic: str = Query(..., max_length=400), cu: CurrentUser = Depends(current_user)) -> dict:
     """Is this topic a repeat of a recent post? (Shown while the admin types, before they submit.)"""
     try:
         clean = generation.clean_topic(topic)
     except ValueError:
         clean = None
-    dup = generation.find_duplicate(clean) if clean else None
+    dup = generation.find_duplicate(clean, user_id=cu.id) if clean else None
     return {"duplicate": {"title": dup[0], "date": dup[1]} if dup else None}
 
 
@@ -254,7 +255,7 @@ def check_topic(topic: str = Query(..., max_length=400)) -> dict:
 # Start a run
 # --------------------------------------------------------------------------- #
 @router.post("", status_code=status.HTTP_201_CREATED)
-def request_generation(body: GenerateBody, response: Response, user: CurrentUser = Depends(require_admin)) -> dict:
+def request_generation(body: GenerateBody, response: Response, user: CurrentUser = Depends(current_user)) -> dict:
     if not github_actions.configured():
         raise _fail(503, "not_configured", "Generation can't be started from the dashboard until the GitHub "
                     "token is configured. Scheduled runs still happen.")
@@ -275,7 +276,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                             detail={"code": e.code, "message": e.message, **e.extra}) from None
 
     now = datetime.now(IST)
-    if live := generation.active():
+    if live := generation.active(user_id=user.id):
         live, _ = generation.reconcile(live)  # a dead job must not block the form forever
         if live["active"]:
             raise _fail(409, "job_active", "A generation is already running.", job=live)
@@ -294,14 +295,14 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
 
     slot_at = approve_bot.next_slot(now) if body.slot == "auto" else approve_bot.slot_at(now.date().isoformat(), body.slot)
     if not body.force:
-        taken = bool(q.load_window(slot_at, slot_at))
+        taken = bool(q.load_window(slot_at, slot_at, user_id=user.id))
         state = generation.slot_state(slot_at, now, taken)
         if state == "taken":
             raise _fail(409, "slot_taken", f"The {slot_at:%H:%M} slot already has a post. Tick “extra post” to add another.")
         if state == "stale":
             raise _fail(409, "slot_stale", f"The {slot_at:%H:%M} slot passed more than {generation.LATE_LIMIT_HOURS}h ago. "
                         "Pick another slot, or tick “extra post”.")
-    if body.topic and not body.allow_duplicate and (dup := generation.find_duplicate(body.topic)):
+    if body.topic and not body.allow_duplicate and (dup := generation.find_duplicate(body.topic, user_id=user.id)):
         raise _fail(409, "duplicate_topic", f"Looks like “{dup[0]}” ({dup[1]}).", title=dup[0], date=dup[1])
 
     try:

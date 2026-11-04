@@ -18,6 +18,7 @@ Cloudflare Edge Network (Anycast PoP)
   │      ├── 6 req/min on /api/auth/password/reset (Managed Challenge)
   │      ├── 5 req/min on /api/auth/signup (Managed Challenge)
   │      ├── 10 req/min on /api/generate (Managed Challenge)
+  │      ├── 10 req/min on /api/integrations (Managed Challenge)
   │      ├── 5 req/min on /api/subscription/checkout (Anti-carding)
   │      └── 12 req/min on /api/subscription/quote (Quote anti-spam)
   ├── 2. Cache Rules (cache_rules.json)
@@ -80,6 +81,7 @@ Navigate to your **Cloudflare Dashboard > Security > WAF**:
   - `/api/auth/password/reset`: 6 req / 1 min (Managed Challenge).
   - `/api/auth/signup`: 5 req / 1 min (Managed Challenge).
   - `/api/generate`: 10 req / 1 min (Managed Challenge).
+  - `/api/integrations`: 10 req / 1 min (Managed Challenge, 5 min block).
   - `/api/subscription/checkout`: 5 req / 1 min (Managed Challenge, 5 min block).
   - `/api/subscription/quote`: 12 req / 1 min (Managed Challenge, 3 min block).
 *(Reference: `waf_rules.json`)*

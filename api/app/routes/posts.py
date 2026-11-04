@@ -6,7 +6,8 @@ import base64
 import json
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from api.app.deps import CurrentUser, current_user
 from pydantic import BaseModel, Field
 
 from src import actions, approve_bot
@@ -123,15 +124,23 @@ def _cursor_in(raw: str) -> tuple[float, float, str]:
 # --------------------------------------------------------------------------- #
 # Reads
 # --------------------------------------------------------------------------- #
+def _require_post(item_id: str, user: CurrentUser) -> q.Item:
+    item = q.get(item_id, user_id=user.id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
+    return item
+
+
 @router.get("")
 def list_posts(status_: str | None = Query(None, alias="status"), platform: str | None = None,
                category: str | None = None, date_from: date | None = None, date_to: date | None = None,
                search: str | None = Query(None, alias="q", max_length=100),
                limit: int = Query(DEFAULT_GROUPS, ge=1, le=MAX_GROUPS),
-               cursor: str | None = Query(None, max_length=600)) -> dict:
+               cursor: str | None = Query(None, max_length=600),
+               user: CurrentUser = Depends(current_user)) -> dict:
     """Topic groups, newest first, `limit` per page; pass `next_cursor` back as `cursor` for the next page.
     Filters, counts and categories cover every post; only the page's groups are read in full."""
-    groups = _group_meta(q.load_light())
+    groups = _group_meta(q.load_light(user_id=user.id))
 
     def keep(g: dict) -> bool:
         current = [i for i in g["current"].values() if i]
@@ -157,7 +166,7 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
         after = _cursor_in(cursor)
         matching = [g for g in matching if _order(g) < after]
     page, more = matching[:limit], len(matching) > limit
-    full = {g["group_id"]: g for g in _groups(q.load(group_ids=[g["group_id"] for g in page]))} if page else {}
+    full = {g["group_id"]: g for g in _groups(q.load(group_ids=[g["group_id"] for g in page], user_id=user.id))} if page else {}
     return {"groups": [full[g["group_id"]] for g in page if g["group_id"] in full],
             "categories": sorted({g["category"] for g in groups}),
             "counts": counts,
@@ -167,11 +176,9 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
 
 
 @router.get("/{item_id}")
-def get_post(item_id: str) -> dict:
-    item = q.get(item_id)
-    if not item:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
-    history = sorted((i for i in q.load(group_ids=[item.group_id]) if i.kind == item.kind),
+def get_post(item_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    item = _require_post(item_id, user)
+    history = sorted((i for i in q.load(group_ids=[item.group_id], user_id=user.id) if i.kind == item.kind),
                      key=lambda i: i.version)
     return {"item": item_out(item),
             "history": [{"id": h.id, "version": h.version, "status": h.status, "created_at": h.created_at,
@@ -219,30 +226,35 @@ class RegenerateBody(BaseModel):
 
 
 @router.patch("/{item_id}")
-def edit_post(item_id: str, body: EditBody) -> dict:
+def edit_post(item_id: str, body: EditBody, user: CurrentUser = Depends(current_user)) -> dict:
+    _require_post(item_id, user)
     return _run(actions.edit, item_id, **body.model_dump())
 
 
 @router.post("/{item_id}/approve")
-def approve_post(item_id: str, body: TargetsBody) -> dict:
+def approve_post(item_id: str, body: TargetsBody, user: CurrentUser = Depends(current_user)) -> dict:
     """Approve for its scheduled slot (publishes at the next check after that time)."""
+    _require_post(item_id, user)
     return _run(actions.approve, item_id, targets=body.targets)
 
 
 @router.post("/{item_id}/schedule")
-def schedule_post(item_id: str, body: ScheduleBody) -> dict:
+def schedule_post(item_id: str, body: ScheduleBody, user: CurrentUser = Depends(current_user)) -> dict:
+    _require_post(item_id, user)
     if body.publish_at.tzinfo is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "publish_at needs a timezone offset")
     return _run(actions.approve, item_id, targets=body.targets, publish_at=body.publish_at)
 
 
 @router.post("/{item_id}/reject")
-def reject_post(item_id: str) -> dict:
+def reject_post(item_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    _require_post(item_id, user)
     return _run(actions.reject, item_id)
 
 
 @router.post("/{item_id}/publish-now")
-def publish_now(item_id: str, body: TargetsBody, background: BackgroundTasks) -> dict:
+def publish_now(item_id: str, body: TargetsBody, background: BackgroundTasks, user: CurrentUser = Depends(current_user)) -> dict:
+    _require_post(item_id, user)
     out = _run(actions.start_publish_now, item_id, targets=body.targets)
     if out["status"] == "publishing":  # inline mode; in dispatch mode the poll job publishes
         background.add_task(actions.finish_publish, item_id)
@@ -250,7 +262,8 @@ def publish_now(item_id: str, body: TargetsBody, background: BackgroundTasks) ->
 
 
 @router.post("/{item_id}/retry")
-def retry_post(item_id: str, body: RetryBody, background: BackgroundTasks) -> dict:
+def retry_post(item_id: str, body: RetryBody, background: BackgroundTasks, user: CurrentUser = Depends(current_user)) -> dict:
+    _require_post(item_id, user)
     out = _run(actions.start_retry, item_id, body.platform)
     if out["status"] == "publishing":
         background.add_task(actions.finish_publish, item_id, (body.platform,))
@@ -258,7 +271,9 @@ def retry_post(item_id: str, body: RetryBody, background: BackgroundTasks) -> di
 
 
 @router.post("/regenerate")
-def regenerate(body: RegenerateBody) -> dict:
+def regenerate(body: RegenerateBody, user: CurrentUser = Depends(current_user)) -> dict:
+    for item_id in body.item_ids:
+        _require_post(item_id, user)
     actions.take_dispatch_notice()
     try:
         items = actions.regenerate(body.item_ids, body.feedback)

@@ -12,7 +12,7 @@ export type User = {
   has_password?: boolean;
   avatar_v?: number | null;
   config_completed?: boolean;
-  role?: "admin" | "client";
+  role?: "admin" | "client" | "owner";
   subscription_tier?: string;
   subscription_status?: string;
   taste?: {

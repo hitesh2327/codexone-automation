@@ -142,10 +142,10 @@ def _norm(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
 
 
-def recent_topics(limit: int = 200) -> list[tuple[str, str]]:
+def recent_topics(limit: int = 200, user_id: int | None = None) -> list[tuple[str, str]]:
     """(title, date) of recent posts, newest first: the queue plus the publishing history."""
     from src import queue_store as q
-    rows = q.recent_topic_rows(limit)  # bounded queries, not every post ever made (QA-M-08)
+    rows = q.recent_topic_rows(limit, user_id=user_id)  # bounded queries, not every post ever made (QA-M-08)
     seen: dict[str, tuple[str, str]] = {}
     for title, day in rows:
         if title:
@@ -153,10 +153,10 @@ def recent_topics(limit: int = 200) -> list[tuple[str, str]]:
     return list(seen.values())[:limit]
 
 
-def find_duplicate(title: str) -> tuple[str, str] | None:
+def find_duplicate(title: str, user_id: int | None = None) -> tuple[str, str] | None:
     """The recent (title, date) that `title` repeats (same words, or very similar), else None."""
     mine = _norm(title)
-    for other, day in recent_topics():
+    for other, day in recent_topics(user_id=user_id):
         theirs = _norm(other)
         if mine == theirs or difflib.SequenceMatcher(None, mine, theirs).ratio() >= DUPLICATE_RATIO:
             return other, day
@@ -205,7 +205,7 @@ def to_dict(r: GenerationJob) -> dict:
         "created_at": _iso(r.created_at), "started_at": _iso(r.started_at), "finished_at": _iso(r.finished_at),
         "duration_sec": int((end - begin).total_seconds()) if begin else None,
         "topic_title": r.topic_title, "topic_category": r.topic_category,
-        "post_group_id": r.post_group_id, "post_ids": r.post_ids or [],
+        "post_group_id": r.post_group_id, "post_ids": r.post_ids or [], "user_id": r.user_id,
     }
 
 
@@ -235,30 +235,39 @@ def job_post_format(job_id: str | None) -> str | None:
     return job["post_format"] if job else None
 
 
-def recent(limit: int = 20) -> list[dict]:
+def recent(limit: int = 20, user_id: int | None = None) -> list[dict]:
     with db.session() as s:
-        return [to_dict(r) for r in s.scalars(select(GenerationJob).order_by(GenerationJob.created_at.desc()).limit(limit))]
+        stmt = select(GenerationJob).order_by(GenerationJob.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(GenerationJob.user_id == user_id)
+        return [to_dict(r) for r in s.scalars(stmt.limit(limit))]
 
 
-def since(when: datetime) -> list[dict]:
+def since(when: datetime, user_id: int | None = None) -> list[dict]:
     with db.session() as s:
-        return [to_dict(r) for r in s.scalars(
-            select(GenerationJob).where(GenerationJob.created_at >= _utc(when)).order_by(GenerationJob.created_at.desc()))]
+        stmt = select(GenerationJob).where(GenerationJob.created_at >= _utc(when)).order_by(GenerationJob.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(GenerationJob.user_id == user_id)
+        return [to_dict(r) for r in s.scalars(stmt)]
 
 
-def active() -> dict | None:
+def active(user_id: int | None = None) -> dict | None:
     """The queued/running job (dashboard ones first), if any."""
     with db.session() as s:
-        row = s.scalars(select(GenerationJob).where(GenerationJob.status.in_(ACTIVE))
-                        .order_by((GenerationJob.trigger == "dashboard").desc(), GenerationJob.created_at.desc())).first()
+        stmt = select(GenerationJob).where(GenerationJob.status.in_(ACTIVE))
+        if user_id is not None:
+            stmt = stmt.where(GenerationJob.user_id == user_id)
+        row = s.scalars(stmt.order_by((GenerationJob.trigger == "dashboard").desc(), GenerationJob.created_at.desc())).first()
         return to_dict(row) if row else None
 
 
-def for_group(group_id: str) -> dict | None:
+def for_group(group_id: str, user_id: int | None = None) -> dict | None:
     """The request that generated this post group (newest first), if it came through a job."""
     with db.session() as s:
-        row = s.scalars(select(GenerationJob).where(GenerationJob.post_group_id == group_id)
-                        .order_by(GenerationJob.created_at.desc())).first()
+        stmt = select(GenerationJob).where(GenerationJob.post_group_id == group_id)
+        if user_id is not None:
+            stmt = stmt.where(GenerationJob.user_id == user_id)
+        row = s.scalars(stmt.order_by(GenerationJob.created_at.desc())).first()
         return to_dict(row) if row else None
 
 

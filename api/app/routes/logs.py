@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from api.app.deps import CurrentUser, current_user
 from sqlalchemy import func, select
 
 from src import db
@@ -33,11 +34,14 @@ def _like(text: str) -> str:
 def list_logs(level: list[str] | None = Query(None), source: str | None = Query(None, max_length=24),
               event: str | None = Query(None, max_length=48), post_id: str | None = Query(None, max_length=160),
               q: str | None = Query(None, max_length=100), date_from: date | None = None, date_to: date | None = None,
-              before_id: int | None = Query(None, ge=1), limit: int = Query(100, ge=1, le=500)) -> dict:
+              before_id: int | None = Query(None, ge=1), limit: int = Query(100, ge=1, le=500),
+              user: CurrentUser = Depends(current_user)) -> dict:
     """Newest first. Dates are IST calendar days. `level` may repeat. `facets` count the rows that match
     every filter except the facet's own, so the filter chips show what choosing them would give."""
     def conds(skip: str = "") -> list:
         c = []
+        if user.role not in ("owner", "admin"):
+            c.append(ActivityLog.user_id == user.id)
         if level and skip != "level":
             c.append(ActivityLog.level.in_(level))
         if source and skip != "source":
@@ -73,15 +77,19 @@ def list_logs(level: list[str] | None = Query(None), source: str | None = Query(
 
 
 @router.get("/summary")
-def summary() -> dict:
+def summary(user: CurrentUser = Depends(current_user)) -> dict:
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     with db.session() as s:
-        counts = dict(s.execute(select(ActivityLog.level, func.count()).where(ActivityLog.created_at >= since)
-                                .group_by(ActivityLog.level)).all())
-        last_error = s.scalars(select(ActivityLog).where(ActivityLog.level == "error")
-                               .order_by(ActivityLog.id.desc()).limit(1)).first()
-        last_publish = s.scalars(select(ActivityLog).where(ActivityLog.event == "post.published")
-                                 .order_by(ActivityLog.id.desc()).limit(1)).first()
+        stmt_counts = select(ActivityLog.level, func.count()).where(ActivityLog.created_at >= since)
+        stmt_error = select(ActivityLog).where(ActivityLog.level == "error")
+        stmt_pub = select(ActivityLog).where(ActivityLog.event == "post.published")
+        if user.role not in ("owner", "admin"):
+            stmt_counts = stmt_counts.where(ActivityLog.user_id == user.id)
+            stmt_error = stmt_error.where(ActivityLog.user_id == user.id)
+            stmt_pub = stmt_pub.where(ActivityLog.user_id == user.id)
+        counts = dict(s.execute(stmt_counts.group_by(ActivityLog.level)).all())
+        last_error = s.scalars(stmt_error.order_by(ActivityLog.id.desc()).limit(1)).first()
+        last_publish = s.scalars(stmt_pub.order_by(ActivityLog.id.desc()).limit(1)).first()
         return {"last_24h": {lv: counts.get(lv, 0) for lv in ("info", "warning", "error")},
                 "last_error": _out(last_error) if last_error else None,
                 "last_publish": _out(last_publish) if last_publish else None}
