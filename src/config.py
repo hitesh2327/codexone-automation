@@ -101,9 +101,9 @@ def load_brand() -> dict:
         try:
             db_brand = db.get_setting("brand")
             if db_brand:
-                # Keep brand/config.yaml authoritative for voices, narration, language, and preferred_hook_formulas
-                # while keeping other dashboard runtime overrides
-                for key in ("voices", "voices_hi", "narration_language", "language"):
+                # Keep brand/config.yaml authoritative for voices, narration, language, the post format (carousel or
+                # image reel) and preferred_hook_formulas while keeping other dashboard runtime overrides
+                for key in ("voices", "voices_hi", "narration_language", "language", "post_format", "image_reel"):
                     if key in file_brand:
                         db_brand[key] = file_brand[key]
                 db_brand["preferred_hook_formulas"] = file_brand.get("preferred_hook_formulas", db_brand.get("preferred_hook_formulas", []))

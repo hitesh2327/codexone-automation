@@ -149,3 +149,23 @@ def test_items_from_post_makes_an_image_item_and_no_carousel(tmp_path, monkeypat
     image = next(i for i in items if i.kind == "image")
     assert image.media == {"image_reel": "I", "image_cover": "IC"} and image.id.split("-")[1] == "i"
     assert image.voice == "" and image.effective_targets == ["ig"]
+
+
+def test_yaml_post_format_wins_over_the_db_brand_copy(monkeypatch):
+    """4 Nov: the DB brand copy (saved before image reels) has no post_format, and load_brand() returned it
+    whole, so brand/config.yaml's post_format was ignored and every run made a carousel."""
+    import yaml
+    from src import config, db
+    stale = {"handle": "@t", "voices": ["en-US-Old"]}
+    monkeypatch.setattr(db, "enabled", lambda: True)
+    monkeypatch.setattr(db, "get_setting", lambda key: dict(stale))
+    yml = yaml.safe_load(config.BRAND_FILE.read_text(encoding="utf-8"))
+    monkeypatch.setattr(config.yaml, "safe_load", lambda f: {**yml, "post_format": "image_reel"})
+    config.load_brand.cache_clear()
+    monkeypatch.setattr(image_reel, "load_brand", config.load_brand)
+    try:
+        b = config.load_brand()
+        assert b["post_format"] == "image_reel" and b["image_reel"] == yml["image_reel"]
+        assert image_reel.default_format() == "image_reel"
+    finally:
+        config.load_brand.cache_clear()
