@@ -75,10 +75,14 @@ def cmd_generate(args) -> int:
     from src.config import default_narration
     args.language = args.language or generation.job_language(args.request_id) or default_narration()
     log.info("narration: %s", "Hinglish" if args.language == "hi" else "English")
+    # Second item: --post-format, else what the dashboard job asked for, else the brand default.
+    from src import image_reel
+    args.post_format = args.post_format or generation.job_post_format(args.request_id) or image_reel.default_format()
+    log.info("post format: reel + %s", args.post_format.replace("_", " "))
     job = generation.Reporter() if args.dry_run else generation.Reporter.begin(
         args.request_id, slot_at=publish_at, category=args.category, topic=args.topic,
         source_url=args.source_url, force=args.force, allow_duplicate=args.allow_duplicate,
-        language=args.language)
+        language=args.language, post_format=args.post_format)
     from src import plan_limits
     from src.credentials import active_user_id
     # A dashboard run is made for the user who asked (their posts, their quota); scheduled runs for the owner.
@@ -156,12 +160,14 @@ def _generate(args, publish_at: datetime, job) -> int:
         log.info("[dry-run] content generated (%d slides); not rendering/uploading/sending",
                  len(content.carousel))
         render_post.render_carousel(content, Path("."), dry_run=True)
+        if args.post_format == "image_reel":
+            log.info("[dry-run] image reel from the cheat-sheet slide, posted instead of the carousel")
         render_reel.render_reel(content, Path("."), dry_run=True)
         return 0
 
     job.phase("rendering")
     post_dir = gen_content.save(content, day).parent
-    render_post.render_carousel(content, post_dir / "carousel")
+    render_second(content, post_dir, args.post_format)
     voice = ""
     if not args.skip_reel:
         voice = render_reel.pick_voice(args.language)
@@ -226,6 +232,17 @@ def cmd_poll(args) -> int:
     return 0
 
 
+def render_second(content, post_dir: Path, post_format: str) -> None:
+    """A post's second item: the carousel, or the image reel (the carousel's cheat-sheet slide as a short
+    video with music). The image reel's slides go to image_reel_src/, so no carousel is uploaded."""
+    from src import image_reel, render_post
+    if post_format == "image_reel":
+        render_post.render_carousel(content, post_dir / image_reel.SRC)
+        image_reel.render_post(post_dir, content.category)
+    else:
+        render_post.render_carousel(content, post_dir / "carousel")
+
+
 def cmd_job_end(args) -> int:
     """CI's last step after a failed/cancelled generate: close its job if the pipeline never did."""
     from src import generation
@@ -282,8 +299,9 @@ def cmd_regenerate(args) -> int:
             post_dir.mkdir(parents=True, exist_ok=True)
             (post_dir / "content.json").write_text(content.model_dump_json(indent=2), encoding="utf-8")
             voice = ""
-            if "carousel" in kinds:
-                render_post.render_carousel(content, post_dir / "carousel")
+            for kind in ("carousel", "image"):
+                if kind in kinds:
+                    render_second(content, post_dir, "image_reel" if kind == "image" else "carousel")
             if "reel" in kinds:
                 voice = (render_reel.voice_from_feedback("\n".join(notes), first.language)
                          or render_reel.pick_voice(first.language))
@@ -356,6 +374,9 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--skip-reel", action="store_true")
     g.add_argument("--language", choices=["en", "hi"],
                    help="reel narration: en English, hi Hinglish (default: the dashboard job's choice, else brand narration_language)")
+    g.add_argument("--post-format", choices=["carousel", "image_reel"],
+                   help="second item: carousel, or image_reel (cheat sheet + music, posted as a Reel); "
+                        "default: the dashboard job's choice, else brand post_format")
     g.add_argument("--user-id", type=int, help="make this run for that user: their posts, their plan's quota")
     g.add_argument("--music", type=Path)
     g.set_defaults(fn=cmd_generate)

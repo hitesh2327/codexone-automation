@@ -489,3 +489,31 @@ def test_daily_cap_is_isolated_per_user():
         generation.finish(j["id"], "succeeded")
     assert generation.used_today(day_start, user_id=1) == 4
     assert generation.used_today(day_start, user_id=2) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Post format: carousel or image reel (stored on the job, like the language)
+# --------------------------------------------------------------------------- #
+def test_post_format_is_stored_on_the_job_not_sent_as_an_input(authed, gh):
+    r = authed.post("/api/generate", json=body(post_format="image_reel"))
+    assert r.status_code == 201, r.text
+    job = r.json()
+    assert job["post_format"] == "image_reel" and generation.job_post_format(job["id"]) == "image_reel"
+    assert "post_format" not in gh.posts[0]["json"]["inputs"]   # the workflow is at GitHub's 10-input limit
+
+
+def test_post_format_defaults_to_the_brand_setting(authed, gh, monkeypatch):
+    from src import image_reel
+    monkeypatch.setattr(image_reel, "default_format", lambda: "image_reel")
+    assert authed.get("/api/generate/config").json()["default_post_format"] == "image_reel"
+    job = authed.post("/api/generate", json=body()).json()
+    assert job["post_format"] == "image_reel"
+
+
+@pytest.mark.parametrize("bad", ["photo", "IMAGE_REEL", ""])
+def test_unknown_post_format_is_rejected(authed, gh, bad):
+    assert authed.post("/api/generate", json=body(post_format=bad)).status_code == 422
+
+
+def test_job_post_format_of_no_job_is_none():
+    assert generation.job_post_format(None) is None and generation.job_post_format("not-a-valid-id!") is None

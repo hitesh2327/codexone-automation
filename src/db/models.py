@@ -224,6 +224,8 @@ class GenerationJob(Base):
     force: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     allow_duplicate: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     language: Mapped[str] = mapped_column(String(2), default="en", server_default="en")  # reel narration: en | hi
+    # Second item of the post: carousel | image_reel (the cheat sheet as a short video with music)
+    post_format: Mapped[str] = mapped_column(String(12), default="carousel", server_default="carousel")
     # Progress: queued | running | succeeded | failed | skipped | cancelled
     status: Mapped[str] = mapped_column(String(12), default="queued")
     phase: Mapped[str | None] = mapped_column(String(20))

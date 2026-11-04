@@ -32,7 +32,7 @@ ATTENTION_SHOWN = 8
 
 APPROVED_EVER = {"approved", "publishing", "published", "failed"}
 DECLINED = {"rejected", "regenerate", "replaced"}
-DEFAULT_TARGETS = {"reel": ["ig", "yt"], "carousel": ["ig"]}
+DEFAULT_TARGETS = {"reel": ["ig", "yt"], "carousel": ["ig"], "image": ["ig"]}
 PLATFORM_NAME = {"ig": "Instagram", "yt": "YouTube"}
 FEED_EVENTS = {"post.generated", "post.regenerated", "post.approved", "post.scheduled", "post.rejected",
                "post.published", "publish.failed", "post.expired", "generate.finished", "generate.failed"}
@@ -339,7 +339,8 @@ _WHAT = "\x00WHAT\x00"   # placeholder for "Reel “X”" / "Reel and carousel �
 
 
 def _what(kinds: list[str], topic: str) -> str:
-    names = [k for k in ("reel", "carousel") if k in kinds] or kinds
+    label = {"image": "image reel"}
+    names = [label.get(k, k) for k in ("reel", "carousel", "image") if k in kinds] or kinds
     return f"{' and '.join(names).capitalize()} “{topic}”"
 
 
@@ -353,7 +354,7 @@ def _merge_same_topic(items: list[dict]) -> list[dict]:
         key = (it["code"], g, it["title"]) if g else None    # same need, same wording (e.g. same platform failed)
         if key and key in merged:
             m = merged[key]
-            m["kinds"] = sorted(set(m["kinds"]) | set(it["kinds"]), key=("reel", "carousel").index)
+            m["kinds"] = sorted(set(m["kinds"]) | set(it["kinds"]), key=("reel", "carousel", "image").index)
             if rank[it["severity"]] < rank[m["severity"]]:
                 m["severity"] = it["severity"]
             m["age_min"] = max(m["age_min"], it["age_min"])
@@ -490,11 +491,11 @@ def next_slots(c: Ctx) -> dict:
             cur: dict[str, PostRow] = {}
             for p in sorted(by_slot.get(at.strftime("%Y-%m-%d %H:%M"), []), key=lambda p: (p.version, p.created_at or at)):
                 cur[p.kind] = p
-            head = cur.get("reel") or cur.get("carousel")
+            head = cur.get("reel") or cur.get("carousel") or cur.get("image")
             out.append({"slot_at": iso(at), "label": hhmm, "in_min": int((at - c.now).total_seconds() // 60),
                         "generated": head is not None, "topic": scrub(head.topic, 90) if head else None,
                         "category": head.category if head else None, "reel": chip(cur.get("reel")),
-                        "carousel": chip(cur.get("carousel")),
+                        "carousel": chip(cur.get("carousel") or cur.get("image")),   # the post's second item
                         "generation_starts": _gen_start(c.cfg, at, hhmm) if not head else None})
             if len(out) == 4:
                 return {"ok": True, "items": out, "configured": True}
@@ -700,7 +701,7 @@ def recent_posts(c: Ctx) -> dict:
     out = []
     for members in ranked:
         head = max(members, key=lambda m: m.kind == "reel")
-        car = next((m for m in members if m.kind == "carousel"), None)
+        car = next((m for m in members if m.kind in ("carousel", "image")), None)
         chips = [{"platform": pl, "kind": m.kind, "status": _rec(m, pl).get("status")}
                  for m in members for pl in _targets(m) if _rec(m, pl)]
         out.append({"group_id": head.group_id or head.id, "post_id": head.id, "carousel_id": car.id if car else None,

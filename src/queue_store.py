@@ -33,8 +33,10 @@ IST = timezone(timedelta(hours=5, minutes=30))
 Status = Literal["pending", "approved", "publishing", "rejected", "regenerate", "replaced",
                  "published", "failed", "expired"]
 PLATFORMS = ("ig", "yt")
-DEFAULT_TARGETS = {"reel": ["ig", "yt"], "carousel": ["ig"]}
-Kind = Literal["carousel", "reel"]
+# "image": an image reel (the cheat-sheet slide as a short video with music), posted instead of the carousel.
+DEFAULT_TARGETS = {"reel": ["ig", "yt"], "carousel": ["ig"], "image": ["ig"]}
+Kind = Literal["carousel", "reel", "image"]
+VIDEO_KEY = {"reel": "reel", "image": "image_reel"}   # media key of a kind's video
 
 
 def now_iso() -> str:
@@ -82,6 +84,12 @@ class Item(BaseModel):
     def effective_targets(self) -> list[str]:
         allowed = DEFAULT_TARGETS[self.kind]
         return [p for p in (self.targets if self.targets is not None else allowed) if p in allowed]
+
+    @property
+    def video(self) -> str | None:
+        """The video URL of a reel or an image reel (None for a carousel)."""
+        key = VIDEO_KEY.get(self.kind)
+        return self.media.get(key) if key else None
 
 
 def group_of(post_dir: str, day: str = "") -> str:

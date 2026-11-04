@@ -22,8 +22,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
 import {
-  approveItem, editItem, formatIST, fromISTInput, noticeOf, PLATFORM_LABEL, publishNow, regenerateItems,
-  rejectItem, retryItem, scheduleItem, STATUS_LABEL, toISTInput, type Group, type Item, type Platform,
+  approveItem, editItem, formatIST, fromISTInput, KIND_LABEL, noticeOf, PLATFORM_LABEL, publishNow, regenerateItems,
+  rejectItem, retryItem, scheduleItem, STATUS_LABEL, toISTInput, type Group, type Item, type Kind, type Platform,
 } from "@/lib/posts";
 import { cn, safeHref } from "@/lib/utils";
 
@@ -283,6 +283,7 @@ export function PostPanel({
 }) {
   const reel = group?.items.reel ?? null;
   const carousel = group?.items.carousel ?? null;
+  const image = group?.items.image ?? null;   // an image reel, posted instead of the carousel
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"publish" | "reject" | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -293,13 +294,15 @@ export function PostPanel({
 
   const boxes: TargetBox[] = [
     { key: "ig-reel", label: "IG Reel", sub: "Instagram", item: reel, platform: "ig" },
-    { key: "ig-carousel", label: "IG Carousel", sub: "Instagram", item: carousel, platform: "ig" },
+    ...(image ? [{ key: "ig-image", label: "IG Image reel", sub: "Instagram", item: image, platform: "ig" } as TargetBox]
+      : [{ key: "ig-carousel", label: "IG Carousel", sub: "Instagram", item: carousel, platform: "ig" } as TargetBox]),
     { key: "yt-short", label: "YT Short", sub: "YouTube", item: reel, platform: "yt" },
   ];
-  const items = [reel, carousel].filter(Boolean) as Item[];
+  const items = [reel, carousel, image].filter(Boolean) as Item[];
   const decidable = items.filter((i) => i.can.approve);
   const rejectable = items.filter((i) => i.can.reject);
   const regenable = items.filter((i) => i.can.regen);
+  const second: Kind = image ? "image" : "carousel";   // the item posted alongside the reel
 
   const plan = decidable.map((i) => ({ item: i, targets: i.targets })).filter((p) => p.targets.length);
 
@@ -340,7 +343,7 @@ export function PostPanel({
     run("schedule", () => Promise.all(decidable.map((i) => scheduleItem(i.id, fromISTInput(scheduleAt)))),
       `Scheduled for ${formatIST(fromISTInput(scheduleAt))} IST`).then(() => setScheduleOpen(false));
 
-  const doRegen = (scope: "content" | "reel" | "carousel", fb: string = feedback) => {
+  const doRegen = (scope: "content" | Kind, fb: string = feedback) => {
     const ids = scope === "content" ? regenable.map((i) => i.id)
       : regenable.filter((i) => i.kind === scope).map((i) => i.id);
     if (!ids.length) return;
@@ -399,7 +402,7 @@ export function PostPanel({
               <span aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" />
               <div className="flex gap-1 max-sm:w-full">
                 <Button variant="ghost" disabled={!regenable.length || busy !== null}
-                  onClick={() => bothRegenable ? setRegenOpen(true) : doRegen((regenable[0]?.kind ?? "content") as "reel" | "carousel", "")}>
+                  onClick={() => bothRegenable ? setRegenOpen(true) : doRegen(regenable[0]?.kind ?? "content", "")}>
                   {busy === "regen" ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
                   Regenerate
                 </Button>
@@ -442,10 +445,11 @@ export function PostPanel({
               </div>
             </section>
 
-            <Tabs defaultValue={reel ? "reel" : "carousel"} className="gap-6">
+            <Tabs defaultValue={reel ? "reel" : image ? "image" : "carousel"} className="gap-6">
               <TabsList className="w-full justify-start">
                 {reel && <TabsTrigger value="reel" className="flex-none">Reel <StatusBadge status={reel.status} short className="ml-1.5 max-[360px]:hidden" /></TabsTrigger>}
                 {carousel && <TabsTrigger value="carousel" className="flex-none">Carousel <StatusBadge status={carousel.status} short className="ml-1.5 max-[360px]:hidden" /></TabsTrigger>}
+                {image && <TabsTrigger value="image" className="flex-none">Image reel <StatusBadge status={image.status} short className="ml-1.5 max-[360px]:hidden" /></TabsTrigger>}
               </TabsList>
 
               {reel && (
@@ -508,6 +512,37 @@ export function PostPanel({
                   <CaptionEditor key={carousel.id + carousel.caption + carousel.hashtags.join()} item={carousel} onSaved={onChanged} />
                 </TabsContent>
               )}
+
+              {image && (
+                <TabsContent value="image" className="grid gap-7">
+                  <PlatformResults item={image} publishingEnabled={publishingEnabled} onChanged={onChanged} />
+                  <div className="grid gap-6 sm:grid-cols-[minmax(0,14rem)_1fr]">
+                    <div className="relative mx-auto w-full max-w-56">
+                      {image.media.image_reel ? (
+                        <video
+                          key={image.media.image_reel}
+                          src={safeHref(image.media.image_reel, true)}
+                          poster={safeHref(image.media.image_cover, true)}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="aspect-[9/16] w-full rounded-[18px] border border-rule bg-sunken object-cover"
+                        />
+                      ) : <div className="grid aspect-[9/16] place-items-center rounded-[18px] border border-dashed border-rule bg-sunken font-mono text-xs text-muted-foreground">No video</div>}
+                    </div>
+                    <div className="grid content-start gap-5">
+                      <Ledger rows={[
+                        ["Made from", "Cheat-sheet slide + music"],
+                        ["Version", `v${image.version}`],
+                        ["Created", `${formatIST(image.created_at)} IST`],
+                        ["Slot", `${formatIST(image.publish_at)} IST`],
+                      ]} />
+                      {image.feedback && <Feedback text={image.feedback} />}
+                    </div>
+                  </div>
+                  <CaptionEditor key={image.id + image.caption + image.hashtags.join()} item={image} onSaved={onChanged} />
+                </TabsContent>
+              )}
             </Tabs>
           </div>
         </SheetContent>
@@ -525,7 +560,7 @@ export function PostPanel({
                   <ul className="grid gap-1.5 rounded-lg border border-border p-3">
                     {plan.map(({ item, targets }) => (
                       <li key={item.id} className="flex items-baseline gap-2 text-foreground">
-                        <span className="font-mono text-xs">{item.kind === "reel" ? "Reel" : "Carousel"}</span>
+                        <span className="font-mono text-xs">{KIND_LABEL[item.kind]}</span>
                         <span aria-hidden className="leader" />
                         <span>→ {targets.map((t) => PLATFORM_LABEL[t]).join(" + ")}</span>
                       </li>
@@ -533,7 +568,7 @@ export function PostPanel({
                   </ul>
                 </div>
               ) : (
-                <p>{rejectable.map((i) => (i.kind === "reel" ? "The reel" : "The carousel")).join(" and ")} won't be published. This also updates Telegram.</p>
+                <p>{rejectable.map((i) => `The ${KIND_LABEL[i.kind].toLowerCase()}`).join(" and ")} won't be published. This also updates Telegram.</p>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -584,9 +619,9 @@ export function PostPanel({
           </div>
           <div className="grid gap-2">
             {[
-              { scope: "content" as const, label: "Reel + Carousel", sub: "one shared script" },
+              { scope: "content" as const, label: `Reel + ${KIND_LABEL[second]}`, sub: "one shared script" },
               { scope: "reel" as const, label: "Reel only", sub: null },
-              { scope: "carousel" as const, label: "Carousel only", sub: null },
+              { scope: second, label: `${KIND_LABEL[second]} only`, sub: null },
             ].map((o) => (
               <Button key={o.scope} variant="outline" className="h-auto justify-start gap-3 py-2.5 text-left"
                 disabled={busy !== null} onClick={() => doRegen(o.scope)}>
