@@ -29,6 +29,7 @@ from src.config import get_env, load_brand
 from src.dashboard_metrics import (APPROVAL_EVENTS, FEED_EVENTS, FEED_SIZE, Config, EventRow, JobRow, PostRow,
                                    aware, build_overview)
 from src.db.models import ActivityLog, GenerationJob, Post
+from src.queue_store import _user_scope_condition
 
 log = logging.getLogger("codexone.dashboard")
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -94,7 +95,7 @@ def _load_posts(now: datetime, days: int, user_id: int | None = None) -> list[Po
         and_(Post.status == "expired", Post.updated_at >= now - timedelta(days=8)),
     ))
     if user_id is not None:
-        stmt = stmt.where(Post.user_id == user_id)
+        stmt = stmt.where(_user_scope_condition(Post, user_id))
     try:
         with db.session() as s:
             return [PostRow(id=r.id, kind=r.kind, status=r.status, group_id=r.group_id or "", topic=r.topic or "",
@@ -116,7 +117,7 @@ def _load_jobs(now: datetime, user_id: int | None = None) -> list[JobRow] | None
             stmt = select(GenerationJob.id, GenerationJob.status, GenerationJob.created_at, GenerationJob.trigger,
                           GenerationJob.failure_reason).where(GenerationJob.created_at >= now - timedelta(days=90))
             if user_id is not None:
-                stmt = stmt.where(GenerationJob.user_id == user_id)
+                stmt = stmt.where(_user_scope_condition(GenerationJob, user_id))
             return [JobRow(id=r.id, status=r.status, created_at=r.created_at, trigger=r.trigger,
                            failure_reason=r.failure_reason) for r in s.execute(stmt)]
     except Exception:  # noqa: BLE001
@@ -133,8 +134,9 @@ def _load_events(now: datetime, days: int, user_id: int | None = None) -> list[E
             stmt_appr = select(*cols).where(ActivityLog.event.in_(sorted(APPROVAL_EVENTS)),
                                              ActivityLog.created_at >= now - timedelta(days=days + 1))
             if user_id is not None:
-                stmt_feed = stmt_feed.where(ActivityLog.user_id == user_id)
-                stmt_appr = stmt_appr.where(ActivityLog.user_id == user_id)
+                cond = _user_scope_condition(ActivityLog, user_id)
+                stmt_feed = stmt_feed.where(cond)
+                stmt_appr = stmt_appr.where(cond)
             feed = s.execute(stmt_feed.order_by(ActivityLog.id.desc()).limit(FEED_SIZE)).all()
             appr = s.execute(stmt_appr.order_by(ActivityLog.id.desc()).limit(1500)).all()
         seen: dict[int, EventRow] = {}

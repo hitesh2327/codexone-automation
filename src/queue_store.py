@@ -156,6 +156,32 @@ def _valid_items(rows, convert) -> list[Item]:
     return out
 
 
+OWNER_USER_IDS: tuple[int, ...] = (1, 2)
+
+
+def _user_scope_condition(model_cls, user_id: int | None):
+    """SQLAlchemy where clause for scoped multi-user access.
+
+    Owners (users 1 and 2, plus unowned legacy/CLI rows) see brand posts.
+    Client tenant accounts strictly see only their own user_id.
+    """
+    from sqlalchemy import or_
+    if user_id is None:
+        return None
+    if user_id in OWNER_USER_IDS:
+        return or_(model_cls.user_id.in_(OWNER_USER_IDS), model_cls.user_id.is_(None))
+    return model_cls.user_id == user_id
+
+
+def _matches_user(item_user_id: int | None, query_user_id: int | None) -> bool:
+    """In-memory predicate matching _user_scope_condition."""
+    if query_user_id is None:
+        return True
+    if query_user_id in OWNER_USER_IDS:
+        return item_user_id in OWNER_USER_IDS or item_user_id is None
+    return item_user_id == query_user_id
+
+
 def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = None,
          user_id: int | None = None) -> list[Item]:
     """Queue items, oldest first. `statuses` / `group_ids` / `user_id` narrow it in the query."""
@@ -168,7 +194,7 @@ def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = 
         if group_ids is not None:
             stmt = stmt.where(Post.group_id.in_(group_ids))
         if user_id is not None:
-            stmt = stmt.where(Post.user_id == user_id)
+            stmt = stmt.where(_user_scope_condition(Post, user_id))
         with db.session() as s:
             return _valid_items(s.scalars(stmt), _from_row)
     if not QUEUE_FILE.exists():
@@ -176,7 +202,7 @@ def load(statuses: tuple[str, ...] | None = None, group_ids: list[str] | None = 
     items = _valid_items(json.loads(QUEUE_FILE.read_text(encoding="utf-8") or "[]"), Item.model_validate)
     return [i for i in items if (statuses is None or i.status in statuses)
             and (group_ids is None or i.group_id in group_ids)
-            and (user_id is None or i.user_id == user_id)]
+            and _matches_user(i.user_id, user_id)]
 
 
 def load_window(start: datetime, end: datetime, user_id: int | None = None) -> list[Item]:
@@ -186,7 +212,7 @@ def load_window(start: datetime, end: datetime, user_id: int | None = None) -> l
         from src.db.models import Post
         stmt = select(Post).where(Post.publish_at >= start, Post.publish_at <= end).order_by(Post.created_at)
         if user_id is not None:
-            stmt = stmt.where(Post.user_id == user_id)
+            stmt = stmt.where(_user_scope_condition(Post, user_id))
         with db.session() as s:
             return _valid_items(s.scalars(stmt), _from_row)
     return [i for i in load(user_id=user_id) if i.publish_at and start <= datetime.fromisoformat(i.publish_at) <= end]
@@ -244,7 +270,7 @@ def load_light(user_id: int | None = None) -> list[Light]:
                      getattr(r, "user_id", None))
     stmt = select(*(getattr(Post, c) for c in _LIGHT)).order_by(Post.created_at)
     if user_id is not None:
-        stmt = stmt.where(Post.user_id == user_id)
+        stmt = stmt.where(_user_scope_condition(Post, user_id))
     with db.session() as s:
         return _valid_items(s.execute(stmt), convert)
 
@@ -257,11 +283,11 @@ def recent_topic_rows(limit: int, user_id: int | None = None) -> list[tuple[str,
         with db.session() as s:
             p_stmt = select(Post.topic, Post.date).order_by(Post.created_at.desc()).limit(limit * 3)
             if user_id is not None:
-                p_stmt = p_stmt.where(Post.user_id == user_id)
+                p_stmt = p_stmt.where(_user_scope_condition(Post, user_id))
             posts = s.execute(p_stmt).all()
             if user_id is not None:
                 h_stmt = select(PostedTopic.title, PostedTopic.date).join(Post, PostedTopic.item_id == Post.id) \
-                    .where(Post.user_id == user_id).order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
+                    .where(_user_scope_condition(Post, user_id)).order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
             else:
                 h_stmt = select(PostedTopic.title, PostedTopic.date) \
                     .order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
@@ -323,7 +349,7 @@ def get(item_id: str, user_id: int | None = None) -> Item | None:
         from src.db.models import Post
         with db.session() as s:
             row = s.get(Post, item_id)
-            if row and user_id is not None and row.user_id != user_id:
+            if row and not _matches_user(getattr(row, "user_id", None), user_id):
                 return None
             found = _valid_items([row], _from_row) if row else []
             return found[0] if found else None

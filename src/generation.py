@@ -235,11 +235,16 @@ def job_post_format(job_id: str | None) -> str | None:
     return job["post_format"] if job else None
 
 
+def _job_scope(user_id: int | None):
+    from src.queue_store import _user_scope_condition
+    return _user_scope_condition(GenerationJob, user_id)
+
+
 def recent(limit: int = 20, user_id: int | None = None) -> list[dict]:
     with db.session() as s:
         stmt = select(GenerationJob).order_by(GenerationJob.created_at.desc())
         if user_id is not None:
-            stmt = stmt.where(GenerationJob.user_id == user_id)
+            stmt = stmt.where(_job_scope(user_id))
         return [to_dict(r) for r in s.scalars(stmt.limit(limit))]
 
 
@@ -247,7 +252,7 @@ def since(when: datetime, user_id: int | None = None) -> list[dict]:
     with db.session() as s:
         stmt = select(GenerationJob).where(GenerationJob.created_at >= _utc(when)).order_by(GenerationJob.created_at.desc())
         if user_id is not None:
-            stmt = stmt.where(GenerationJob.user_id == user_id)
+            stmt = stmt.where(_job_scope(user_id))
         return [to_dict(r) for r in s.scalars(stmt)]
 
 
@@ -256,7 +261,7 @@ def active(user_id: int | None = None) -> dict | None:
     with db.session() as s:
         stmt = select(GenerationJob).where(GenerationJob.status.in_(ACTIVE))
         if user_id is not None:
-            stmt = stmt.where(GenerationJob.user_id == user_id)
+            stmt = stmt.where(_job_scope(user_id))
         row = s.scalars(stmt.order_by((GenerationJob.trigger == "dashboard").desc(), GenerationJob.created_at.desc())).first()
         return to_dict(row) if row else None
 
@@ -266,7 +271,7 @@ def for_group(group_id: str, user_id: int | None = None) -> dict | None:
     with db.session() as s:
         stmt = select(GenerationJob).where(GenerationJob.post_group_id == group_id)
         if user_id is not None:
-            stmt = stmt.where(GenerationJob.user_id == user_id)
+            stmt = stmt.where(_job_scope(user_id))
         row = s.scalars(stmt.order_by(GenerationJob.created_at.desc())).first()
         return to_dict(row) if row else None
 

@@ -142,23 +142,27 @@ def test_generate_slots_and_jobs_isolation(client):
     j1 = generation.create(trigger="dashboard", user_id=u1_id, slot_at=slot_dt, status="running")
     q.save([_item("gen-post-1", user_id=u1_id, publish_at=slot_dt.isoformat())])
 
-    # User 2 lists jobs
-    _login(client, "gen_two")
-    jobs_resp = client.get("/api/generate/jobs")
-    assert jobs_resp.status_code == 200
-    # User 2 shouldn't see User 1's active job
-    assert jobs_resp.json()["active"] is None
-    assert len(jobs_resp.json()["jobs"]) == 0
+    try:
+        # User 2 lists jobs
+        _login(client, "gen_two")
+        jobs_resp = client.get("/api/generate/jobs")
+        assert jobs_resp.status_code == 200
+        # User 2 shouldn't see User 1's active job
+        assert jobs_resp.json()["active"] is None
+        assert len(jobs_resp.json()["jobs"]) == 0
 
-    # User 2 cannot inspect User 1's job
-    assert client.get(f"/api/generate/jobs/{j1['id']}").status_code == 404
+        # User 2 cannot inspect User 1's job
+        assert client.get(f"/api/generate/jobs/{j1['id']}").status_code == 404
 
-    # User 1 lists jobs
-    _login(client, "gen_one")
-    j1_resp = client.get("/api/generate/jobs")
-    assert j1_resp.status_code == 200
-    assert j1_resp.json()["active"] is not None
-    assert j1_resp.json()["active"]["id"] == j1["id"]
+        # User 1 lists jobs
+        _login(client, "gen_one")
+        j1_resp = client.get("/api/generate/jobs")
+        assert j1_resp.status_code == 200
+        assert j1_resp.json()["active"] is not None
+        assert j1_resp.json()["active"]["id"] == j1["id"]
+    finally:
+        with db.session() as s:
+            s.execute(delete(GenerationJob).where(GenerationJob.id == j1["id"]))
 
 
 def test_activity_logs_isolation(client):
@@ -197,3 +201,56 @@ def test_client_cannot_access_global_config(client):
     # Client CAN access /api/integrations
     r_integ = client.get("/api/integrations")
     assert r_integ.status_code == 200
+
+
+def test_owner_sees_and_manages_brand_pending_posts(authed):
+    # Scheduled CI jobs run with user_id=1 or None
+    q.save([
+        _item("brand-p1", user_id=1, status="pending", topic="Brand Scheduled Pending 1"),
+        _item("brand-p2", user_id=None, status="pending", topic="Brand Unowned Pending 2"),
+    ])
+    try:
+        # Admin/owner requests posts
+        r = authed.get("/api/posts?status=pending")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["counts"].get("pending", 0) >= 2
+        topics = [g["topic"] for g in data["groups"]]
+        assert "Brand Scheduled Pending 1" in topics
+        assert "Brand Unowned Pending 2" in topics
+
+        # Owner can inspect pending post
+        p1_resp = authed.get("/api/posts/brand-p1")
+        assert p1_resp.status_code == 200
+        assert p1_resp.json()["item"]["id"] == "brand-p1"
+
+        # Owner can approve pending post
+        appr_resp = authed.post("/api/posts/brand-p1/approve", json={"targets": ["ig"]})
+        assert appr_resp.status_code == 200
+        assert appr_resp.json()["status"] == "approved"
+    finally:
+        with db.session() as s:
+            s.execute(delete(Post).where(Post.id.in_(("brand-p1", "brand-p2"))))
+
+
+def test_client_cannot_see_owner_or_other_pending_posts(client):
+    client_uid = _create_user("client_pending", "clientpending@example.com", role="client")
+    q.save([
+        _item("owner-secret-pending", user_id=1, status="pending", topic="Secret Brand Pending"),
+        _item("client-own-pending", user_id=client_uid, status="pending", topic="Client Pending Topic"),
+    ])
+    try:
+        _login(client, "client_pending")
+        r = client.get("/api/posts?status=pending")
+        assert r.status_code == 200
+        data = r.json()
+        topics = [g["topic"] for g in data["groups"]]
+        assert "Client Pending Topic" in topics
+        assert "Secret Brand Pending" not in topics
+
+        # Client cannot inspect or approve owner's pending post
+        assert client.get("/api/posts/owner-secret-pending").status_code == 404
+        assert client.post("/api/posts/owner-secret-pending/approve", json={"targets": ["ig"]}).status_code == 404
+    finally:
+        with db.session() as s:
+            s.execute(delete(Post).where(Post.id.in_(("owner-secret-pending", "client-own-pending"))))

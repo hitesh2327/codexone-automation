@@ -125,7 +125,8 @@ def _cursor_in(raw: str) -> tuple[float, float, str]:
 # Reads
 # --------------------------------------------------------------------------- #
 def _require_post(item_id: str, user: CurrentUser) -> q.Item:
-    item = q.get(item_id, user_id=user.id)
+    effective_uid = None if user.role in ("owner", "admin") else user.id
+    item = q.get(item_id, user_id=effective_uid)
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
     return item
@@ -137,10 +138,12 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
                search: str | None = Query(None, alias="q", max_length=100),
                limit: int = Query(DEFAULT_GROUPS, ge=1, le=MAX_GROUPS),
                cursor: str | None = Query(None, max_length=600),
+               all_users: bool = Query(False),
                user: CurrentUser = Depends(current_user)) -> dict:
     """Topic groups, newest first, `limit` per page; pass `next_cursor` back as `cursor` for the next page.
     Filters, counts and categories cover every post; only the page's groups are read in full."""
-    groups = _group_meta(q.load_light(user_id=user.id))
+    effective_uid = None if (all_users and user.role in ("owner", "admin")) else user.id
+    groups = _group_meta(q.load_light(user_id=effective_uid))
 
     def keep(g: dict) -> bool:
         current = [i for i in g["current"].values() if i]
@@ -166,7 +169,7 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
         after = _cursor_in(cursor)
         matching = [g for g in matching if _order(g) < after]
     page, more = matching[:limit], len(matching) > limit
-    full = {g["group_id"]: g for g in _groups(q.load(group_ids=[g["group_id"] for g in page], user_id=user.id))} if page else {}
+    full = {g["group_id"]: g for g in _groups(q.load(group_ids=[g["group_id"] for g in page], user_id=effective_uid))} if page else {}
     return {"groups": [full[g["group_id"]] for g in page if g["group_id"] in full],
             "categories": sorted({g["category"] for g in groups}),
             "counts": counts,
@@ -178,7 +181,8 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
 @router.get("/{item_id}")
 def get_post(item_id: str, user: CurrentUser = Depends(current_user)) -> dict:
     item = _require_post(item_id, user)
-    history = sorted((i for i in q.load(group_ids=[item.group_id], user_id=user.id) if i.kind == item.kind),
+    effective_uid = None if user.role in ("owner", "admin") else user.id
+    history = sorted((i for i in q.load(group_ids=[item.group_id], user_id=effective_uid) if i.kind == item.kind),
                      key=lambda i: i.version)
     return {"item": item_out(item),
             "history": [{"id": h.id, "version": h.version, "status": h.status, "created_at": h.created_at,
