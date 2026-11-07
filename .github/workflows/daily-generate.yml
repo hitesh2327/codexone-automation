@@ -133,7 +133,8 @@ jobs:
           if [ "$IN_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
           if [ "$IN_FORCE" = "true" ]; then ARGS+=(--force); fi
           if [ "$IN_ALLOW_DUPLICATE" = "true" ]; then ARGS+=(--allow-duplicate); fi
-          if [[ "$IN_USER_ID" =~ ^[0-9]+$ ]]; then ARGS+=(--user-id "$IN_USER_ID"); fi
+          TARGET_USER_ID="${IN_USER_ID:-2}"
+          if [[ "$TARGET_USER_ID" =~ ^[0-9]+$ ]]; then ARGS+=(--user-id "$TARGET_USER_ID"); fi
           python main.py generate "${ARGS[@]}"
 
       - name: Close the dashboard job if the run died before reporting
