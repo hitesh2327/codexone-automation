@@ -203,7 +203,7 @@ class GenerationJob(Base):
     """
     __tablename__ = "generation_jobs"
     __table_args__ = (
-        Index("uq_generation_jobs_one_active", "trigger", unique=True,
+        Index("uq_generation_jobs_one_active", "trigger", "user_id", unique=True,
               postgresql_where=text("status IN ('queued', 'running')"),
               sqlite_where=text("status IN ('queued', 'running')")),
         Index("ix_generation_jobs_created_at", "created_at"),

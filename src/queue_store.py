@@ -156,20 +156,53 @@ def _valid_items(rows, convert) -> list[Item]:
     return out
 
 
-OWNER_USER_IDS: tuple[int, ...] = (1, 2)
+_owner_cache: tuple[float, set[int]] = (-1.0, {1, 2})
+OWNER_CACHE_TTL = 300.0
+
+
+def get_owner_user_ids() -> set[int]:
+    """Dynamically resolve user IDs belonging to the brand owner role."""
+    global _owner_cache
+    import time
+    now = time.monotonic()
+    if now - _owner_cache[0] < OWNER_CACHE_TTL:
+        return _owner_cache[1]
+    if not db.enabled():
+        return _owner_cache[1]
+    try:
+        from sqlalchemy import select
+        from src.db.models import User
+        with db.session() as s:
+            ids = set(s.scalars(select(User.id).where(User.role == "owner")).all())
+            _owner_cache = (now, ids or {1, 2})
+            return _owner_cache[1]
+    except Exception:
+        return _owner_cache[1]
+
+
+class _OwnerUserIds(tuple):
+    def __contains__(self, item):
+        return item in get_owner_user_ids()
+
+    def __iter__(self):
+        return iter(get_owner_user_ids())
+
+
+OWNER_USER_IDS = _OwnerUserIds((1, 2))
 
 
 def _user_scope_condition(model_cls, user_id: int | None):
     """SQLAlchemy where clause for scoped multi-user access.
 
-    Owners (users 1 and 2, plus unowned legacy/CLI rows) see brand posts.
+    Owners (roles='owner', plus unowned legacy/CLI rows) see brand posts.
     Client tenant accounts strictly see only their own user_id.
     """
     from sqlalchemy import or_
     if user_id is None:
         return None
-    if user_id in OWNER_USER_IDS:
-        return or_(model_cls.user_id.in_(OWNER_USER_IDS), model_cls.user_id.is_(None))
+    owners = get_owner_user_ids()
+    if user_id in owners:
+        return or_(model_cls.user_id.in_(owners), model_cls.user_id.is_(None))
     return model_cls.user_id == user_id
 
 
@@ -177,8 +210,9 @@ def _matches_user(item_user_id: int | None, query_user_id: int | None) -> bool:
     """In-memory predicate matching _user_scope_condition."""
     if query_user_id is None:
         return True
-    if query_user_id in OWNER_USER_IDS:
-        return item_user_id in OWNER_USER_IDS or item_user_id is None
+    owners = get_owner_user_ids()
+    if query_user_id in owners:
+        return item_user_id in owners or item_user_id is None
     return item_user_id == query_user_id
 
 

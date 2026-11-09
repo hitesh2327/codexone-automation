@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from api.app.deps import CurrentUser, current_user
+from api.app.routes.generate import require_admin
 from pydantic import BaseModel, Field
 
 from src import actions, approve_bot
@@ -286,7 +287,7 @@ def regenerate(body: RegenerateBody, user: CurrentUser = Depends(current_user)) 
     return {"items": [item_out(i) for i in items], "notice": actions.take_dispatch_notice()}
 
 
-@router.post("/sync-telegram")
+@router.post("/sync-telegram", dependencies=[Depends(require_admin)])
 def sync_telegram() -> dict:
     """Apply Telegram button presses now (same code + offset as the scheduled poll)."""
     if not approve_bot.sync_enabled():

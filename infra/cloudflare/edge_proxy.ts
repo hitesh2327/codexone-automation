@@ -73,6 +73,8 @@ export default {
 
     // 4. Construct upstream request and rewrite Host header to target origin
     const originTarget = new URL(url.pathname + url.search, env.ORIGIN_URL);
+    originHeaders.set("X-Forwarded-Host", url.host);
+    originHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
     originHeaders.set("Host", originTarget.host);
 
     const originRequest = new Request(originTarget.toString(), {
@@ -103,6 +105,12 @@ export default {
 
     // 7. Enforce multi-CDN and edge cache restrictions on API responses
     const responseHeaders = new Headers(response.headers);
+    if (responseHeaders.has("Location")) {
+      const loc = responseHeaders.get("Location")!;
+      if (loc.startsWith(env.ORIGIN_URL)) {
+        responseHeaders.set("Location", loc.replace(env.ORIGIN_URL, url.origin));
+      }
+    }
     if (url.pathname.startsWith("/api/")) {
       responseHeaders.set("CDN-Cache-Control", "no-store");
       responseHeaders.set("Cloudflare-CDN-Cache-Control", "no-store");

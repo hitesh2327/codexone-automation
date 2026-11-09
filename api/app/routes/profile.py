@@ -59,7 +59,7 @@ def profile_out(u: User) -> dict:
         "bio": u.bio or "",
         "phone": u.phone or "",
         "timezone": u.timezone or "Asia/Kolkata",
-        "role": "Administrator",
+        "role": "Administrator" if (u.role or "client") in ("owner", "admin") else "Client",
         "has_password": bool(u.password_hash),
         "google_allowed": bool(email and s.google_enabled and email in s.allowed_google_emails),
         "has_avatar": bool(u.avatar),
@@ -187,9 +187,24 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
 # --------------------------------------------------------------------------- #
 # AI schedule suggestions
 # --------------------------------------------------------------------------- #
+ai_limiter = rl.RateLimiter()
+AI_RATE_LIMIT, AI_WINDOW = 5, 600  # max 5 requests per 10 minutes per user
+
+
+def _check_ai_rate(user_id: int) -> None:
+    key = f"ai_sug:{user_id}"
+    if wait := ai_limiter.retry_after(key, AI_RATE_LIMIT, AI_WINDOW):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many AI requests. Please wait {wait // 60 + 1} min before trying again.",
+            headers={"Retry-After": str(wait)},
+        )
+    ai_limiter.hit(key)
+
 @router.post("/suggest-schedule")
 def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
     """Ask Gemini for optimal posting times based on the user's niche and platforms."""
+    _check_ai_rate(cu.id)
     import json as _json
     from src.config import get_env
     try:
@@ -249,6 +264,7 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
 @router.post("/suggest-categories")
 def suggest_categories(cu: CurrentUser = Depends(current_user)) -> dict:
     """Ask Gemini to suggest 4-6 content categories for the user's niche."""
+    _check_ai_rate(cu.id)
     import json as _json
     from src.config import get_env
     try:
@@ -540,7 +556,8 @@ def delete_account(body: DeleteBody, response: Response, cu: CurrentUser = Depen
     try:
         removed = account_deletion.delete_account(cu.id)
     except account_deletion.DeletionError as e:
-        code = {"not_found": 404, "owner": 409, "billing": 502}[e.code]
+        status_map = {"not_found": 404, "owner": 409, "billing": 502}
+        code = status_map.get(e.code, status.HTTP_400_BAD_REQUEST)
         raise HTTPException(code, detail={"code": e.code, "message": e.message}) from None
     clear_session_cookie(response)
     log.info("account %s deleted (%s posts, %s media files)", cu.id, removed["posts"], removed["media_files"])

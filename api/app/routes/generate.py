@@ -227,7 +227,7 @@ def list_jobs(limit: int = Query(20, ge=1, le=50), cu: CurrentUser = Depends(cur
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, cu: CurrentUser = Depends(current_user)) -> dict:
     job = generation.get(job_id)
-    if not job or (cu.role not in ("owner", "admin") and job.get("user_id") and job.get("user_id") != cu.id):
+    if not job or (cu.role not in ("owner", "admin") and job.get("user_id") != cu.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     job, reachable = generation.reconcile(job)
     return {"job": job, "github": _github_state(reachable)}
@@ -315,7 +315,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
         response.status_code = status.HTTP_200_OK
         return r.job
     except generation.JobActive:
-        raise _fail(409, "job_active", "A generation is already running.", job=generation.active()) from None
+        raise _fail(409, "job_active", "A generation is already running.", job=generation.active(user_id=user.id)) from None
 
     activity.record("generate.requested",
                     f"Generation {job['id']} requested for {slot_at:%d %b %H:%M} IST"
