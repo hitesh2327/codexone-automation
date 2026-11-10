@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 import main
 from src import approve_bot, db, fetch_topics, gen_content, generation, rank_topics, render_post, render_reel, upload
 from src import queue_store as q
-from src.db.models import ActivityLog, GenerationJob, Post
+from src.db.models import ActivityLog, GenerationJob, Post, User
 
 UTC = timezone.utc
 FAR = "2026-01-01"  # an old date keeps `--force` runs independent of the clock
@@ -132,20 +132,28 @@ def test_partial_unique_index_holds_on_postgres():
         c.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
         c.execute(text(f"CREATE SCHEMA {schema}"))
     try:
+        User.__table__.create(eng)
         GenerationJob.__table__.create(eng)
+        now = datetime.now(UTC)
+        with eng.begin() as c:
+            for uid in (1, 2):
+                c.execute(User.__table__.insert().values(
+                    id=uid, username=f"u{uid}", name=f"User {uid}", is_active=True,
+                    token_version=0, created_at=now))
 
-        def insert(i):
+        def insert(i, user_id=1):
             with eng.begin() as c:
                 c.execute(GenerationJob.__table__.insert().values(
-                    id=f"job{i:04d}", trigger="dashboard", status="queued", idempotency_key=f"k{i:08d}",
+                    id=f"job{i:04d}", trigger="dashboard", user_id=user_id, status="queued", idempotency_key=f"k{i:08d}",
                     created_at=datetime.now(UTC), updated_at=datetime.now(UTC)))
             return i
         got = _race(8, insert)
         assert sum(isinstance(g, int) for g in got) == 1, got
         assert all(isinstance(g, IntegrityError) for g in got if not isinstance(g, int))
-        with eng.begin() as c:                                    # a finished job frees the lock
-            c.execute(text(f"UPDATE {schema}.generation_jobs SET status='failed'"))
-        assert insert(99) == 99
+        assert insert(98, user_id=2) == 98                         # another user is not blocked by user 1
+        with eng.begin() as c:                                    # a finished job frees the lock for user 1
+            c.execute(text(f"UPDATE {schema}.generation_jobs SET status='failed' WHERE user_id = 1"))
+        assert insert(99, user_id=1) == 99
     finally:
         with eng.begin() as c:
             c.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
