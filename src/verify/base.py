@@ -98,6 +98,7 @@ CODES: dict[str, Code] = {
     # Telegram
     "telegram.token_format": Code("format", "That doesn't look like a bot token (expected digits, a colon, then letters).",
                                   "Send /mybots to @BotFather, choose your bot and copy its token again."),
+    "telegram.invalid_name": Code("format", "The bot name must be between 1 and 64 characters.", "Choose a bot name between 1 and 64 characters and try again."),
     "telegram.chat_format": Code("format", "The chat ID must be a whole number (groups start with a minus sign).",
                                  "Use 'Detect my chat' instead of typing it."),
     "telegram.token_rejected": Code("rejected", "Telegram doesn't recognise this bot token.",

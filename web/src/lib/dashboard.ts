@@ -30,7 +30,9 @@ export function useOverview(range: 30 | 90, workspace: Workspace, onDemoOff: () 
   const abort = useRef<AbortController | null>(null);
   const last = useRef(0);
   const demoOff = useRef(onDemoOff);
-  demoOff.current = onDemoOff;
+  useEffect(() => {
+    demoOff.current = onDemoOff;
+  }, [onDemoOff]);
 
   const load = useCallback(async () => {
     abort.current?.abort();

@@ -81,7 +81,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
     setAllowDup(false);
     setError(null);
     root.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [prefill]);
+  }, [prefill, defaultLanguage, defaultFormat]);
 
   const t = topic.trim();
   const [minLen, maxLen] = cfg.topic_length;

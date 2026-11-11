@@ -118,13 +118,13 @@ def create_telegram_link(cu: CurrentUser = Depends(current_user)) -> dict:
     token, is_custom = _effective_tg_token(cu.id)
     if not token:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.not_configured",
                     "message": "No Telegram bot is configured yet. Paste your own BotFather token or ask the owner to set Mintly's bot."},
         )
     if not tg.TOKEN_RE.match(token):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message},
         )
     try:
@@ -138,7 +138,7 @@ def create_telegram_link(cu: CurrentUser = Depends(current_user)) -> dict:
         code = err or "telegram.token_rejected"
         info = CODES.get(code)
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": code, "message": info.message if info else "Telegram rejected the bot token."},
         )
 
@@ -190,7 +190,7 @@ def confirm_telegram_link(cu: CurrentUser = Depends(current_user)) -> dict:
     if err:
         info = CODES.get(err)
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY if err == "telegram.webhook_set" else status.HTTP_502_BAD_GATEWAY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT if err == "telegram.webhook_set" else status.HTTP_502_BAD_GATEWAY,
             detail={"code": err, "message": info.message if info else "Couldn't check Telegram updates."},
         )
     if not chat:
@@ -214,7 +214,7 @@ def set_custom_telegram_bot(body: BotBody, cu: CurrentUser = Depends(current_use
     token = clean_value(body.token, "TG_BOT_TOKEN")[0]
     if not tg.TOKEN_RE.match(token):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message},
         )
     try:
@@ -228,7 +228,7 @@ def set_custom_telegram_bot(body: BotBody, cu: CurrentUser = Depends(current_use
         code = err or "telegram.token_rejected"
         info = CODES.get(code)
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": code, "message": info.message if info else "Telegram rejected that bot token."},
         )
 
@@ -254,24 +254,24 @@ def update_telegram_bot_name(body: TelegramNameRequest, cu: CurrentUser = Depend
     token, _ = _effective_tg_token(cu.id)
     if not token:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.not_configured",
                     "message": "No Telegram bot is configured yet. Paste your own BotFather token or ask the owner to set Mintly's bot."},
         )
     if not tg.TOKEN_RE.match(token):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message},
         )
     clean_name = body.name.strip()
     if not clean_name:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.invalid_name", "message": "Bot name cannot be empty."},
         )
     if len(clean_name) > 64:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.invalid_name", "message": "Bot name cannot exceed 64 characters."},
         )
 
@@ -285,7 +285,7 @@ def update_telegram_bot_name(body: TelegramNameRequest, cu: CurrentUser = Depend
             )
         info = CODES.get(code)
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": code, "message": info.message if info else f"Telegram rejected the bot name: {code}"},
         )
 
@@ -314,14 +314,14 @@ class PutBody(BaseModel):
 @router.put("/{key}")
 def put_integration(key: str, body: PutBody, cu: CurrentUser = Depends(current_user)) -> dict:
     if key not in PER_USER_FIELD_NAMES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail={"code": "unknown_key", "message": f"Not a per-user setting: {key}"})
     val = clean_value(body.value, key)[0]
     if key == "TG_BOT_TOKEN" and not tg.TOKEN_RE.match(val):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message})
     if key == "TG_CHAT_ID" and not tg.CHAT_RE.match(val):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail={"code": "telegram.chat_format", "message": CODES["telegram.chat_format"].message})
     versions = user_config_store.save(cu.id, {key: val}, actor=_actor(cu))
     return {"key": key, "version": versions[key]}
@@ -330,6 +330,6 @@ def put_integration(key: str, body: PutBody, cu: CurrentUser = Depends(current_u
 @router.delete("/{key}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_integration(key: str, cu: CurrentUser = Depends(current_user)) -> None:
     if key not in PER_USER_FIELD_NAMES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail={"code": "unknown_key", "message": f"Not a per-user setting: {key}"})
     user_config_store.delete(cu.id, key)
