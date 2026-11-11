@@ -85,7 +85,7 @@ def test_youtube_description_strips_ig_dm_bait_and_adds_shorts_seo(monkeypatch):
 
 
 def test_youtube_warns_explicitly_when_privacy_is_private(monkeypatch, caplog):
-    monkeypatch.delenv("YT_PRIVACY", raising=False)
+    monkeypatch.setenv("YT_PRIVACY", "private")
     monkeypatch.setattr(yt, "credentials", lambda: None)
     monkeypatch.setattr(yt, "load_brand", lambda: {"cta": ""})
     with caplog.at_level(logging.WARNING, logger="codexone.publish_youtube"):

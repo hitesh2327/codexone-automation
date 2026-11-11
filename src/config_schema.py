@@ -82,6 +82,7 @@ FIELDS: tuple[Field, ...] = (
     Field("YT_CLIENT_ID", "youtube", "OAuth client ID", False, True, "....apps.googleusercontent.com", "", per_user=True),
     Field("YT_CLIENT_SECRET", "youtube", "OAuth client secret", True, True, "GOCSPX-...", "", per_user=True),
     Field("YT_REFRESH_TOKEN", "youtube", "Refresh token", True, True, "1//...", "", per_user=True),
+    Field("YT_PRIVACY", "youtube", "Upload privacy", False, False, "public", "Privacy for uploaded YouTube Shorts (public, unlisted, private).", choices=("public", "unlisted", "private"), per_user=True),
     Field("SMTP_HOST", "email", "SMTP host", False, True, "smtp.example.com", ""),
     Field("SMTP_PORT", "email", "SMTP port", False, False, "587", ""),
     Field("SMTP_USER", "email", "SMTP username", False, False, "you@example.com", ""),

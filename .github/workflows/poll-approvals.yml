@@ -34,7 +34,7 @@ env:
   YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
   YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
   YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-  YT_PRIVACY: ${{ vars.YT_PRIVACY || 'private' }}   # repo variable: private | unlisted | public
+  YT_PRIVACY: ${{ vars.YT_PRIVACY || 'public' }}   # repo variable: private | unlisted | public
   DATABASE_URL: ${{ secrets.DATABASE_URL }}   # set -> Postgres; unset -> data/*.json
   # Opens values saved on the dashboard's Config page (same value as the server's CONFIG_MASTER_KEY).
   # Each run reports whether it could, and the Config page's readiness shows it (G9).
