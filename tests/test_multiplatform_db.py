@@ -12,10 +12,11 @@ from alembic.config import Config
 from sqlalchemy import create_engine, func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
-from src import config_store, db, queue_store as q, user_config_store
+from src import account_deletion, config_store, db, queue_store as q, upload, user_config_store
 from src.db.backfill_multiplatform import backfill_all, verify_parity
 from src.db.models import (
     Base,
+    ConfigKey,
     ContentTemplate,
     MediaAsset,
     OAuthToken,
@@ -28,7 +29,13 @@ from src.db.models import (
     UserConfigValue,
     WebhookEvent,
 )
-from src.db.multiplatform import decrypt_oauth_tokens, encrypt_oauth_tokens
+from src.db.multiplatform import (
+    decrypt_oauth_tokens,
+    encrypt_oauth_tokens,
+    expected_media_for_post,
+    expected_targets_for_post,
+    sync_post_multiplatform,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -522,3 +529,349 @@ def test_queue_store_dual_write_sync(isolated_db):
         assert pt is not None and pt.user_id == 1
 
     assert verify_parity()["ok"] is True
+
+
+def test_backfill_idempotent_with_platform_at_timestamps(isolated_db):
+    """BUG-1: platforms[p]['at'] and publish_at must not trigger false-positive updates on Run 2 (naive SQLite dt)."""
+    with db.session() as s:
+        s.add(User(id=1, username="owner", email="owner@example.com", role="owner"))
+        s.add(
+            Post(
+                id="20261112-r-ts01",
+                kind="reel",
+                date=datetime(2026, 11, 12, tzinfo=timezone.utc).date(),
+                topic="Timestamp Idempotency",
+                category="AI",
+                post_dir="output/2026-11-12/ts",
+                caption="Caption",
+                media={"reel": "https://res.cloudinary.com/demo/video/upload/v1/codexone/2026-11-12/ts/reel.mp4"},
+                status="published",
+                publish_at=datetime(2026, 11, 12, 18, 0, tzinfo=timezone.utc),
+                published_at=datetime(2026, 11, 12, 18, 5, tzinfo=timezone.utc),
+                platforms={
+                    "ig": {"status": "published", "id": "ig-ts-1", "at": "2026-11-12T18:05:00+00:00"},
+                    "yt": {"status": "published", "id": "yt-ts-1", "at": "2026-11-12T18:06:00+00:00"},
+                },
+                user_id=1,
+            )
+        )
+
+    r1 = backfill_all(batch_size=500, dry_run=False)
+    assert r1["publishing_targets"] == {"created": 2, "updated": 0, "skipped": 0}
+    r2 = backfill_all(batch_size=500, dry_run=False)
+    assert r2["publishing_targets"] == {"created": 0, "updated": 0, "skipped": 2}
+    assert verify_parity()["ok"] is True
+
+
+def test_account_deletion_purges_multiplatform_tables(isolated_db, monkeypatch):
+    """BUG-2: account_deletion.delete_account() explicitly purges all normalized multi-platform rows & PostedTopic."""
+    deleted_urls: list[str] = []
+    monkeypatch.setattr(upload, "delete_media", lambda urls: deleted_urls.extend(urls) or len(urls))
+
+    with db.session() as s:
+        u1 = User(id=1, username="owner", email="owner@example.com", role="owner")
+        u2 = User(id=2, username="victim", email="victim@example.com", role="client")
+        s.add_all([u1, u2])
+        s.flush()
+
+        # Other user's data must remain intact.
+        acct1 = SocialAccount(user_id=1, platform="instagram", external_account_id="ig-u1", is_default=True)
+        acct2 = SocialAccount(user_id=2, platform="instagram", external_account_id="ig-u2", is_default=True)
+        s.add_all([acct1, acct2])
+        s.flush()
+        encrypt_oauth_tokens(s, acct1.id, access_token="u1-tok")
+        encrypt_oauth_tokens(s, acct2.id, access_token="u2-tok")
+
+        s.add_all([
+            ContentTemplate(user_id=1, slug="t1", name="Owner Tpl", kind="reel_v2"),
+            ContentTemplate(user_id=2, slug="t2", name="Victim Tpl", kind="reel_v2"),
+            WebhookEvent(provider="meta", event_id="ev-u1", user_id=1, social_account_id=acct1.id, payload={}),
+            WebhookEvent(provider="meta", event_id="ev-u2", user_id=2, social_account_id=acct2.id, payload={}),
+        ])
+
+    u1_item = q.Item(
+        id="20261112-c-u1keep",
+        kind="carousel",
+        date="2026-11-12",
+        topic="Owner Topic",
+        category="AI",
+        post_dir="output/2026-11-12/u1",
+        caption="Keep",
+        media={"carousel": ["https://res.cloudinary.com/demo/image/upload/v1/codexone/u1/s1.jpg"]},
+        user_id=1,
+    )
+    u2_item = q.Item(
+        id="20261112-r-u2del",
+        kind="reel",
+        date="2026-11-12",
+        topic="Victim Topic",
+        category="AI",
+        post_dir="output/2026-11-12/u2",
+        caption="Delete",
+        media={"reel": "https://res.cloudinary.com/demo/video/upload/v1/codexone/u2/reel.mp4"},
+        user_id=2,
+    )
+    q.save([u1_item, u2_item])
+    q.record_posted(u1_item)
+    q.record_posted(u2_item)
+
+    with db.session() as s:
+        pt1 = s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == u1_item.id)).first()
+        pt2 = s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == u2_item.id)).first()
+        assert pt1 is not None and pt2 is not None
+        s.add_all([
+            PlatformAnalytic(publishing_target_id=pt1.id, user_id=1, platform="instagram", views=10),
+            PlatformAnalytic(publishing_target_id=pt2.id, user_id=2, platform="instagram", views=20),
+        ])
+
+    res = account_deletion.delete_account(2)
+    assert res["posts"] == 1
+    assert deleted_urls == ["https://res.cloudinary.com/demo/video/upload/v1/codexone/u2/reel.mp4"]
+
+    with db.session() as s:
+        assert s.get(User, 2) is None
+        assert s.scalars(select(SocialAccount).where(SocialAccount.user_id == 2)).all() == []
+        assert s.scalars(select(OAuthToken)).all() != []
+        assert len(s.scalars(select(OAuthToken)).all()) == 1
+        assert s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == u2_item.id)).all() == []
+        assert s.scalars(select(MediaAsset).where(MediaAsset.user_id == 2)).all() == []
+        assert s.scalars(select(ContentTemplate).where(ContentTemplate.user_id == 2)).all() == []
+        assert s.scalars(select(PlatformAnalytic).where(PlatformAnalytic.user_id == 2)).all() == []
+        assert s.scalars(select(WebhookEvent).where(WebhookEvent.user_id == 2)).all() == []
+        assert s.scalars(select(PostedTopic).where(PostedTopic.user_id == 2)).all() == []
+        # Owner's normalized records remain intact.
+        assert len(s.scalars(select(SocialAccount).where(SocialAccount.user_id == 1)).all()) == 1
+        assert len(s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == u1_item.id)).all()) == 1
+        assert len(s.scalars(select(MediaAsset).where(MediaAsset.user_id == 1)).all()) == 1
+        assert len(s.scalars(select(ContentTemplate).where(ContentTemplate.user_id == 1)).all()) == 1
+        assert len(s.scalars(select(PlatformAnalytic).where(PlatformAnalytic.user_id == 1)).all()) == 1
+        assert len(s.scalars(select(WebhookEvent).where(WebhookEvent.user_id == 1)).all()) == 1
+        assert len(s.scalars(select(PostedTopic).where(PostedTopic.user_id == 1)).all()) == 1
+
+
+def test_oauth_token_dek_rotation_partial_update(isolated_db):
+    """BUG-3: partial update after DEK rotation re-seals untouched tokens under the new DEK version."""
+    import secrets
+
+    with db.session() as s:
+        u = User(id=1, username="owner", email="owner@example.com", role="owner")
+        s.add(u)
+        s.flush()
+        acct = SocialAccount(user_id=1, platform="youtube", external_account_id="yt-rot-1")
+        s.add(acct)
+        s.flush()
+        tok = encrypt_oauth_tokens(s, acct.id, access_token="ACCESS_V1", refresh_token="REFRESH_V1")
+        assert tok.dek_version == 1
+        acct_id = acct.id
+
+    # Simulate DEK rotation: insert ConfigKey version 2 wrapped by CONFIG_MASTER_KEY.
+    with db.session() as s:
+        kek = config_store.master_key()
+        dek_v2 = secrets.token_bytes(32)
+        nonce2, wrapped2 = config_store._seal(kek, dek_v2, config_store._DEK_AAD % 2)
+        s.add(ConfigKey(version=2, wrapped_dek=wrapped2, nonce=nonce2, kek_id=config_store._kek_id(kek)))
+        s.flush()
+
+        # Partial update: only access_token supplied; refresh_token=None must be re-sealed to v2!
+        tok = encrypt_oauth_tokens(s, acct_id, access_token="ACCESS_V2")
+        assert tok.dek_version == 2
+        acc, ref = decrypt_oauth_tokens(s, tok)
+        assert acc == "ACCESS_V2"
+        assert ref == "REFRESH_V1"
+
+
+def test_oauth_token_tampering_and_wrong_or_missing_master_key(isolated_db, monkeypatch):
+    """GAP-6: 1-bit ciphertext/nonce tampering and wrong/missing CONFIG_MASTER_KEY fail decryption."""
+    with db.session() as s:
+        s.add(User(id=1, username="owner", email="owner@example.com", role="owner"))
+        s.flush()
+        acct = SocialAccount(user_id=1, platform="instagram", external_account_id="ig-tamper")
+        s.add(acct)
+        s.flush()
+        tok = encrypt_oauth_tokens(s, acct.id, access_token="SENSITIVE_TOKEN")
+        tok_id = tok.id
+
+    with db.session() as s:
+        tok = s.get(OAuthToken, tok_id)
+        assert tok is not None and tok.access_token_enc and tok.access_token_nonce
+
+        # 1-bit ciphertext flip
+        bad_ct = bytearray(tok.access_token_enc)
+        bad_ct[0] ^= 0x01
+        tampered_ct = OAuthToken(
+            social_account_id=tok.social_account_id,
+            access_token_enc=bytes(bad_ct),
+            access_token_nonce=tok.access_token_nonce,
+            dek_version=tok.dek_version,
+        )
+        with pytest.raises(config_store.StoreError) as e1:
+            decrypt_oauth_tokens(s, tampered_ct)
+        assert e1.value.code == "database.key_mismatch"
+
+        # 1-bit nonce flip
+        bad_nonce = bytearray(tok.access_token_nonce)
+        bad_nonce[0] ^= 0x01
+        tampered_nonce = OAuthToken(
+            social_account_id=tok.social_account_id,
+            access_token_enc=tok.access_token_enc,
+            access_token_nonce=bytes(bad_nonce),
+            dek_version=tok.dek_version,
+        )
+        with pytest.raises(config_store.StoreError) as e2:
+            decrypt_oauth_tokens(s, tampered_nonce)
+        assert e2.value.code == "database.key_mismatch"
+
+        # Wrong CONFIG_MASTER_KEY
+        config_store._dek_cache.clear()
+        monkeypatch.setenv("CONFIG_MASTER_KEY", config_store.generate_master_key())
+        with pytest.raises(config_store.StoreError) as e3:
+            decrypt_oauth_tokens(s, tok)
+        assert e3.value.code == "database.key_mismatch"
+
+        # Missing CONFIG_MASTER_KEY
+        config_store._dek_cache.clear()
+        monkeypatch.setenv("CONFIG_MASTER_KEY", "")
+        with pytest.raises(config_store.StoreError) as e4:
+            decrypt_oauth_tokens(s, tok)
+        assert e4.value.code == "database.master_key_missing"
+
+
+def test_claim_and_release_stuck_publishing_parity(isolated_db):
+    """BUG-4: claim_for_publish() and release_stuck_publishing() keep PublishingTarget in parity."""
+    with db.session() as s:
+        s.add(User(id=1, username="owner", email="owner@example.com", role="owner"))
+
+    item = q.Item(
+        id="20261112-r-claim1",
+        kind="reel",
+        date="2026-11-12",
+        topic="Claim Parity",
+        category="AI",
+        post_dir="output/2026-11-12/claim",
+        caption="Claim",
+        media={"reel": "https://res.cloudinary.com/demo/video/upload/v1/codexone/2026-11-12/claim/reel.mp4"},
+        status="approved",
+        targets=["ig", "yt"],
+        user_id=1,
+    )
+    q.save([item])
+    assert q.claim_for_publish(item.id) is True
+
+    with db.session() as s:
+        statuses = {
+            t.platform: t.status
+            for t in s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == item.id))
+        }
+        assert statuses == {"instagram": "publishing", "youtube": "publishing"}
+    assert verify_parity()["ok"] is True
+
+    # Simulate crashed publisher older than 10 minutes.
+    with db.session() as s:
+        post_row = s.get(Post, item.id)
+        assert post_row is not None
+        post_row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+
+    released = q.release_stuck_publishing(minutes=10)
+    assert released == [item.id]
+    with db.session() as s:
+        statuses = {
+            t.platform: t.status
+            for t in s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == item.id))
+        }
+        assert statuses == {"instagram": "failed", "youtube": "failed"}
+    assert verify_parity()["ok"] is True
+
+
+def test_edge_cases_bva_empty_db_target_slide_cleanup_and_multiaccount(isolated_db):
+    """BUG-5 & GAP-6: BVA batch_size<=0, empty DB parity, invalid attempts, whitespace cover, target/slide cleanup."""
+    for bad_size in (0, -1, -100):
+        with pytest.raises(ValueError, match="batch_size"):
+            backfill_all(batch_size=bad_size)
+
+    # Empty DB parity & backfill
+    empty_backfill = backfill_all()
+    assert empty_backfill["social_accounts"] == {"created": 0, "updated": 0, "skipped": 0}
+    empty_parity = verify_parity()
+    assert empty_parity["ok"] is True and empty_parity["posts_count"] == 0
+
+    with db.session() as s:
+        s.add(User(id=1, username="owner", email="owner@example.com", role="owner"))
+        s.flush()
+        acct_default = SocialAccount(user_id=1, platform="instagram", external_account_id="ig-def", is_default=True)
+        acct_extra = SocialAccount(user_id=1, platform="instagram", external_account_id="ig-alt", is_default=False)
+        s.add_all([acct_default, acct_extra])
+        s.flush()
+        extra_id = acct_extra.id
+
+    # Whitespace cover + invalid string attempts + unowned Post -> PostedTopic.user_id defaults to 1.
+    unowned = q.Item(
+        id="20261112-c-edge1",
+        kind="carousel",
+        date="2026-11-12",
+        topic="Edge Cases",
+        category="AI",
+        post_dir="output/2026-11-12/edge",
+        caption="Edge",
+        media={
+            "carousel": [
+                "https://res.cloudinary.com/demo/image/upload/v1/codexone/e/s1.jpg",
+                "https://res.cloudinary.com/demo/image/upload/v1/codexone/e/s2.jpg",
+            ],
+            "cover": "   ",
+            "image_cover": "https://res.cloudinary.com/demo/image/upload/v1/codexone/e/ic.jpg",
+        },
+        status="pending",
+        platforms={"ig": {"attempts": "not-a-number"}},
+        user_id=None,
+    )
+    q.save([unowned])
+    with db.session() as s:
+        s.get(Post, unowned.id).user_id = None
+    q.record_posted(unowned)
+
+    with db.session() as s:
+        p_row = s.get(Post, unowned.id)
+        assert p_row is not None
+        t_specs = expected_targets_for_post(p_row)
+        assert t_specs[0]["attempts"] == 0
+        m_specs = expected_media_for_post(p_row)
+        ic_spec = next(m for m in m_specs if m["role"] == "cover_jpg")
+        assert ic_spec["slide_index"] is None
+        pt_row = s.scalars(select(PostedTopic).where(PostedTopic.item_id == unowned.id)).first()
+        assert pt_row is not None and pt_row.user_id == 1
+
+    # Target & slide removal cleanup + preserving explicit extra social_account_id target.
+    reel = q.Item(
+        id="20261112-c-shrink",
+        kind="reel",
+        date="2026-11-12",
+        topic="Shrink Test",
+        category="AI",
+        post_dir="output/2026-11-12/shrink",
+        caption="Shrink",
+        media={
+            "carousel": [
+                "https://res.cloudinary.com/demo/image/upload/v1/codexone/s/1.jpg",
+                "https://res.cloudinary.com/demo/image/upload/v1/codexone/s/2.jpg",
+            ]
+        },
+        targets=["ig", "yt"],
+        user_id=1,
+    )
+    q.save([reel])
+
+    with db.session() as s:
+        s.add(PublishingTarget(post_id=reel.id, social_account_id=extra_id, platform="instagram", status="queued"))
+
+    # Remove yt target and slide 2; explicit extra IG account target must survive.
+    reel.targets = ["ig"]
+    reel.media = {"carousel": ["https://res.cloudinary.com/demo/image/upload/v1/codexone/s/1.jpg"]}
+    q.save([reel])
+
+    with db.session() as s:
+        remaining_targets = list(s.scalars(select(PublishingTarget).where(PublishingTarget.post_id == reel.id)))
+        assert all(t.platform == "instagram" for t in remaining_targets)
+        assert {t.social_account_id for t in remaining_targets} == {acct_default.id, extra_id}
+        remaining_assets = list(s.scalars(select(MediaAsset).where(MediaAsset.post_id == reel.id)))
+        assert len(remaining_assets) == 1 and remaining_assets[0].slide_index == 0
+

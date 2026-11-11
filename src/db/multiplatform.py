@@ -67,6 +67,17 @@ def encrypt_oauth_tokens(
     if row is None:
         row = OAuthToken(social_account_id=social_account_id)
         s.add(row)
+    else:
+        old_dek_version = row.dek_version
+        if old_dek_version != dek.version:
+            old_dek_key = _load_dek_for_version(s, kek, old_dek_version)
+            old_aad = oauth_token_aad(social_account_id, old_dek_version)
+            if access_token is None and row.access_token_enc and row.access_token_nonce:
+                plain_acc = _open(old_dek_key, row.access_token_nonce, row.access_token_enc, old_aad)
+                row.access_token_nonce, row.access_token_enc = _seal(dek.key, plain_acc, aad)
+            if refresh_token is None and row.refresh_token_enc and row.refresh_token_nonce:
+                plain_ref = _open(old_dek_key, row.refresh_token_nonce, row.refresh_token_enc, old_aad)
+                row.refresh_token_nonce, row.refresh_token_enc = _seal(dek.key, plain_ref, aad)
 
     row.dek_version = dek.version
     row.token_type = token_type
@@ -152,12 +163,33 @@ def extract_storage_info(url: str, default_mime: str = "application/octet-stream
     return provider, key, mime
 
 
+def _norm_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _dt_eq(a: datetime | None, b: datetime | None) -> bool:
+    return _norm_utc(a) == _norm_utc(b)
+
+
+def _safe_int(val, default: int = 0) -> int:
+    if val is None or isinstance(val, bool):
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
+
+
 def _parse_iso_dt(val: str | None) -> datetime | None:
     if not val or not isinstance(val, str):
         return None
     try:
         dt = datetime.fromisoformat(val)
-        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+        return _norm_utc(dt)
     except ValueError:
         return None
 
@@ -210,20 +242,21 @@ def expected_targets_for_post(post: Post) -> list[dict]:
             ext_id = post.ig_media_id
         published_at = _parse_iso_dt(entry.get("at"))
         if published_at is None and status == "published":
-            published_at = post.published_at
+            published_at = _norm_utc(post.published_at)
 
         title_override = post.yt_title if (norm == "youtube" and post.yt_title) else None
         platform_options = {"yt_description": post.yt_description} if (norm == "youtube" and post.yt_description) else {}
+        raw_attempts = entry.get("attempts") if entry.get("attempts") is not None else post.attempts
         specs.append({
             "platform": norm,
             "status": status,
-            "scheduled_at": post.publish_at,
+            "scheduled_at": _norm_utc(post.publish_at),
             "published_at": published_at,
             "external_post_id": str(ext_id) if ext_id else None,
             "external_url": str(entry["url"]) if entry.get("url") else None,
             "title_override": title_override,
             "platform_options": platform_options,
-            "attempts": int(entry.get("attempts") if entry.get("attempts") is not None else (post.attempts or 0)),
+            "attempts": _safe_int(raw_attempts, 0),
             "error_message": str(entry["error"]) if entry.get("error") else None,
         })
     return specs
@@ -248,6 +281,7 @@ def expected_media_for_post(post: Post) -> list[dict]:
                     "mime_type": mime,
                 })
 
+    has_cover = isinstance(media.get("cover"), str) and bool(media["cover"].strip())
     for media_key, role, default_mime in (
         ("reel", "reel_mp4", "video/mp4"),
         ("cover", "cover_jpg", "image/jpeg"),
@@ -256,7 +290,7 @@ def expected_media_for_post(post: Post) -> list[dict]:
     ):
         url = media.get(media_key)
         if isinstance(url, str) and url.strip():
-            slide_idx = 1 if (media_key == "image_cover" and isinstance(media.get("cover"), str) and media.get("cover")) else None
+            slide_idx = 1 if (media_key == "image_cover" and has_cover) else None
             provider, key, mime = extract_storage_info(url, default_mime)
             specs.append({
                 "role": role,
@@ -304,8 +338,10 @@ def sync_post_multiplatform(
 
     target_specs = expected_targets_for_post(post)
     seen_target_ids: set[int] = set()
+    default_accts: dict[str, int | None] = {}
     for spec in target_specs:
         acct_id = _find_default_social_account_id(s, post.user_id, spec["platform"])
+        default_accts[spec["platform"]] = acct_id
         row = by_acct.get(acct_id) if acct_id is not None else None
         if row is None:
             row = by_plat.get(spec["platform"])
@@ -335,8 +371,8 @@ def sync_post_multiplatform(
             changed = (
                 (acct_id is not None and row.social_account_id != acct_id)
                 or row.status != spec["status"]
-                or row.scheduled_at != spec["scheduled_at"]
-                or row.published_at != spec["published_at"]
+                or not _dt_eq(row.scheduled_at, spec["scheduled_at"])
+                or not _dt_eq(row.published_at, spec["published_at"])
                 or row.external_post_id != spec["external_post_id"]
                 or row.external_url != spec["external_url"]
                 or row.title_override != spec["title_override"]
@@ -363,9 +399,18 @@ def sync_post_multiplatform(
                 target_counts["skipped"] += 1
 
     if not dry_run:
+        spec_platforms = {spec["platform"] for spec in target_specs}
         for t in existing_targets:
-            if t.id not in seen_target_ids:
-                s.delete(t)
+            if t.id in seen_target_ids:
+                continue
+            # Preserve explicit multi-account targets (non-default social_account_id on an active platform).
+            if (
+                t.social_account_id is not None
+                and t.platform in spec_platforms
+                and t.social_account_id != default_accts.get(t.platform)
+            ):
+                continue
+            s.delete(t)
 
     effective_uid = post.user_id if post.user_id is not None else default_user_id
     existing_media = list(

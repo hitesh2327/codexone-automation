@@ -424,7 +424,7 @@ def record_posted(item: Item) -> None:
             uid = item.user_id
             if uid is None:
                 post_row = s.get(Post, item.id)
-                uid = post_row.user_id if post_row is not None else 1
+                uid = post_row.user_id if (post_row is not None and post_row.user_id is not None) else 1
             row = s.scalars(select(PostedTopic).where(PostedTopic.item_id == item.id)).first()
             values = dict(item_id=item.id, title=entry["title"], url=entry["url"] or "",
                           category=entry["category"], kind=entry["kind"],
@@ -492,13 +492,19 @@ def claim_for_publish(item_id: str, from_status: tuple[str, ...] = CLAIMABLE) ->
         return True
     from sqlalchemy import update
     from src.db.models import Post
+    from src.db.multiplatform import sync_post_multiplatform
     with db.session() as s:
         result = s.execute(
             update(Post)
             .where(Post.id == item_id, Post.status.in_(allowed))
             .values(status="publishing")
         )
-        return result.rowcount == 1
+        if result.rowcount == 1:
+            row = s.get(Post, item_id)
+            if row is not None:
+                sync_post_multiplatform(s, row)
+            return True
+        return False
 
 
 def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
@@ -534,6 +540,7 @@ def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
         return stuck
     from sqlalchemy import select, update
     from src.db.models import Post
+    from src.db.multiplatform import sync_post_multiplatform
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     with db.session() as s:
         stuck = list(s.scalars(select(Post.id).where(Post.status == "publishing",
@@ -541,6 +548,9 @@ def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
         if stuck and not dry_run:
             s.execute(update(Post).where(Post.id.in_(stuck))
                       .values(status="failed", error="Publishing was interrupted; it will be retried."))
+            s.flush()
+            for row in s.scalars(select(Post).where(Post.id.in_(stuck))):
+                sync_post_multiplatform(s, row)
         return stuck
 
 
