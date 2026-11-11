@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { CreditCard, FileText, LayoutDashboard, LogOut, ScrollText, Settings2, Sparkles } from "lucide-react";
+import { CreditCard, FileText, LayoutDashboard, LogOut, ScrollText, Settings2, ShieldCheck, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
+import { SupportImpersonationBanner } from "@/components/admin/SupportImpersonationBanner";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-control";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,13 @@ import type { Slot, SlotState } from "@/lib/generate-format";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, ready: true },
-  { to: "/posts", label: "Posts", icon: FileText, ready: true },
-  { to: "/generate", label: "Generate", icon: Sparkles, ready: true },
-  { to: "/config", label: "Config", icon: Settings2, ready: true },
-  { to: "/subscription", label: "Subscription", icon: CreditCard, ready: true },
-  { to: "/logs", label: "Logs", icon: ScrollText, ready: true },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, ready: true, adminOnly: false },
+  { to: "/posts", label: "Posts", icon: FileText, ready: true, adminOnly: false },
+  { to: "/generate", label: "Generate", icon: Sparkles, ready: true, adminOnly: false },
+  { to: "/config", label: "Config", icon: Settings2, ready: true, adminOnly: false },
+  { to: "/subscription", label: "Subscription", icon: CreditCard, ready: true, adminOnly: false },
+  { to: "/logs", label: "Logs", icon: ScrollText, ready: true, adminOnly: false },
+  { to: "/admin", label: "Admin Console", icon: ShieldCheck, ready: true, adminOnly: true },
 ];
 
 /** Sidebar sections. Items are looked up in NAV by path, so flipping `ready` above is all a page needs. */
@@ -26,22 +28,28 @@ const GROUPS: { label: string; paths: string[] }[] = [
   { label: "Desk", paths: ["/dashboard", "/posts", "/generate"] },
   { label: "Setup", paths: ["/config", "/subscription"] },
   { label: "Record", paths: ["/logs"] },
+  { label: "Operator", paths: ["/admin"] },
 ];
 
 type NavEntry = (typeof NAV)[number] & { n: string };
 const ENTRIES: NavEntry[] = NAV.map((e, i) => ({ ...e, n: String(i + 1).padStart(2, "0") }));
-const grouped = GROUPS.map((g, gi) => ({
-  label: g.label,
-  // anything not listed in a group lands in the last one, so a new NAV entry is never lost
-  items: ENTRIES.filter((e) => g.paths.includes(e.to) || (gi === GROUPS.length - 1 && !GROUPS.some((x) => x.paths.includes(e.to)))),
-})).filter((g) => g.items.length);
+
+function buildGrouped(isAdmin: boolean) {
+  const visible = ENTRIES.filter((e) => !e.adminOnly || isAdmin);
+  return GROUPS.map((g, gi) => ({
+    label: g.label,
+    // anything not listed in a group lands in the last one, so a new NAV entry is never lost
+    items: visible.filter((e) => g.paths.includes(e.to) || (gi === GROUPS.length - 1 && !GROUPS.some((x) => x.paths.includes(e.to)))),
+  })).filter((g) => g.items.length);
+}
 
 const MONO = "text-xs font-medium text-muted-foreground";
 
 // ---------------------------------------------------------------------------------------------
 // Desktop navigation: an index, not a list of pills
 // ---------------------------------------------------------------------------------------------
-function SideNav() {
+function SideNav({ isAdmin }: { isAdmin: boolean }) {
+  const grouped = buildGrouped(isAdmin);
   return (
     <nav aria-label="Main" className="grid gap-6">
       {grouped.map((g) => (
@@ -157,6 +165,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [busy, setBusy] = useState(false);
   const { pathname } = useLocation();
+  const isAdmin = (user?.role === "owner" || user?.role === "admin") && !user?.impersonated_by;
   const here = ENTRIES.find((e) => pathname.startsWith(e.to)) ?? (pathname.startsWith("/profile") ? { label: "Profile", n: "··" } : null);
   const display = user?.name || user?.username || user?.email;
 
@@ -171,7 +180,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[15.5rem_minmax(0,1fr)]">
+    <div className="min-h-dvh flex flex-col">
+      <SupportImpersonationBanner />
+      <div className="min-h-0 flex-1 md:grid md:grid-cols-[15.5rem_minmax(0,1fr)]">
       {/* desktop sidebar: the column carries the surface so it runs the full page height */}
       <div className="hidden border-r border-sidebar-border bg-sidebar md:block">
         <aside className="sticky top-0 flex h-dvh flex-col gap-7 overflow-y-auto px-4 pt-5 pb-4">
@@ -183,7 +194,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
           </Link>
 
-          <SideNav />
+          <SideNav isAdmin={isAdmin} />
 
           <div className="mt-auto grid gap-4">
             <TodayStrip />
@@ -236,7 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label="Main"
         className="fixed inset-x-0 bottom-0 z-20 flex border-t border-border bg-background/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        {ENTRIES.filter((e) => e.ready).map(({ to, label, icon: Icon }) => (
+        {ENTRIES.filter((e) => e.ready && (!e.adminOnly || isAdmin)).map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -257,6 +268,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NavLink>
         ))}
       </nav>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import { RequireAuth } from "@/lib/auth";
+import { RequireAdmin, RequireAuth } from "@/lib/auth";
 import { applyBrand, type Brand } from "@/lib/brand";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -16,6 +16,7 @@ import LegalPage from "@/pages/Legal";
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Config = lazy(() => import("@/pages/Config"));
 const ConfigGuide = lazy(() => import("@/pages/ConfigGuide"));
+const Admin = lazy(() => import("@/pages/Admin"));
 
 export default function App() {
   const [brand, setBrand] = useState<Brand | null>(null);
@@ -39,6 +40,7 @@ export default function App() {
       <Route path="/logs" element={<RequireAuth><Logs /></RequireAuth>} />
       <Route path="/config" element={<RequireAuth><Suspense fallback={null}><Config /></Suspense></RequireAuth>} />
       <Route path="/config/guide/:topic?" element={<RequireAuth><Suspense fallback={null}><ConfigGuide /></Suspense></RequireAuth>} />
+      <Route path="/admin" element={<RequireAdmin><Suspense fallback={null}><Admin /></Suspense></RequireAdmin>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

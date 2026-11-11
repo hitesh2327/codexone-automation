@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.app.deps import protected
-from api.app.routes import auth, config, dashboard, generate, integrations, logs, posts, profile, public, recovery, subscription
+from api.app.routes import admin, auth, config, dashboard, generate, integrations, logs, posts, profile, public, recovery, subscription
 from api.app.security import hash_password, verify_password
 from api.app.settings import settings
 from src import db, redact
@@ -184,6 +184,8 @@ def create_app() -> FastAPI:
     api.include_router(config.router)
     api.include_router(integrations.router)
     api.include_router(subscription.router)
+    api.include_router(admin.router)
+    app.include_router(admin.impersonation_router, prefix="/api", dependencies=protected)
     app.include_router(api)
 
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

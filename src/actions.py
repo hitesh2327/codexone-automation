@@ -36,7 +36,16 @@ class ActionError(ValueError):
 
 
 def publishing_enabled() -> bool:
-    return (get_env("PUBLISH_ENABLED", required=False, default="true") or "true").lower() not in ("0", "false", "no")
+    env_ok = (get_env("PUBLISH_ENABLED", required=False, default="true") or "true").lower() not in ("0", "false", "no")
+    if not env_ok:
+        return False
+    try:
+        from src import flags
+        if flags.is_kill_switch_active("publishing"):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
 
 
 def _get(item_id: str) -> q.Item:

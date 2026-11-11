@@ -119,13 +119,24 @@ def usage(user_id: int, now: datetime | None = None,
     return {"reels": counts.get("reel", 0), "carousels": counts.get("carousel", 0) + counts.get("image", 0)}
 
 
+def _effective_quota(user, plan: dict) -> dict[str, int]:
+    base = dict(plan["quota"])
+    uid = getattr(user, "id", None) if user is not None else None
+    if uid and db.enabled():
+        from src import flags
+        bonus = flags.get_bonus_quota(uid)
+        base["reels"] = base["reels"] + bonus.get("reels", 0)
+        base["carousels"] = base["carousels"] + bonus.get("carousels", 0)
+    return base
+
+
 def summary(user, now: datetime | None = None) -> dict:
     """The plan, this month's usage and what's left (None = unlimited), for the dashboard."""
     plan = plan_for(user)
     exempt = is_exempt(user)
     window = cycle_window(user, now)
     used = usage(user.id, now, window) if user is not None else {"reels": 0, "carousels": 0}
-    quota = plan["quota"]
+    quota = _effective_quota(user, plan)
     return {
         "plan": plan["id"], "exempt": exempt, "used": used,
         "quota": None if exempt else quota,
@@ -154,10 +165,11 @@ def check_generation(user, now: datetime | None = None) -> dict:
     if is_exempt(user):
         return {"reel": True}
     plan = plan_for(user)
-    if plan is NO_PLAN:
+    quota = _effective_quota(user, plan)
+    if plan is NO_PLAN and quota["carousels"] <= 0:
         raise PlanLimit("plan_required", "Choose a plan to start generating posts.")
     window = cycle_window(user, now)
-    used, quota = usage(user.id, now, window), plan["quota"]
+    used = usage(user.id, now, window)
     in_flight = in_flight_jobs(user.id)
     if used["carousels"] + in_flight >= quota["carousels"]:
         raise PlanLimit("quota_reached",

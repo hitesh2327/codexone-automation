@@ -15,19 +15,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from api.app.deps import CurrentUser, current_user
+from api.app.deps import CurrentUser, current_user, require_admin
 from api.app.ratelimit import RateLimiter
-from src import activity, approve_bot, generation, github_actions, image_reel, plan_limits
+from src import activity, approve_bot, flags, generation, github_actions, image_reel, plan_limits
 from src import queue_store as q
 from src.actions import publishing_enabled
 from src.approve_bot import IST
 from src.config import Language, default_narration, get_env, load_brand
-
-
-def require_admin(user: CurrentUser = Depends(current_user)) -> CurrentUser:
-    if user.role not in ("owner", "admin"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    return user
 
 
 router = APIRouter(prefix="/generate", tags=["generate"])
@@ -277,6 +271,8 @@ def check_topic(topic: str = Query(..., max_length=400), cu: CurrentUser = Depen
 # --------------------------------------------------------------------------- #
 @router.post("", status_code=status.HTTP_201_CREATED)
 def request_generation(body: GenerateBody, response: Response, user: CurrentUser = Depends(current_user)) -> dict:
+    if flags.is_kill_switch_active("generation"):
+        raise _fail(503, "generation_paused", "Content generation is temporarily paused by operators. Please try again shortly.")
     if not github_actions.configured():
         raise _fail(503, "not_configured", "Generation can't be started from the dashboard until the GitHub "
                     "token is configured. Scheduled runs still happen.")
