@@ -151,7 +151,7 @@ def _github_state(ok: bool) -> dict:
 
 def _user_categories(cu: CurrentUser) -> list[dict]:
     try:
-        from src.user_taste import get_user_taste
+        from src.user_taste import get_user_taste, is_tech_niche
         from src.credentials import active_user_id
         tok = active_user_id.set(cu.id)
         try:
@@ -165,6 +165,8 @@ def _user_categories(cu: CurrentUser) -> list[dict]:
             ]
         if taste.categories:
             return [{"name": c, "weight": 20} for c in taste.categories]
+        if not is_tech_niche(taste.niche):
+            return []
     except Exception:  # noqa: BLE001
         pass
     return [{"name": c, "weight": w} for c, w in load_brand()["topics_weight"].items()]

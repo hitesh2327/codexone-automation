@@ -115,7 +115,13 @@ def rank(
     elif getattr(taste, "categories", None):
         weights = {c: 1 for c in taste.categories}
     else:
-        weights = dict(brand["topics_weight"])
+        from src.user_taste import is_tech_niche
+        if is_tech_niche(getattr(taste, "niche", None)):
+            weights = dict(brand["topics_weight"])
+        elif category:
+            weights = {category: 1}
+        else:
+            raise ValueError(f"No content categories configured for niche {getattr(taste, 'niche', '')!r}. Configure categories first.")
 
     cat_descs = _category_descriptions(list(weights.keys()), taste.niche, taste=taste)
     avoid = last_category(user_id=user_id) if user_id is not None else last_category()

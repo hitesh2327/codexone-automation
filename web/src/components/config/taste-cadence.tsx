@@ -360,7 +360,14 @@ export function TasteCadenceConfig({
         category_configs?: CategoryConfig[];
         suggested_subreddits?: string[];
         reasoning: string;
-      }>("/api/profile/suggest-categories", { method: "POST" });
+      }>("/api/profile/suggest-categories", {
+        method: "POST",
+        body: {
+          niche: niche.trim(),
+          content_type: contentType,
+          target_audience: targetAudience.trim(),
+        },
+      });
       if (result.category_configs && result.category_configs.length > 0) {
         setCategories(normalizeCategoryList(result.category_configs));
       } else {

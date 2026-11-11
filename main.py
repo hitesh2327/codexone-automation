@@ -47,9 +47,16 @@ def _generate_input_error(args) -> str | None:
     if args.slot and (not generation.valid_slot(args.slot)
                       or args.slot not in {f"{t:%H:%M}" for t in approve_bot.post_times()}):
         return f"--slot {args.slot!r} is not one of the posting slots"
-    # Allow any non-empty category (user-defined categories are not in the hardcoded list)
-    if args.category and not re.match(r"^[A-Za-z0-9 &/_-]{1,64}$", args.category):
-        return f"--category {args.category!r} contains invalid characters"
+    # Allow any safe Unicode category label (user-defined categories are not in the hardcoded list)
+    if args.category:
+        if str(args.category).strip().lower() == "auto":
+            args.category = None
+        else:
+            from src.user_taste import clean_category_name
+            try:
+                args.category = clean_category_name(args.category)
+            except ValueError as e:
+                return f"--category {args.category!r}: {e}"
     try:
         args.topic = generation.clean_topic(args.topic)
         args.source_url = generation.clean_source_url(args.source_url)
@@ -118,7 +125,7 @@ def _generate(args, publish_at: datetime, job) -> int:
     # Two schedulers can fire for the same slot (cron-job.org + GitHub's backup cron): only the
     # first one generates. A trigger arriving long after the slot is skipped as stale.
     # Compare instants, not strings: the DB returns the same slot as UTC ("13:30+00:00").
-    taken = bool(q.load_window(publish_at, publish_at))
+    taken = bool(q.load_window(publish_at, publish_at, user_id=args.user_id))
     now = datetime.now(approve_bot.IST)
     state = "ok" if args.force else slot_state(publish_at, now, taken)
     hours_late = (now - publish_at).total_seconds() / 3600
@@ -139,14 +146,20 @@ def _generate(args, publish_at: datetime, job) -> int:
     if args.topic:
         # Chosen by the admin: no trending fetch and no ranking, but the same duplicate check, writing
         # and review pass as any other topic.
-        if not args.allow_duplicate and (dup := generation.find_duplicate(args.topic)):
+        if not args.allow_duplicate and (dup := generation.find_duplicate(args.topic, user_id=args.user_id)):
             log.warning("topic %r repeats %r (%s); skipping", args.topic, dup[0], dup[1])
             job.skipped("duplicate", f"Looks like \u201c{dup[0]}\u201d ({dup[1]}). Allow duplicates to repeat it.")
             return 0
+        from src.user_taste import get_user_taste
+        taste = get_user_taste(args.user_id)
+        cat_cfg = taste.category_config(args.category)
+        cat_style = cat_cfg.prompt_style if cat_cfg else ""
+        combined_style = "\n".join(p for p in (cat_style, taste.prompt_instructions) if p.strip())
+        audience = taste.target_audience or "the target audience"
         topic = RankedTopic(category=args.category, title=args.topic,
-                            angle=f"Explain \u201c{args.topic}\u201d accurately for students and junior developers.",
+                            angle=f"Explain \u201c{args.topic}\u201d accurately for {audience}.",
                             source_url=args.source_url or "", evergreen=not args.source_url,
-                            why="chosen from the dashboard")
+                            why="chosen from the dashboard", prompt_style=combined_style)
     else:
         job.phase("fetching_topics")
         fetch_topics.main(["--show", "0"] + (["--dry-run"] if args.dry_run else []))
@@ -154,7 +167,7 @@ def _generate(args, publish_at: datetime, job) -> int:
             log.info("[dry-run] no saved topics for %s; stopping after fetch", day)
             return 0
         job.phase("ranking")
-        topic = rank_topics.rank(day, args.category, seed=f"{day}-{publish_at:%H%M}")
+        topic = rank_topics.rank(day, args.category, seed=f"{day}-{publish_at:%H%M}", user_id=args.user_id)
     log.info("topic: [%s] %s", topic.category, topic.title)
     job.phase("writing")
     content = gen_content.generate(topic, language=args.language)

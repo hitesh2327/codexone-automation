@@ -366,6 +366,7 @@ def test_generate_category_validator_accepts_unicode_and_blocks_xss():
 
 def test_profile_categories_and_source_test_endpoints(monkeypatch):
     from api.app.security import hash_password
+    from api.app.settings import settings
     Base.metadata.create_all(db.engine())
     ratelimit.login_limiter.clear()
     ratelimit.otp_limiter.clear()
@@ -374,6 +375,8 @@ def test_profile_categories_and_source_test_endpoints(monkeypatch):
     monkeypatch.setenv("ADMIN_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "correct horse battery")
     monkeypatch.setenv("COOKIE_SECURE", "false")
+    monkeypatch.setenv("ORIGIN_VERIFY", "")
+    settings.cache_clear()
 
     tag = uuid.uuid4().hex[:8]
     uname = f"cat_tester_{tag}"
@@ -423,6 +426,187 @@ def test_profile_categories_and_source_test_endpoints(monkeypatch):
             assert ok_res.status_code == 200, ok_res.text
             assert ok_res.json()["resolved_url"] == "https://fitweekly.substack.com/feed"
             assert len(ok_res.json()["headlines"]) == 3
+    finally:
+        with db.session() as s:
+            s.execute(delete(User).where(User.id == uid))
+
+
+# --------------------------------------------------------------------------- #
+# 6. Adversarial QA Regression Tests (TOCTOU, Hex IP, 5KB XXE, Unicode CLI,
+#    Non-Tech Empty Categories & Prompt Leak, Live Form Niche)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("obfuscated_url", [
+    "https://0x7f.0.0.0x1/feed.xml",
+    "https://0177.0.0.1/feed.xml",
+    "https://2130706433/feed.xml",
+    "https://127.1/feed.xml",
+    "https://0x7f000001/feed.xml",
+    "https://0x0a.0.0.1/feed.xml",
+    "https://0xa9fea9fe/latest/meta-data",
+])
+def test_ssrf_blocks_obfuscated_hex_octal_decimal_ipv4(obfuscated_url):
+    with pytest.raises(ValueError):
+        fetch_topics.validate_safe_feed_url(obfuscated_url)
+
+
+def test_ssrf_toctou_dns_rebinding_pins_validated_ip(monkeypatch):
+    import urllib3.util.connection as u3_conn
+
+    calls = {"dns": 0, "connect": []}
+
+    def rebinding_getaddrinfo(host, port, *a, **kw):
+        calls["dns"] += 1
+        ip = "93.184.216.34" if calls["dns"] == 1 else "10.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 443))]
+
+    def fake_create_connection(address, *a, **kw):
+        calls["connect"].append(address)
+        raise OSError("sentinel-stop-after-pin-check")
+
+    monkeypatch.setattr(fetch_topics.socket, "getaddrinfo", rebinding_getaddrinfo)
+    monkeypatch.setattr(u3_conn, "create_connection", fake_create_connection)
+
+    with pytest.raises(Exception):
+        fetch_topics.fetch_rss(fetch_topics._session(), "https://rebind.example.com/feed.xml")
+
+    assert calls["connect"], "expected urllib3 create_connection to be called"
+    assert all(addr == ("93.184.216.34", 443) for addr in calls["connect"])
+
+
+def test_xml_bomb_padded_over_5kb_and_utf16_rejected():
+    padded = (
+        b'<?xml version="1.0" encoding="UTF-8"?><!-- '
+        + b"A" * 5200
+        + b' --><!DOCTYPE lolz [<!ENTITY lol "lol">]><rss version="2.0"><channel><item><title>&lol;</title></item></channel></rss>'
+    )
+    with pytest.raises(ValueError, match="DOCTYPE/ENTITY"):
+        fetch_topics.parse_feed_xml(padded)
+
+    utf16_bom = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE lolz [<!ENTITY a "b">]><rss/>'.encode("utf-16")
+    with pytest.raises(ValueError, match="DOCTYPE/ENTITY"):
+        fetch_topics.parse_feed_xml(utf16_bom)
+
+
+def test_main_generate_input_error_accepts_unicode_and_blocks_xss():
+    import main as pipeline_main
+
+    ok_args = SimpleNamespace(
+        date="2026-11-11",
+        slot=None,
+        category="हिंदी टेक & Finance",
+        topic="Index Funds vs ETFs Explained",
+        source_url=None,
+    )
+    assert pipeline_main._generate_input_error(ok_args) is None
+
+    bad_args = SimpleNamespace(
+        date="2026-11-11",
+        slot=None,
+        category="Fitness<script>",
+        topic="Valid Topic Name",
+        source_url=None,
+    )
+    assert pipeline_main._generate_input_error(bad_args) is not None
+
+
+def test_nontech_empty_categories_no_ai_fallback_and_reel_v2_uses_tenant_handle(monkeypatch):
+    Base.metadata.create_all(db.engine())
+    tag = uuid.uuid4().hex[:8]
+    with db.session() as s:
+        u = User(
+            username=f"fituser_{tag}",
+            name="Fit User",
+            role="client",
+            taste={"niche": "Fitness & Workout", "handle": "@fitstudio", "target_audience": "Lifters"},
+        )
+        s.add(u)
+        s.flush()
+        uid = u.id
+
+    try:
+        taste = user_taste.get_user_taste(uid)
+        assert taste.categories == []
+        assert taste.category_configs == []
+        assert taste.effective_handle() == "@fitstudio"
+
+        # rank() with no configured categories on non-tech niche refuses to silently pick AI/DSA
+        monkeypatch.setattr(user_taste, "get_user_taste", lambda *a, **k: taste)
+        with pytest.raises(ValueError, match="No content categories configured"):
+            rank_topics.rank("2026-11-11")
+
+        # reel_v2 prompt and pipeline CTA use tenant handle & omit tech education / tech hashtags
+        monkeypatch.setattr(reel_spec, "load_brand", lambda: {"handle": "@wrongbrand", "hashtags": ["#systemdesign", "#dsa"], "reel": {}})
+        prompt = reel_spec._prompt("Progressive Overload", "Hypertrophy", "Track weekly sets", {"handle": "@wrongbrand", "hashtags": ["#systemdesign"], "reel": {}})
+        sys_p = reel_spec._system_prompt(taste)
+        assert "@fitstudio" in prompt and "@wrongbrand" not in prompt
+        assert "#systemdesign" not in prompt
+        assert "tech education" not in sys_p.lower()
+        assert "Fitness & Workout" in sys_p
+
+        from src.reel_v2 import pipeline as v2_pipe
+        example_path = Path(__file__).resolve().parent.parent / "src" / "reel_v2" / "examples" / "blue_green.json"
+        spec_obj = reel_spec.SceneSpec.model_validate_json(example_path.read_text(encoding="utf-8"))
+        content = v2_pipe.to_content(spec_obj, "Progressive Overload", "Hypertrophy")
+        assert content.carousel[-1].body == "Follow @fitstudio"
+    finally:
+        with db.session() as s:
+            s.execute(delete(User).where(User.id == uid))
+
+
+def test_suggest_categories_honors_unsaved_body_niche(monkeypatch):
+    from api.app.security import hash_password
+    from api.app.settings import settings
+    Base.metadata.create_all(db.engine())
+    ratelimit.login_limiter.clear()
+    ratelimit.otp_limiter.clear()
+    monkeypatch.setenv("JWT_SECRET", "t" * 48)
+    monkeypatch.setenv("SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "correct horse battery")
+    monkeypatch.setenv("COOKIE_SECURE", "false")
+    monkeypatch.setenv("ORIGIN_VERIFY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaSyFakeTestKeyForUnitTestsOnly12345")
+    settings.cache_clear()
+
+    captured = {}
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            captured["prompt"] = contents
+            return SimpleNamespace(text='{"categories":[{"name":"Sourdough","description":"Wild yeast","weight":40},{"name":"Pastries","description":"Laminated dough","weight":60}],"suggested_subreddits":["Breadit"],"reasoning":"Balanced baking pillars."}')
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.models = FakeModels()
+
+    import google.genai as _genai
+    monkeypatch.setattr(_genai, "Client", FakeClient)
+
+    tag = uuid.uuid4().hex[:8]
+    uname = f"baker_{tag}"
+    with db.session() as s:
+        u = User(username=uname, password_hash=hash_password("river-stone-42"), name="Baker", role="client",
+                 taste={"niche": "AI & Tech"})
+        s.add(u)
+        s.flush()
+        uid = u.id
+
+    try:
+        with TestClient(create_app()) as client:
+            r = client.post("/api/auth/login", json={"username": uname, "password": "river-stone-42"})
+            assert r.status_code == 200
+            client.headers["X-CSRF-Token"] = r.json()["csrf"]
+
+            res = client.post("/api/profile/suggest-categories", json={
+                "niche": "Vegan Baking",
+                "content_type": "Tutorial & Walkthrough",
+                "target_audience": "Home bakers",
+            })
+            assert res.status_code == 200, res.text
+            assert "Vegan Baking" in captured["prompt"]
+            assert "Home bakers" in captured["prompt"]
+            assert "AI & Tech" not in captured["prompt"]
+            assert res.json()["categories"] == ["Sourdough", "Pastries"]
     finally:
         with db.session() as s:
             s.execute(delete(User).where(User.id == uid))

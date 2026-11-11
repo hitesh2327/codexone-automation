@@ -34,6 +34,17 @@ def _plain(text: str) -> str:
     return text.replace("*", "")
 
 
+def _effective_handle() -> str:
+    try:
+        from src.user_taste import get_user_taste
+        h = get_user_taste().effective_handle()
+        if h:
+            return h
+    except Exception:  # noqa: BLE001
+        pass
+    return str(load_brand()["handle"])
+
+
 def to_content(spec: SceneSpec, title: str, category: str) -> Content:
     """A classic Content mirror of the spec (what approval, upload and publish read)."""
     b = spec.beats
@@ -41,7 +52,7 @@ def to_content(spec: SceneSpec, title: str, category: str) -> Content:
     slides = [Slide(type="title", kicker=category, heading=f"*{title_text}*", body=_plain(spec.cover_lead))]
     slides += [Slide(type="content", kicker=x.heading, heading=_plain(x.slide_title), body=_plain(x.slide_text))
                for x in b if x.on_carousel]
-    slides.append(Slide(type="cta", heading="Save this for *later*", body=f"Follow {load_brand()['handle']}"))
+    slides.append(Slide(type="cta", heading="Save this for *later*", body=f"Follow {_effective_handle()}"))
     content = Content(
         topic=title, category=category, demo=None, carousel=slides,
         reel=Reel(hook_on_screen=b[0].heading, hook_narration=b[0].narration,

@@ -157,8 +157,19 @@ def timeline(spec: SceneSpec, voice: str, work: Path, language: str = "en") -> t
     for c in clips:
         c.close()
     log.info("voice %s at +%d%%: %.1fs over %d beats", voice, rate, total, len(spec.beats))
-    return {"spec": spec.model_dump(), "handle": load_brand()["handle"], "starts": starts,
+    return {"spec": spec.model_dump(), "handle": _effective_handle(), "starts": starts,
             "triggers": triggers, "total": round(total, 3), "subs": subs}, audio
+
+
+def _effective_handle() -> str:
+    try:
+        from src.user_taste import get_user_taste
+        h = get_user_taste().effective_handle()
+        if h:
+            return h
+    except Exception:  # noqa: BLE001
+        pass
+    return str(load_brand()["handle"])
 
 
 def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, preview: float | None = None,
@@ -228,7 +239,7 @@ def render_carousel(spec: SceneSpec, folder: Path, category: str = "") -> list[P
             page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
             page.goto((TPL / "carousel.html").as_uri())
             page.evaluate("document.fonts.ready")
-            n = page.evaluate("([s, h, c]) => build(s, h, c)", [spec.model_dump(), load_brand()["handle"], category])
+            n = page.evaluate("([s, h, c]) => build(s, h, c)", [spec.model_dump(), _effective_handle(), category])
             page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
             page.wait_for_timeout(200)
             for i, el in enumerate(page.query_selector_all(".slide"), 1):

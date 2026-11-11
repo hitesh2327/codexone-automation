@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -347,8 +347,17 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
     return result
 
 
+class SuggestCategoriesBody(BaseModel):
+    niche: str | None = Field(default=None, max_length=120)
+    content_type: str | None = Field(default=None, max_length=120)
+    target_audience: str | None = Field(default=None, max_length=200)
+
+
 @router.post("/suggest-categories")
-def suggest_categories(cu: CurrentUser = Depends(current_user)) -> dict:
+def suggest_categories(
+    body: SuggestCategoriesBody | None = Body(default=None),
+    cu: CurrentUser = Depends(current_user),
+) -> dict:
     """Ask Gemini to suggest 4-6 content categories for the user's niche."""
     _check_ai_rate(cu.id)
     import json as _json
@@ -362,9 +371,9 @@ def suggest_categories(cu: CurrentUser = Depends(current_user)) -> dict:
         u = _user(ses, cu)
         taste = dict(u.taste or {})
 
-    niche = taste.get("niche") or "Software Engineering & Dev"
-    content_type = taste.get("content_type") or "Educational & How-To"
-    audience = taste.get("target_audience") or ""
+    niche = (body.niche.strip() if body and body.niche and body.niche.strip() else None) or taste.get("niche") or "Software Engineering & Dev"
+    content_type = (body.content_type.strip() if body and body.content_type and body.content_type.strip() else None) or taste.get("content_type") or "Educational & How-To"
+    audience = (body.target_audience.strip() if body and body.target_audience and body.target_audience.strip() else None) or taste.get("target_audience") or ""
 
     prompt = (
         f"You are a social media content strategist.\n\n"

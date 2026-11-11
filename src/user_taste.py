@@ -13,8 +13,21 @@ from typing import Any
 from src.credentials import active_user_id
 
 _CAT_INVALID_RE = re.compile(r"[\x00-\x1f\x7f<>{}\[\]\\;\"`$]")
+_TECH_NICHE_RE = re.compile(
+    r"\b(?:software|engineering|dev(?:eloper|ops)?|ai|artificial intelligence|machine learning|ml|"
+    r"llm|llms|algorithm\w*|data structure\w*|dsa|system design|cyber\w*|cloud|programming|"
+    r"coding|linux|operating system\w*|web dev|backend|frontend|full[- ]?stack|tech(?:nology)?|fintech|crypto)\b",
+    re.IGNORECASE,
+)
 DEFAULT_CATEGORY_WEIGHT = 20
 MAX_CATEGORIES = 12
+
+
+def is_tech_niche(niche: str | None) -> bool:
+    """Return True when the creator's niche is software/tech/AI/dev."""
+    if not niche or not niche.strip():
+        return True
+    return bool(_TECH_NICHE_RE.search(niche))
 
 
 def clean_category_name(value: Any) -> str:
@@ -253,11 +266,14 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
     default_weights = dict(brand.get("topics_weight", {}))
     default_cats = list(default_weights.keys())
 
-    configs = normalize_categories(
-        taste.get("categories") or taste.get("category_configs"),
-        default_cats=default_cats,
-        default_weights=default_weights,
-    )
+    niche = taste.get("niche") or "Software Engineering & Dev"
+    raw_cats = taste.get("categories") or taste.get("category_configs")
+    if raw_cats:
+        configs = normalize_categories(raw_cats, default_weights=default_weights)
+    elif is_tech_niche(niche):
+        configs = normalize_categories(default_cats, default_weights=default_weights)
+    else:
+        configs = []
     sources = normalize_sources(taste.get("sources"))
     raw_handle = str(taste.get("handle") or "").strip()
     if not raw_handle and username:
@@ -268,7 +284,7 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
     lang = taste.get("default_language")
     fmt = taste.get("default_post_format")
     result = UserTaste(
-        niche=taste.get("niche") or "Software Engineering & Dev",
+        niche=niche,
         tone=taste.get("tone") or "Educational & Insightful",
         content_type=taste.get("content_type") or "Educational & How-To",
         aesthetic=taste.get("aesthetic") or "Dark Minimalist Luxury",

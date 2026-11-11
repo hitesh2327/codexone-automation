@@ -18,12 +18,16 @@ import re
 import socket
 import sys
 import xml.etree.ElementTree as ET
+import xml.parsers.expat as expat
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
 
 import requests
+import urllib3
+import urllib3.connection
+import urllib3.connectionpool
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -133,13 +137,13 @@ _BLOCKED_HOST_SUFFIXES = (".local", ".internal", ".localhost", ".lan", ".home", 
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _SUBREDDIT_RE = re.compile(r"^[A-Za-z0-9_]{2,32}$")
 _XML_ENTITY_RE = re.compile(rb"<!(?:ENTITY|DOCTYPE)\b", re.IGNORECASE)
+_NUMERIC_IP_PART_RE = re.compile(r"^(?:0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)$")
 
 
 def _is_tech_niche(niche: str | None) -> bool:
     """Return True only when the creator's niche is software/tech/AI/dev."""
-    if not niche or not niche.strip():
-        return True  # legacy default when no niche is configured
-    return bool(_TECH_NICHE_RE.search(niche))
+    from src.user_taste import is_tech_niche
+    return is_tech_niche(niche)
 
 
 def _niche_reddit_subs(niche: str) -> list[str]:
@@ -168,14 +172,28 @@ def _is_disallowed_ip(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> 
     )
 
 
-def validate_safe_feed_url(url: str) -> str:
-    """Validate and normalize a custom RSS/Atom/Substack URL with strict SSRF defenses.
+def _parse_noncanonical_ipv4(host: str) -> ipaddress.IPv4Address | None:
+    """Parse hex, octal, or shorthand IPv4 literals (e.g. 0x7f.0.0.0x1, 0177.0.0.1, 2130706433)."""
+    parts = host.split(".")
+    if not (1 <= len(parts) <= 4) or not all(_NUMERIC_IP_PART_RE.match(p) for p in parts):
+        return None
+    try:
+        nums = [int(p, 0) for p in parts]
+    except ValueError as e:
+        raise ValueError("Feed URL cannot target obfuscated numeric hostnames") from e
+    if len(nums) == 1 and 0 <= nums[0] <= 0xFFFFFFFF:
+        return ipaddress.IPv4Address(nums[0])
+    if len(nums) == 2 and 0 <= nums[0] <= 0xFF and 0 <= nums[1] <= 0xFFFFFF:
+        return ipaddress.IPv4Address((nums[0] << 24) | nums[1])
+    if len(nums) == 3 and 0 <= nums[0] <= 0xFF and 0 <= nums[1] <= 0xFF and 0 <= nums[2] <= 0xFFFF:
+        return ipaddress.IPv4Address((nums[0] << 24) | (nums[1] << 16) | nums[2])
+    if len(nums) == 4 and all(0 <= n <= 0xFF for n in nums):
+        return ipaddress.IPv4Address((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3])
+    raise ValueError("Feed URL cannot target numeric or obfuscated IP literals")
 
-    Enforces HTTPS-only, rejects credentials and non-443 ports, rejects private/internal
-    hostnames and IP literals, and resolves DNS to reject any loopback, private,
-    link-local, reserved, or cloud metadata IP (e.g. 169.254.169.254).
-    Also normalizes bare Substack URLs (https://foo.substack.com -> .../feed).
-    """
+
+def _resolve_and_validate_url(url: str) -> tuple[str, str, str]:
+    """Validate URL for SSRF, resolve DNS once, and return (normalized_url, host, pinned_ip)."""
     raw = (url or "").strip()
     if not raw or len(raw) > 500 or _CONTROL_RE.search(raw) or any(ch.isspace() for ch in raw):
         raise ValueError("Feed URL must be a single HTTPS link of at most 500 characters")
@@ -198,15 +216,17 @@ def validate_safe_feed_url(url: str) -> str:
     if host == "localhost" or host.endswith(_BLOCKED_HOST_SUFFIXES):
         raise ValueError("Feed URL cannot target localhost or internal network domains")
 
-    # Check raw IP literals immediately (both IPv4 and IPv6)
+    # Check canonical IPv4/IPv6 literals as well as hex/octal/shorthand IPv4 encodings.
     try:
-        ip_literal = ipaddress.ip_address(host)
+        ip_literal: ipaddress.IPv4Address | ipaddress.IPv6Address | None = ipaddress.ip_address(host)
     except ValueError:
-        ip_literal = None
+        ip_literal = _parse_noncanonical_ipv4(host)
 
+    pinned_ip = ""
     if ip_literal is not None:
         if _is_disallowed_ip(ip_literal):
             raise ValueError("Feed URL cannot target private, loopback, link-local, or reserved IP addresses")
+        pinned_ip = str(ip_literal)
     else:
         if "." not in host or host.split(".")[-1].isdigit():
             raise ValueError("Feed URL must point to a valid public domain")
@@ -227,12 +247,22 @@ def validate_safe_feed_url(url: str) -> str:
                 raise ValueError(f"Invalid resolved IP address for {host!r}") from e
             if _is_disallowed_ip(resolved_ip):
                 raise ValueError("Feed URL resolves to a blocked private, loopback, link-local, or reserved IP address")
+            if not pinned_ip:
+                pinned_ip = str(resolved_ip)
+        if not pinned_ip:
+            raise ValueError(f"Could not resolve feed host {host!r}")
 
     # Auto-convert Substack publication root URLs to their RSS /feed endpoint.
     path = parts.path
     if host.endswith(".substack.com") and path in ("", "/"):
         path = "/feed"
-    return urlunsplit(("https", parts.netloc, path, parts.query, ""))
+    normalized = urlunsplit(("https", parts.netloc, path, parts.query, ""))
+    return normalized, host, pinned_ip
+
+
+def validate_safe_feed_url(url: str) -> str:
+    """Validate and normalize a custom RSS/Atom/Substack URL with strict SSRF defenses."""
+    return _resolve_and_validate_url(url)[0]
 
 
 @dataclass
@@ -269,11 +299,68 @@ def _clean(text: str, limit: int = 300) -> str:
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
+class _PinnedHTTPSAdapter(HTTPAdapter):
+    """Pin socket connection target to the pre-validated IP while preserving TLS SNI & Host."""
+
+    def __init__(self, pinned_host: str, pinned_ip: str, **kwargs):
+        self._pinned_host = pinned_host.lower().rstrip(".")
+        self._pinned_ip = pinned_ip
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        pinned_host = self._pinned_host
+        pinned_ip = self._pinned_ip
+
+        class _PinnedHTTPSConnection(urllib3.connection.HTTPSConnection):
+            def __init__(self, host, *args, **kw):
+                super().__init__(host, *args, **kw)
+                if host.lower().rstrip(".") == pinned_host:
+                    self._dns_host = pinned_ip
+
+        class _PinnedHTTPSConnectionPool(urllib3.connectionpool.HTTPSConnectionPool):
+            ConnectionCls = _PinnedHTTPSConnection
+
+        self.poolmanager = urllib3.PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+        self.poolmanager.pool_classes_by_scheme = {
+            **self.poolmanager.pool_classes_by_scheme,
+            "https": _PinnedHTTPSConnectionPool,
+        }
+
+
+def _pinned_get(s: requests.Session, url: str, pinned_host: str, pinned_ip: str):
+    """Perform s.get(...) with DNS pinned to pinned_ip (eliminates TOCTOU DNS rebinding)."""
+    if not (isinstance(s, requests.Session) and hasattr(s, "adapters")):
+        return s.get(url, timeout=TIMEOUT, allow_redirects=False, stream=True)
+
+    adapter = _PinnedHTTPSAdapter(pinned_host, pinned_ip)
+    prefixes = (f"https://{pinned_host}/", f"https://{pinned_host}:443/")
+    saved = {p: s.adapters.get(p) for p in prefixes}
+    old_trust_env = s.trust_env
+    try:
+        s.trust_env = False
+        for p in prefixes:
+            s.mount(p, adapter)
+        return s.get(url, timeout=TIMEOUT, allow_redirects=False, stream=True)
+    finally:
+        s.trust_env = old_trust_env
+        for p, prev in saved.items():
+            if prev is None:
+                s.adapters.pop(p, None)
+            else:
+                s.adapters[p] = prev
+        adapter.close()
+
+
 def _safe_fetch_bytes(s: requests.Session, url: str, max_bytes: int = MAX_FEED_BYTES) -> tuple[str, bytes]:
-    """Fetch a feed URL safely: HTTPS-only, DNS-checked, redirect-validated, capped at max_bytes."""
-    current_url = validate_safe_feed_url(url)
+    """Fetch a feed URL safely: HTTPS-only, IP-pinned DNS, redirect-validated, capped at max_bytes."""
+    current_url, pinned_host, pinned_ip = _resolve_and_validate_url(url)
     for _ in range(MAX_REDIRECTS + 1):
-        r = s.get(current_url, timeout=TIMEOUT, allow_redirects=False, stream=True)
+        r = _pinned_get(s, current_url, pinned_host, pinned_ip)
         try:
             status_code = getattr(r, "status_code", 200)
             headers = getattr(r, "headers", {}) or {}
@@ -281,7 +368,7 @@ def _safe_fetch_bytes(s: requests.Session, url: str, max_bytes: int = MAX_FEED_B
                 loc = headers.get("Location") or headers.get("location")
                 if not loc:
                     raise ValueError("Redirect response missing Location header")
-                current_url = validate_safe_feed_url(urljoin(current_url, loc))
+                current_url, pinned_host, pinned_ip = _resolve_and_validate_url(urljoin(current_url, loc))
                 continue
             r.raise_for_status()
             raw_cl = headers.get("Content-Length") or headers.get("content-length")
@@ -320,11 +407,25 @@ def parse_feed_xml(
     limit: int = 30,
     pinned_category: str = "",
 ) -> list[Topic]:
-    """Parse RSS 2.0 or Atom XML bytes into Topic objects using stdlib ElementTree."""
+    """Parse RSS 2.0 or Atom XML bytes into Topic objects using hardened expat validation."""
     if not data or not data.strip():
         return []
-    if _XML_ENTITY_RE.search(data[:4096]):
+    if _XML_ENTITY_RE.search(data):
         raise ValueError("Feed XML contains disallowed DOCTYPE/ENTITY declarations")
+
+    def _forbid_dtd(*_args, **_kwargs):
+        raise ValueError("Feed XML contains disallowed DOCTYPE/ENTITY declarations")
+
+    ep = expat.ParserCreate()
+    ep.StartDoctypeDeclHandler = _forbid_dtd
+    ep.EntityDeclHandler = _forbid_dtd
+    ep.UnparsedEntityDeclHandler = _forbid_dtd
+    ep.ExternalEntityRefHandler = _forbid_dtd
+    try:
+        ep.Parse(data, True)
+    except expat.ExpatError as e:
+        raise ValueError(f"Invalid RSS/Atom XML: {e}") from e
+
     try:
         root = ET.fromstring(data)
     except ET.ParseError as e:
