@@ -315,7 +315,7 @@ def load_light(user_id: int | None = None) -> list[Light]:
 def recent_topic_rows(limit: int, user_id: int | None = None) -> list[tuple[str, str]]:
     """(title, date) of the newest posts, then of the newest publishing records; newest first, bounded."""
     if db.enabled():
-        from sqlalchemy import select
+        from sqlalchemy import and_, or_, select
         from src.db.models import Post, PostedTopic
         with db.session() as s:
             p_stmt = select(Post.topic, Post.date).order_by(Post.created_at.desc()).limit(limit * 3)
@@ -323,15 +323,20 @@ def recent_topic_rows(limit: int, user_id: int | None = None) -> list[tuple[str,
                 p_stmt = p_stmt.where(_user_scope_condition(Post, user_id))
             posts = s.execute(p_stmt).all()
             if user_id is not None:
-                h_stmt = select(PostedTopic.title, PostedTopic.date).join(Post, PostedTopic.item_id == Post.id) \
-                    .where(_user_scope_condition(Post, user_id)).order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
+                h_stmt = select(PostedTopic.title, PostedTopic.date).outerjoin(Post, PostedTopic.item_id == Post.id) \
+                    .where(or_(
+                        and_(PostedTopic.user_id.is_not(None), _user_scope_condition(PostedTopic, user_id)),
+                        and_(PostedTopic.user_id.is_(None), Post.id.is_not(None), _user_scope_condition(Post, user_id)),
+                        and_(PostedTopic.user_id.is_(None), Post.id.is_(None), _user_scope_condition(PostedTopic, user_id)),
+                    )) \
+                    .order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
             else:
                 h_stmt = select(PostedTopic.title, PostedTopic.date) \
                     .order_by(PostedTopic.created_at.desc(), PostedTopic.id.desc()).limit(limit * 3)
             hist = s.execute(h_stmt).all()
         return [(t or "", d.isoformat() if d else "") for t, d in [*posts, *hist]]
     rows = [(i.topic, i.date) for i in sorted(load(user_id=user_id), key=lambda i: i.created_at, reverse=True)]
-    return rows + [(p.get("title", ""), p.get("date") or "") for p in reversed(posted_entries())]
+    return rows + [(p.get("title", ""), p.get("date") or "") for p in reversed(posted_entries(user_id=user_id))]
 
 
 def save(items: list[Item]) -> None:
@@ -397,10 +402,11 @@ def get(item_id: str, user_id: int | None = None) -> Item | None:
 # --------------------------------------------------------------------------- #
 # Publishing history
 # --------------------------------------------------------------------------- #
-def _posted_entry(item: Item) -> dict:
+def _posted_entry(item: Item, user_id: int | None = None) -> dict:
+    uid = item.user_id if item.user_id is not None else user_id
     return {"id": item.id, "title": item.topic, "url": item.source_url, "category": item.category,
             "kind": item.kind, "ig_media_id": item.ig_media_id, "date": item.date,
-            "published_at": item.published_at,
+            "published_at": item.published_at, "user_id": uid,
             "platforms": {p: {k: v for k, v in r.items() if k in ("status", "id", "url", "error", "at")}
                           for p, r in item.platforms.items()}}
 
@@ -408,7 +414,9 @@ def _posted_entry(item: Item) -> dict:
 def record_posted(item: Item) -> None:
     """Upsert this item's publishing record (per-platform status), so fetch_topics never
     suggests the topic again and every platform's outcome is on record."""
-    entry = _posted_entry(item)
+    from src.credentials import active_user_id
+    uid = item.user_id if item.user_id is not None else active_user_id.get()
+    entry = _posted_entry(item, user_id=uid)
     if db.enabled():
         from sqlalchemy import select
         from src.db.models import PostedTopic
@@ -418,6 +426,8 @@ def record_posted(item: Item) -> None:
                           category=entry["category"], kind=entry["kind"],
                           date=date_cls.fromisoformat(item.date), ig_media_id=entry["ig_media_id"],
                           published_at=_parse_ts(entry["published_at"]), platforms=entry["platforms"])
+            if uid is not None:
+                values["user_id"] = uid
             if row:
                 for k, v in values.items():
                     setattr(row, k, v)
@@ -429,21 +439,28 @@ def record_posted(item: Item) -> None:
     POSTED_FILE.write_text(json.dumps(posted, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def posted_entries() -> list[dict]:
+def posted_entries(user_id: int | None = None) -> list[dict]:
     """Publishing history, oldest first, as dicts shaped like data/posted.json entries."""
     if db.enabled():
         from sqlalchemy import select
         from src.db.models import PostedTopic
         with db.session() as s:
-            rows = s.scalars(select(PostedTopic).order_by(PostedTopic.created_at, PostedTopic.id)).all()
+            stmt = select(PostedTopic).order_by(PostedTopic.created_at, PostedTopic.id)
+            if user_id is not None:
+                stmt = stmt.where(_user_scope_condition(PostedTopic, user_id))
+            rows = s.scalars(stmt).all()
             return [{"id": r.item_id, "title": r.title, "url": r.url, "category": r.category,
                      "kind": r.kind, "ig_media_id": r.ig_media_id,
                      "date": r.date.isoformat() if r.date else None,
-                     "published_at": _iso(r.published_at), "platforms": r.platforms or {}} for r in rows]
+                     "published_at": _iso(r.published_at), "platforms": r.platforms or {},
+                     "user_id": r.user_id} for r in rows]
     if not POSTED_FILE.exists():
         return []
     try:
-        return json.loads(POSTED_FILE.read_text(encoding="utf-8") or "[]")
+        items = json.loads(POSTED_FILE.read_text(encoding="utf-8") or "[]")
+        if user_id is not None:
+            return [e for e in items if _matches_user(e.get("user_id"), user_id)]
+        return items
     except json.JSONDecodeError:
         return []
 

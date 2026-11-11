@@ -33,7 +33,7 @@ class Post(Base):
     kind: Mapped[str] = mapped_column(String(16), index=True)            # carousel | reel
     date: Mapped[date] = mapped_column(Date, index=True)
     topic: Mapped[str] = mapped_column(Text)
-    category: Mapped[str] = mapped_column(String(32), index=True)
+    category: Mapped[str] = mapped_column(String(64), index=True)
     source_url: Mapped[str] = mapped_column(Text, default="")
     angle: Mapped[str] = mapped_column(Text, default="")
     post_dir: Mapped[str] = mapped_column(Text)
@@ -72,12 +72,13 @@ class PostedTopic(Base):
     item_id: Mapped[str | None] = mapped_column(String(40), unique=True)  # posts.id; null for legacy rows
     title: Mapped[str] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text, default="")
-    category: Mapped[str | None] = mapped_column(String(32), index=True)
+    category: Mapped[str | None] = mapped_column(String(64), index=True)
     kind: Mapped[str | None] = mapped_column(String(16))
     date: Mapped[date | None] = mapped_column(Date)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ig_media_id: Mapped[str | None] = mapped_column(String(64))
     platforms: Mapped[dict] = mapped_column(JSONType, default=dict)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -218,7 +219,7 @@ class GenerationJob(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True)
     # What was asked for
     slot_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    category: Mapped[str | None] = mapped_column(String(32))
+    category: Mapped[str | None] = mapped_column(String(64))
     topic: Mapped[str | None] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(Text)
     force: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
@@ -238,7 +239,7 @@ class GenerationJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # What came out
     topic_title: Mapped[str | None] = mapped_column(Text)
-    topic_category: Mapped[str | None] = mapped_column(String(32))
+    topic_category: Mapped[str | None] = mapped_column(String(64))
     post_group_id: Mapped[str | None] = mapped_column(String(120))
     post_ids: Mapped[list | None] = mapped_column(JSONType)
 

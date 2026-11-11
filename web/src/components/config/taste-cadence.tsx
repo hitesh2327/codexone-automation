@@ -1,14 +1,19 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  AlertCircle,
   Brain,
   CalendarDays,
   Check,
+  ChevronDown,
+  ChevronUp,
   Clock,
+  ExternalLink,
   Loader2,
   Palette,
   Plus,
   RefreshCw,
+  Rss,
   Save,
   Sliders,
   Sparkles,
@@ -19,7 +24,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
-import { useAuth, type User } from "@/lib/auth";
+import { useAuth, type CategoryConfig, type TopicSourceConfig, type User } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 function InstagramIcon({ className }: { className?: string }) {
@@ -155,6 +160,35 @@ function defaultWeeklySlots(slots: string[]): WeeklySlots {
   return Object.fromEntries(DAYS_SHORT.map((d) => [d, [...slots]])) as WeeklySlots;
 }
 
+function normalizeCategoryList(raw?: (string | CategoryConfig)[]): CategoryConfig[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CategoryConfig[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const cfg: CategoryConfig =
+      typeof item === "string"
+        ? { name: item.trim(), description: "", keywords: [], weight: 20, prompt_style: "" }
+        : {
+            name: String(item.name || "").trim(),
+            description: item.description || "",
+            keywords: Array.isArray(item.keywords) ? item.keywords : [],
+            weight: typeof item.weight === "number" && item.weight >= 1 ? Math.min(100, Math.round(item.weight)) : 20,
+            prompt_style: item.prompt_style || "",
+          };
+    if (!cfg.name || seen.has(cfg.name.toLowerCase())) continue;
+    seen.add(cfg.name.toLowerCase());
+    out.push(cfg);
+  }
+  return out;
+}
+
+type FeedTestPreview = {
+  locator: string;
+  resolved_url?: string;
+  headlines?: { title: string; url: string; published?: string }[];
+  error?: string;
+};
+
 export function TasteCadenceConfig({
   isOnboarding,
   onComplete,
@@ -166,12 +200,23 @@ export function TasteCadenceConfig({
   const navigate = useNavigate();
 
   const [niche, setNiche] = useState(user?.taste?.niche || "");
-  const [categories, setCategories] = useState<string[]>(
-    (user?.taste as { categories?: string[] })?.categories || []
+  const [categories, setCategories] = useState<CategoryConfig[]>(
+    normalizeCategoryList(user?.taste?.categories)
   );
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [categoryInput, setCategoryInput] = useState("");
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesReasoning, setCategoriesReasoning] = useState("");
+  const [suggestedSubs, setSuggestedSubs] = useState<string[]>([]);
+
+  const [sources, setSources] = useState<TopicSourceConfig[]>(
+    Array.isArray(user?.taste?.sources) ? user.taste.sources : []
+  );
+  const [sourceType, setSourceType] = useState<"rss" | "substack" | "reddit">("rss");
+  const [sourceLocator, setSourceLocator] = useState("");
+  const [sourceCategory, setSourceCategory] = useState("");
+  const [testingSourceKey, setTestingSourceKey] = useState<string | null>(null);
+  const [feedPreview, setFeedPreview] = useState<FeedTestPreview | null>(null);
   const [tone, setTone] = useState(user?.taste?.tone || "Educational & Insightful");
   const [contentType, setContentType] = useState(user?.taste?.content_type || "Educational & How-To");
   const [aesthetic, setAesthetic] = useState(user?.taste?.aesthetic || "Dark Minimalist Luxury");
@@ -216,8 +261,8 @@ export function TasteCadenceConfig({
   useEffect(() => {
     if (user?.taste) {
       if (user.taste.niche) setNiche(user.taste.niche);
-      const tasteCats = (user.taste as { categories?: string[] }).categories;
-      if (tasteCats) setCategories(tasteCats);
+      if (user.taste.categories) setCategories(normalizeCategoryList(user.taste.categories));
+      if (user.taste.sources) setSources(user.taste.sources);
       if (user.taste.tone) setTone(user.taste.tone);
       if (user.taste.content_type) setContentType(user.taste.content_type);
       if (user.taste.aesthetic) setAesthetic(user.taste.aesthetic);
@@ -310,11 +355,18 @@ export function TasteCadenceConfig({
     }
     setCategoriesLoading(true);
     try {
-      const result = await api<{ categories: string[]; reasoning: string }>(
-        "/api/profile/suggest-categories",
-        { method: "POST" }
-      );
-      setCategories(result.categories);
+      const result = await api<{
+        categories: string[];
+        category_configs?: CategoryConfig[];
+        suggested_subreddits?: string[];
+        reasoning: string;
+      }>("/api/profile/suggest-categories", { method: "POST" });
+      if (result.category_configs && result.category_configs.length > 0) {
+        setCategories(normalizeCategoryList(result.category_configs));
+      } else {
+        setCategories(normalizeCategoryList(result.categories));
+      }
+      setSuggestedSubs(result.suggested_subreddits || []);
       setCategoriesReasoning(result.reasoning);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not get suggestions. Make sure GEMINI_API_KEY is configured.");
@@ -326,13 +378,89 @@ export function TasteCadenceConfig({
   function handleAddCategory() {
     const val = categoryInput.trim();
     if (!val) return;
-    if (categories.includes(val)) { setCategoryInput(""); return; }
-    setCategories((prev) => [...prev, val]);
+    if (categories.some((c) => c.name.toLowerCase() === val.toLowerCase())) {
+      setCategoryInput("");
+      return;
+    }
+    if (categories.length >= 12) {
+      toast.error("Maximum 12 content pillars allowed.");
+      return;
+    }
+    setCategories((prev) => [...prev, { name: val, description: "", keywords: [], weight: 20, prompt_style: "" }]);
     setCategoryInput("");
   }
 
-  function handleRemoveCategory(cat: string) {
-    setCategories((prev) => prev.filter((c) => c !== cat));
+  function handleRemoveCategory(catName: string) {
+    setCategories((prev) => prev.filter((c) => c.name !== catName));
+    if (expandedCategory === catName) setExpandedCategory(null);
+  }
+
+  function handleUpdateCategory(catName: string, patch: Partial<CategoryConfig>) {
+    setCategories((prev) => prev.map((c) => (c.name === catName ? { ...c, ...patch } : c)));
+  }
+
+  async function runSourceTest(type: "rss" | "substack" | "reddit", locator: string, key: string) {
+    const trimmed = locator.trim();
+    if (!trimmed) {
+      toast.error("Enter a feed URL, Substack slug, or subreddit first.");
+      return;
+    }
+    setTestingSourceKey(key);
+    setFeedPreview(null);
+    try {
+      const res = await api<{
+        ok: boolean;
+        resolved_url: string;
+        headlines: { title: string; url: string; published?: string }[];
+      }>("/api/profile/sources/test", {
+        method: "POST",
+        body: { source_type: type, locator: trimmed },
+      });
+      setFeedPreview({
+        locator: trimmed,
+        resolved_url: res.resolved_url,
+        headlines: res.headlines,
+      });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not fetch feed";
+      setFeedPreview({ locator: trimmed, error: msg });
+    } finally {
+      setTestingSourceKey(null);
+    }
+  }
+
+  function handleAddSource(overrideType?: "rss" | "substack" | "reddit", overrideLocator?: string) {
+    const st = overrideType ?? sourceType;
+    const raw = (overrideLocator ?? sourceLocator).trim();
+    if (!raw) return;
+    const normalizedLoc = st === "reddit" ? raw.replace(/^\/?r\//, "") : raw;
+    if (sources.some((s) => s.source_type === st && s.locator.toLowerCase() === normalizedLoc.toLowerCase())) {
+      if (!overrideLocator) setSourceLocator("");
+      return;
+    }
+    setSources((prev) => [
+      ...prev,
+      {
+        source_type: st,
+        locator: normalizedLoc,
+        category: overrideLocator ? "" : sourceCategory,
+        enabled: true,
+      },
+    ]);
+    if (!overrideLocator) {
+      setSourceLocator("");
+      setSourceCategory("");
+    }
+  }
+
+  function handleRemoveSource(st: string, locator: string) {
+    setSources((prev) => prev.filter((s) => !(s.source_type === st && s.locator === locator)));
+  }
+
+  function handleToggleSource(st: string, locator: string) {
+    setSources((prev) =>
+      prev.map((s) => (s.source_type === st && s.locator === locator ? { ...s, enabled: s.enabled === false } : s))
+    );
   }
 
   async function handleSave(completeOnboarding = false) {
@@ -346,6 +474,7 @@ export function TasteCadenceConfig({
       taste: {
         niche,
         categories: categories.length > 0 ? categories : undefined,
+        sources,
         tone,
         content_type: contentType,
         aesthetic,
@@ -486,11 +615,11 @@ export function TasteCadenceConfig({
             </div>
           </div>
 
-          {/* Content Categories */}
-          <div className="grid gap-2">
+          {/* Content Categories & Weights */}
+          <div className="grid gap-2.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">
-                Content Categories
+                Content Pillars &amp; Weights
               </label>
               <button
                 type="button"
@@ -503,25 +632,95 @@ export function TasteCadenceConfig({
               </button>
             </div>
             <p className="text-[11px] text-muted-foreground/70">
-              These are the content pillars your posts rotate across (e.g. "Recipes", "Techniques", "Reviews").
+              Adjust pillar weights (%) to control rotation frequency, and expand any pillar to set description, keywords, or prompt style.
             </p>
             {categories.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {categories.map((cat) => (
-                  <span
-                    key={cat}
-                    className="flex items-center gap-1 rounded-md border border-primary/50 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground"
-                  >
-                    {cat}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveCategory(cat)}
-                      className="ml-0.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </span>
-                ))}
+              <div className="grid gap-2">
+                {(() => {
+                  const totalWeight = categories.reduce((sum, c) => sum + Math.max(1, c.weight), 0) || 1;
+                  return categories.map((cat) => {
+                    const pct = Math.round((Math.max(1, cat.weight) / totalWeight) * 100);
+                    const isOpen = expandedCategory === cat.name;
+                    return (
+                      <div
+                        key={cat.name}
+                        className="grid gap-2 rounded-lg border border-border bg-background/50 p-2.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-foreground">{cat.name}</span>
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
+                              {pct}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="range"
+                              min={1}
+                              max={100}
+                              aria-label={`${cat.name} weight`}
+                              value={cat.weight}
+                              onChange={(e) => handleUpdateCategory(cat.name, { weight: Number(e.target.value) || 1 })}
+                              className="h-1.5 w-24 accent-primary cursor-pointer"
+                            />
+                            <Input
+                              type="number"
+                              min={1}
+                              max={100}
+                              aria-label={`${cat.name} weight value`}
+                              value={cat.weight}
+                              onChange={(e) => handleUpdateCategory(cat.name, {
+                                weight: Math.max(1, Math.min(100, Number(e.target.value) || 1)),
+                              })}
+                              className="h-7 w-14 px-1.5 text-center font-mono text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setExpandedCategory(isOpen ? null : cat.name)}
+                              className="flex items-center gap-0.5 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-raised hover:text-foreground"
+                            >
+                              Style {isOpen ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCategory(cat.name)}
+                              aria-label={`Remove ${cat.name}`}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        {isOpen && (
+                          <div className="grid gap-2 border-t border-border/60 pt-2">
+                            <Input
+                              value={cat.description || ""}
+                              onChange={(e) => handleUpdateCategory(cat.name, { description: e.target.value })}
+                              placeholder="Description (helps AI match trending topics to this pillar)"
+                              className="h-8 text-xs"
+                            />
+                            <Input
+                              value={(cat.keywords || []).join(", ")}
+                              onChange={(e) =>
+                                handleUpdateCategory(cat.name, {
+                                  keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean),
+                                })
+                              }
+                              placeholder="Optional hint keywords (comma-separated)"
+                              className="h-8 text-xs"
+                            />
+                            <Input
+                              value={cat.prompt_style || ""}
+                              onChange={(e) => handleUpdateCategory(cat.name, { prompt_style: e.target.value })}
+                              placeholder="Style & Angle directive (e.g. Punchy 3s hook, zero hype)"
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             ) : (
               <p className="rounded-md border border-dashed border-border/60 px-4 py-3 text-center text-xs text-muted-foreground">
@@ -532,6 +731,21 @@ export function TasteCadenceConfig({
               <p className="rounded-md border border-border/50 bg-background/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
                 <span className="font-medium text-foreground/70">Why: </span>{categoriesReasoning}
               </p>
+            )}
+            {suggestedSubs.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span>Suggested subreddits:</span>
+                {suggestedSubs.map((sub) => (
+                  <button
+                    key={sub}
+                    type="button"
+                    onClick={() => handleAddSource("reddit", sub)}
+                    className="rounded border border-border bg-background/60 px-2 py-0.5 font-mono text-[11px] hover:border-primary/50 hover:text-foreground"
+                  >
+                    + r/{sub}
+                  </button>
+                ))}
+              </div>
             )}
             <div className="flex gap-2">
               <Input
@@ -550,6 +764,173 @@ export function TasteCadenceConfig({
                 <Plus className="size-3.5" />Add
               </button>
             </div>
+          </div>
+
+          {/* Custom Content Sources */}
+          <div className="grid gap-2.5 rounded-lg border border-border/70 bg-background/30 p-3.5">
+            <div className="flex items-center gap-2">
+              <Rss className="size-3.5 text-primary" />
+              <label className="text-xs font-medium text-muted-foreground">
+                Custom Topic Sources (RSS, Substack &amp; Subreddits)
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground/70">
+              Add HTTPS RSS/Atom feeds, Substack newsletters, or niche subreddits. Non-tech niches skip developer feeds automatically.
+            </p>
+            {sources.length > 0 && (
+              <div className="grid gap-1.5">
+                {sources.map((src) => {
+                  const sKey = `${src.source_type}:${src.locator}`;
+                  return (
+                    <div
+                      key={sKey}
+                      className={cn(
+                        "flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-xs",
+                        src.enabled === false ? "border-border/40 opacity-55" : "border-border bg-background/60"
+                      )}
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-primary">
+                          {src.source_type}
+                        </span>
+                        <span className="truncate font-mono text-[11px] text-foreground">{src.locator}</span>
+                        {src.category && (
+                          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {src.category}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => runSourceTest(src.source_type, src.locator, sKey)}
+                          disabled={testingSourceKey === sKey}
+                          className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-raised hover:text-foreground disabled:opacity-50"
+                        >
+                          {testingSourceKey === sKey ? "Testing..." : "Test Feed"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSource(src.source_type, src.locator)}
+                          className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-raised hover:text-foreground"
+                        >
+                          {src.enabled === false ? "Enable" : "Disable"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSource(src.source_type, src.locator)}
+                          aria-label={`Remove ${src.locator}`}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="grid gap-2 sm:grid-cols-[110px_1fr]">
+              <select
+                aria-label="Source type"
+                value={sourceType}
+                onChange={(e) => setSourceType(e.target.value as "rss" | "substack" | "reddit")}
+                className="h-8 rounded-md border border-input bg-background/60 px-2 text-xs text-foreground"
+              >
+                <option value="rss">HTTPS RSS</option>
+                <option value="substack">Substack</option>
+                <option value="reddit">Subreddit</option>
+              </select>
+              <Input
+                value={sourceLocator}
+                onChange={(e) => setSourceLocator(e.target.value)}
+                placeholder={
+                  sourceType === "reddit"
+                    ? "e.g. personalfinance"
+                    : sourceType === "substack"
+                      ? "e.g. stratechery or https://stratechery.substack.com"
+                      : "https://example.com/feed.xml"
+                }
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {categories.length > 0 && (
+                <select
+                  aria-label="Pin source to category"
+                  value={sourceCategory}
+                  onChange={(e) => setSourceCategory(e.target.value)}
+                  className="h-8 rounded-md border border-input bg-background/60 px-2 text-xs text-foreground"
+                >
+                  <option value="">Auto-match category</option>
+                  {categories.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => runSourceTest(sourceType, sourceLocator, "draft")}
+                disabled={!sourceLocator.trim() || testingSourceKey === "draft"}
+                className="flex items-center gap-1 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-40"
+              >
+                {testingSourceKey === "draft" && <Loader2 className="size-3 animate-spin" />}
+                Test Feed
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAddSource()}
+                disabled={!sourceLocator.trim()}
+                className="flex items-center gap-1 rounded-md border border-border bg-background/50 px-2.5 py-1 text-xs text-muted-foreground hover:bg-raised hover:text-foreground disabled:opacity-40"
+              >
+                <Plus className="size-3.5" />Add Source
+              </button>
+            </div>
+            {feedPreview && (
+              <div
+                className={cn(
+                  "grid gap-1.5 rounded-md border p-2.5 text-xs",
+                  feedPreview.error
+                    ? "border-destructive/50 bg-destructive/10 text-destructive"
+                    : "border-primary/30 bg-primary/5 text-foreground"
+                )}
+              >
+                {feedPreview.error ? (
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                    <span>{feedPreview.error}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="truncate font-mono">{feedPreview.resolved_url}</span>
+                      <span>{(feedPreview.headlines || []).length} preview items</span>
+                    </div>
+                    {(feedPreview.headlines || []).length > 0 ? (
+                      <ul className="grid gap-1">
+                        {feedPreview.headlines!.map((h, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="truncate font-medium">{h.title}</span>
+                            {h.url && (
+                              <a
+                                href={h.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="shrink-0 text-primary hover:underline"
+                              >
+                                <ExternalLink className="size-3" />
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">Feed reachable, but returned 0 entries.</span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Tone */}

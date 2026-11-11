@@ -3,6 +3,22 @@ import { Navigate, useLocation } from "react-router-dom";
 
 import { api, ApiError, setCsrfToken } from "./api";
 
+export type CategoryConfig = {
+  name: string;
+  description?: string;
+  keywords?: string[];
+  weight: number;
+  prompt_style?: string;
+};
+
+export type TopicSourceConfig = {
+  source_type: "rss" | "substack" | "reddit";
+  locator: string;
+  label?: string;
+  category?: string;
+  enabled?: boolean;
+};
+
 export type User = {
   id: number;
   username: string | null;
@@ -23,6 +39,8 @@ export type User = {
     template_style?: string;
     target_audience?: string;
     prompt_instructions?: string;
+    categories?: (string | CategoryConfig)[];
+    sources?: TopicSourceConfig[];
     default_targets?: string[];
     default_language?: "en" | "hi";
     default_post_format?: "carousel" | "image_reel";

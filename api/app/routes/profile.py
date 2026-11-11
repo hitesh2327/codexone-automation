@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -123,6 +124,77 @@ def update_profile(body: ProfileBody, cu: CurrentUser = Depends(current_user)) -
         raise _bad("That username is taken.", status.HTTP_409_CONFLICT) from None
 
 
+def _validate_and_normalize_categories(raw_cats: object) -> list[dict]:
+    from src.user_taste import MAX_CATEGORIES, clean_category_name, normalize_categories
+    if not isinstance(raw_cats, list):
+        raise _bad("Categories must be a list.")
+    if len(raw_cats) > MAX_CATEGORIES:
+        raise _bad(f"You can configure at most {MAX_CATEGORIES} categories.")
+    for entry in raw_cats:
+        raw_name = entry.get("name") or entry.get("label") or "" if isinstance(entry, dict) else entry
+        try:
+            clean_category_name(raw_name)
+        except ValueError as e:
+            raise _bad(str(e)) from None
+        if isinstance(entry, dict) and "weight" in entry and entry["weight"] is not None:
+            try:
+                w = int(entry["weight"])
+            except (TypeError, ValueError):
+                raise _bad("Category weight must be an integer between 1 and 100.") from None
+            if not 1 <= w <= 100:
+                raise _bad("Category weight must be between 1 and 100.")
+    return [c.to_dict() for c in normalize_categories(raw_cats)]
+
+
+def _normalize_substack_locator(locator: str) -> str:
+    loc = locator.strip()
+    if "://" not in loc:
+        slug = loc.lower().strip("/")
+        if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", slug):
+            raise _bad("Substack slug must be letters, numbers, and dashes, or a full https:// URL.")
+        return f"https://{slug}.substack.com/feed"
+    return loc
+
+
+def _validate_and_normalize_sources(raw_sources: object) -> list[dict]:
+    from src.fetch_topics import validate_safe_feed_url
+    from src.user_taste import normalize_sources
+    if not isinstance(raw_sources, list):
+        raise _bad("Sources must be a list.")
+    if len(raw_sources) > 20:
+        raise _bad("You can configure at most 20 custom sources.")
+    cleaned: list[dict] = []
+    for entry in raw_sources:
+        if not isinstance(entry, dict):
+            raise _bad("Each source must be an object.")
+        st = str(entry.get("source_type") or "").strip().lower()
+        loc = str(entry.get("locator") or "").strip()
+        if st not in ("rss", "substack", "reddit"):
+            raise _bad("Source type must be 'rss', 'substack', or 'reddit'.")
+        if not loc:
+            raise _bad("Source locator cannot be empty.")
+        if st == "reddit":
+            sub = re.sub(r"^/?r/", "", loc)
+            if not re.match(r"^[A-Za-z0-9_]{2,32}$", sub):
+                raise _bad("Subreddit name must be 2-32 letters, numbers, or underscores.")
+            loc = sub
+        else:
+            if st == "substack":
+                loc = _normalize_substack_locator(loc)
+            try:
+                loc = validate_safe_feed_url(loc)
+            except ValueError as e:
+                raise _bad(str(e)) from None
+        cleaned.append({
+            "source_type": st,
+            "locator": loc,
+            "label": str(entry.get("label") or "").strip()[:80],
+            "category": str(entry.get("category") or "").strip()[:64],
+            "enabled": bool(entry.get("enabled", True)),
+        })
+    return [s.to_dict() for s in normalize_sources(cleaned)]
+
+
 def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
     data = body.model_dump(exclude_unset=True)
     with db.session() as ses:
@@ -173,6 +245,13 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
             if "default_post_format" in t_in and t_in["default_post_format"] is not None:
                 if t_in["default_post_format"] not in ("carousel", "image_reel"):
                     raise _bad("Default post format must be 'carousel' or 'image_reel'.")
+            if "categories" in t_in and t_in["categories"] is not None:
+                if len(t_in["categories"]) == 0:
+                    t_in.pop("categories")
+                else:
+                    t_in["categories"] = _validate_and_normalize_categories(t_in["categories"])
+            if "sources" in t_in and t_in["sources"] is not None:
+                t_in["sources"] = _validate_and_normalize_sources(t_in["sources"])
             current_taste = dict(u.taste or {})
             current_taste.update(t_in)
             u.taste = current_taste
@@ -293,12 +372,13 @@ def suggest_categories(cu: CurrentUser = Depends(current_user)) -> dict:
         f"- Niche: {niche}\n"
         f"- Content type: {content_type}\n"
         f"- Target audience: {audience or 'general'}\n\n"
-        f"Suggest exactly 5 distinct content categories for this Instagram account. "
-        f"Each category should be a short label (1-3 words) that represents a recurring theme "
-        f"or content pillar for the niche. They should be different enough that content can be "
-        f"spread evenly across them.\n\n"
+        f"Suggest exactly 5 distinct content pillars/categories for this creator. "
+        f"Each category should be a short label (1-3 words), have a 1-sentence description, "
+        f"a relative weight (integer 1-100 summing near 100), and a short prompt_style directive. "
+        f"Also suggest 3-5 relevant public subreddit names (without the r/ prefix).\n\n"
         f"Return ONLY valid JSON: "
-        f'{{ "categories": ["Cat1", "Cat2", "Cat3", "Cat4", "Cat5"], "reasoning": "one sentence" }}'
+        f'{{"categories": [{{"name": "Cat1", "description": "What fits here", "weight": 25, "prompt_style": "Tone/angle"}}], '
+        f'"suggested_subreddits": ["sub1", "sub2"], "reasoning": "one sentence"}}'
     )
 
     api_key = get_env("GEMINI_API_KEY", required=False)
@@ -317,10 +397,134 @@ def suggest_categories(cu: CurrentUser = Depends(current_user)) -> dict:
         log.error("suggest-categories: Gemini failed: %s", e)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not get category suggestions; try again.")
 
-    cats = result.get("categories", [])
-    if not isinstance(cats, list) or len(cats) < 2:
+    raw_cats = result.get("categories", [])
+    if not isinstance(raw_cats, list) or len(raw_cats) < 2:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Unexpected response from Gemini; try again.")
-    return {"categories": [str(c).strip() for c in cats[:8]], "reasoning": result.get("reasoning", "")}
+    from src.user_taste import normalize_categories
+    configs = normalize_categories(raw_cats[:8])
+    if len(configs) < 2:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Unexpected response from Gemini; try again.")
+    subs = [
+        re.sub(r"^/?r/", "", str(s).strip())
+        for s in (result.get("suggested_subreddits") or [])
+        if re.match(r"^[A-Za-z0-9_]{2,32}$", re.sub(r"^/?r/", "", str(s).strip()))
+    ][:6]
+    return {
+        "categories": [c.name for c in configs],
+        "category_configs": [c.to_dict() for c in configs],
+        "suggested_subreddits": subs,
+        "reasoning": result.get("reasoning", ""),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Dynamic Categories & Custom Sources
+# --------------------------------------------------------------------------- #
+source_test_limiter = rl.RateLimiter()
+SOURCE_TEST_LIMIT, SOURCE_TEST_WINDOW = 10, 60
+
+
+class CategoriesPutBody(BaseModel):
+    categories: list[dict | str] = Field(min_length=1, max_length=12)
+    sources: list[dict] | None = None
+
+
+class SourceTestBody(BaseModel):
+    source_type: Literal["rss", "substack", "reddit"] = "rss"
+    locator: str = Field(min_length=1, max_length=500)
+
+
+@router.get("/categories")
+def get_categories(cu: CurrentUser = Depends(current_user)) -> dict:
+    """Return the user's normalized category configs and custom topic sources."""
+    from src.user_taste import get_user_taste
+    taste = get_user_taste(cu.id)
+    return {
+        "niche": taste.niche,
+        "categories": [c.to_dict() for c in taste.category_configs],
+        "sources": [s.to_dict() for s in taste.sources],
+    }
+
+
+@router.put("/categories")
+def put_categories(body: CategoriesPutBody, cu: CurrentUser = Depends(current_user)) -> dict:
+    """Save the user's weighted categories (1-12) and optional custom sources."""
+    norm_cats = _validate_and_normalize_categories(body.categories)
+    if not norm_cats:
+        raise _bad("At least 1 valid category is required.")
+    norm_sources = _validate_and_normalize_sources(body.sources) if body.sources is not None else None
+
+    with db.session() as ses:
+        u = _user(ses, cu)
+        current_taste = dict(u.taste or {})
+        current_taste["categories"] = norm_cats
+        if norm_sources is not None:
+            current_taste["sources"] = norm_sources
+        u.taste = current_taste
+        ses.flush()
+    try:
+        from src.user_taste import invalidate as _inv
+        _inv(cu.id)
+    except Exception:  # noqa: BLE001
+        pass
+    from src.user_taste import get_user_taste
+    taste = get_user_taste(cu.id)
+    return {
+        "niche": taste.niche,
+        "categories": [c.to_dict() for c in taste.category_configs],
+        "sources": [s.to_dict() for s in taste.sources],
+    }
+
+
+@router.post("/sources/test")
+def test_source(body: SourceTestBody, cu: CurrentUser = Depends(current_user)) -> dict:
+    """SSRF-validate and live-test a custom RSS, Substack, or Reddit source (up to 3 headlines)."""
+    if wait := source_test_limiter.retry_after(f"src_test:{cu.id}", SOURCE_TEST_LIMIT, SOURCE_TEST_WINDOW):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many feed tests. Try again in {wait}s.",
+            headers={"Retry-After": str(wait)},
+        )
+    source_test_limiter.hit(f"src_test:{cu.id}")
+
+    import requests as _requests
+    from src.fetch_topics import _session, fetch_reddit, fetch_rss, validate_safe_feed_url
+
+    loc = body.locator.strip()
+    if body.source_type == "reddit":
+        sub = re.sub(r"^/?r/", "", loc)
+        if not re.match(r"^[A-Za-z0-9_]{2,32}$", sub):
+            raise _bad("Subreddit name must be 2-32 letters, numbers, or underscores.")
+        try:
+            items = fetch_reddit(_session(), limit=3, subs=[sub])
+        except Exception as e:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not fetch r/{sub}: {e}") from None
+        return {
+            "ok": True,
+            "resolved_url": f"https://www.reddit.com/r/{sub}",
+            "headlines": [{"title": t.title, "url": t.url, "published": t.published} for t in items[:3]],
+        }
+
+    if body.source_type == "substack":
+        loc = _normalize_substack_locator(loc)
+
+    try:
+        safe_url = validate_safe_feed_url(loc)
+    except ValueError as e:
+        raise _bad(str(e)) from None
+
+    try:
+        items = fetch_rss(_session(), safe_url, limit=3)
+    except ValueError as e:
+        raise _bad(str(e)) from None
+    except _requests.RequestException as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not fetch feed: {e}") from None
+
+    return {
+        "ok": True,
+        "resolved_url": safe_url,
+        "headlines": [{"title": t.title, "url": t.url, "published": t.published} for t in items[:3]],
+    }
 
 
 # --------------------------------------------------------------------------- #

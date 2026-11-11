@@ -220,12 +220,30 @@ def _hook_block(brand: dict) -> str:
     return "\n\n" + "\n".join(lines)
 
 
-def _prompt(topic: str, category: str, angle: str, brand: dict, feedback: str = "", language: str = "en") -> str:
+def _prompt(
+    topic: str,
+    category: str,
+    angle: str,
+    brand: dict,
+    feedback: str = "",
+    language: str = "en",
+    prompt_style: str = "",
+) -> str:
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
     guide = f"\n\n{CATEGORY_GUIDE[category]}" if category in CATEGORY_GUIDE else ""
+    if prompt_style.strip():
+        guide += f"\n\nPER-CATEGORY STYLE & ANGLE DIRECTIVES:\n{prompt_style.strip()}"
+    handle = brand["handle"]
+    try:
+        from src.user_taste import get_user_taste
+        t_handle = get_user_taste().effective_handle()
+        if t_handle:
+            handle = t_handle
+    except Exception:  # noqa: BLE001
+        pass
     if language == "hi":
-        guide += "\n\n" + HINGLISH.format(handle=brand["handle"])
-    return f"""Design one reel + carousel for {brand['handle']}.
+        guide += "\n\n" + HINGLISH.format(handle=handle)
+    return f"""Design one reel + carousel for {handle}.
 
 Topic: {topic}
 Category: {category}
@@ -505,13 +523,20 @@ def repair(s: SceneSpec) -> list[str]:
     return fixed
 
 
-def generate(topic: str, category: str = "", angle: str = "", feedback: str = "", language: str = "en") -> SceneSpec:
+def generate(
+    topic: str,
+    category: str = "",
+    angle: str = "",
+    feedback: str = "",
+    language: str = "en",
+    prompt_style: str = "",
+) -> SceneSpec:
     """Draft, repair, check and review; rewrite with the remaining issues up to ATTEMPTS times.
 
     The last attempt is not sent to the reviewer again (an accurate-enough draft beats no post); it must still
     pass the structural checks, or this raises."""
     brand = load_brand()
-    spec = generate_json(_prompt(topic, category, angle, brand, feedback, language), SceneSpec, system=SYSTEM)
+    spec = generate_json(_prompt(topic, category, angle, brand, feedback, language, prompt_style=prompt_style), SceneSpec, system=SYSTEM)
     for attempt in range(1, ATTEMPTS + 1):
         if fixed := repair(spec):
             log.info("attempt %d: repaired %s", attempt, "; ".join(fixed))
@@ -529,7 +554,7 @@ def generate(topic: str, category: str = "", angle: str = "", feedback: str = ""
         log.info("attempt %d: rewriting draft: %s", attempt, "; ".join(issues))
         fix = "\n".join(f"- {i}" for i in issues)
         revise = f"{fix}\n\nPrevious draft to revise (keep what is right):\n{spec.model_dump_json()}"
-        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + revise).strip(), language),
+        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + revise).strip(), language, prompt_style=prompt_style),
                              SceneSpec, system=SYSTEM)
     return spec
 
