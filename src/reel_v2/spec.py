@@ -153,6 +153,19 @@ is minimal: a beat heading, one caption line, optionally a terminal command. You
 precise, never invent statistics or benchmarks, and keep it beginner-friendly."""
 
 
+def _system_prompt(taste) -> str:
+    if taste is None or taste.is_tech():
+        return SYSTEM
+    return (
+        f"You design short animated explainer videos for a {taste.niche} Instagram account "
+        f"targeting {taste.target_audience}.\n"
+        "Everything happens on ONE visual diagram/flow that stays on screen; the story is told by "
+        "changing which connections carry focus, step states (live/boot/error...), and 3 live counters. "
+        "Text on screen is minimal: a beat heading, one caption line, optionally a concise takeaway. "
+        "You are factually accurate, never invent statistics, and keep it engaging and accessible."
+    )
+
+
 # How the one-diagram format maps onto categories that aren't about live systems.
 CATEGORY_GUIDE = {
     "DSA": """CATEGORY NOTES (DSA)
@@ -220,12 +233,43 @@ def _hook_block(brand: dict) -> str:
     return "\n\n" + "\n".join(lines)
 
 
-def _prompt(topic: str, category: str, angle: str, brand: dict, feedback: str = "", language: str = "en") -> str:
+def _prompt(
+    topic: str,
+    category: str,
+    angle: str,
+    brand: dict,
+    feedback: str = "",
+    language: str = "en",
+    prompt_style: str = "",
+) -> str:
     extra = f"\n\nFix these problems from the previous draft:\n{feedback}" if feedback else ""
     guide = f"\n\n{CATEGORY_GUIDE[category]}" if category in CATEGORY_GUIDE else ""
+    if prompt_style.strip():
+        guide += f"\n\nPER-CATEGORY STYLE & ANGLE DIRECTIVES:\n{prompt_style.strip()}"
+    handle = brand["handle"]
+    taste = None
+    try:
+        from src.user_taste import get_user_taste
+        taste = get_user_taste()
+        t_handle = taste.effective_handle()
+        if t_handle:
+            handle = t_handle
+    except Exception:  # noqa: BLE001
+        pass
+    is_tech = taste is None or taste.is_tech()
     if language == "hi":
-        guide += "\n\n" + HINGLISH.format(handle=brand["handle"])
-    return f"""Design one reel + carousel for {brand['handle']}.
+        guide += "\n\n" + HINGLISH.format(handle=handle)
+    hashtag_hint = (
+        f"; you may use some of: {' '.join(brand['hashtags'])}"
+        if is_tech
+        else f" tailored to {taste.niche}"
+    )
+    lead_magnet_hint = (
+        "'Comment \"SCALE\" and I will DM you the complete architecture cheat sheet + code.'"
+        if is_tech
+        else f"'Comment \"GUIDE\" and I will DM you the complete {taste.niche} breakdown.'"
+    )
+    return f"""Design one reel + carousel for {handle}.
 
 Topic: {topic}
 Category: {category}
@@ -267,8 +311,8 @@ CHEAT SHEET: when to use, trade-offs, one real snippet (CLI/config/code; at most
 CAPTION: 60-120 words.
 - First line (under 125 chars): Punchy SEO hook that survives the "... more" fold, containing the primary topic keyword.
 - Body: Concrete production insight and architecture trade-off.
-- Final line: 1-word keyword CTA: 'Comment "SCALE" and I will DM you the complete architecture cheat sheet + code.' (No generic questions).
-HASHTAGS: exactly {MAX_HASHTAGS} specific, targeted niche hashtags (Instagram limit); you may use some of: {' '.join(brand['hashtags'])}.
+- Final line: 1-word keyword CTA: {lead_magnet_hint} (No generic questions).
+HASHTAGS: exactly {MAX_HASHTAGS} specific, targeted niche hashtags (Instagram limit){hashtag_hint}.
 No generic tags that add no reach ({' '.join(sorted(DEAD_HASHTAGS))}).{_hook_block(brand)}{guide}{extra}"""
 
 
@@ -505,13 +549,26 @@ def repair(s: SceneSpec) -> list[str]:
     return fixed
 
 
-def generate(topic: str, category: str = "", angle: str = "", feedback: str = "", language: str = "en") -> SceneSpec:
+def generate(
+    topic: str,
+    category: str = "",
+    angle: str = "",
+    feedback: str = "",
+    language: str = "en",
+    prompt_style: str = "",
+) -> SceneSpec:
     """Draft, repair, check and review; rewrite with the remaining issues up to ATTEMPTS times.
 
     The last attempt is not sent to the reviewer again (an accurate-enough draft beats no post); it must still
     pass the structural checks, or this raises."""
     brand = load_brand()
-    spec = generate_json(_prompt(topic, category, angle, brand, feedback, language), SceneSpec, system=SYSTEM)
+    try:
+        from src.user_taste import get_user_taste
+        taste = get_user_taste()
+    except Exception:  # noqa: BLE001
+        taste = None
+    system_prompt = _system_prompt(taste)
+    spec = generate_json(_prompt(topic, category, angle, brand, feedback, language, prompt_style=prompt_style), SceneSpec, system=system_prompt)
     for attempt in range(1, ATTEMPTS + 1):
         if fixed := repair(spec):
             log.info("attempt %d: repaired %s", attempt, "; ".join(fixed))
@@ -529,8 +586,8 @@ def generate(topic: str, category: str = "", angle: str = "", feedback: str = ""
         log.info("attempt %d: rewriting draft: %s", attempt, "; ".join(issues))
         fix = "\n".join(f"- {i}" for i in issues)
         revise = f"{fix}\n\nPrevious draft to revise (keep what is right):\n{spec.model_dump_json()}"
-        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + revise).strip(), language),
-                             SceneSpec, system=SYSTEM)
+        spec = generate_json(_prompt(topic, category, angle, brand, (feedback + "\n" + revise).strip(), language, prompt_style=prompt_style),
+                             SceneSpec, system=system_prompt)
     return spec
 
 

@@ -223,8 +223,9 @@ def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") 
     scene comes out (after the engine's own repairs and rewrites), this raises and the run fails visibly."""
     from src.reel_v2 import pipeline as v2
     from src.reel_v2.spec import generate as generate_scene
+    prompt_style = getattr(topic, "prompt_style", "") or ""
     try:
-        spec = generate_scene(topic.title, topic.category, topic.angle, feedback, language)
+        spec = generate_scene(topic.title, topic.category, topic.angle, feedback, language, prompt_style=prompt_style)
     except Exception as e:
         v2.notify_failure("Script", topic.title, e)
         raise

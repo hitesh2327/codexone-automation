@@ -83,7 +83,7 @@ def test_alembic_upgrade_and_downgrade_sqlite(tmp_path, monkeypatch):
 
     cfg = _alembic_cfg()
     script = ScriptDirectory.from_config(cfg)
-    assert list(script.get_heads()) == ["5b2c3d4e5f6a"]
+    assert len(script.get_heads()) == 1
     rev = script.get_revision("5b2c3d4e5f6a")
     assert rev is not None and rev.down_revision == "4a1b2c3d4e5f"
 

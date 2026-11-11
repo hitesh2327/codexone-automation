@@ -98,12 +98,13 @@ class GenerateBody(BaseModel):
     @field_validator("category")
     @classmethod
     def _category(cls, v):
-        import re as _re
         if v in (None, "", "auto"):
             return None
-        if not _re.match(r"^[A-Za-z0-9 &/_-]{1,64}$", v):
-            raise ValueError("Category contains invalid characters")
-        return v
+        cleaned = " ".join(str(v).split())
+        if not cleaned or cleaned.lower() == "auto":
+            return None
+        from src.user_taste import clean_category_name
+        return clean_category_name(cleaned)
 
     @model_validator(mode="after")
     def _combine(self):
@@ -144,16 +145,22 @@ def _github_state(ok: bool) -> dict:
 
 def _user_categories(cu: CurrentUser) -> list[dict]:
     try:
-        from src.user_taste import get_user_taste
+        from src.user_taste import get_user_taste, is_tech_niche
         from src.credentials import active_user_id
         tok = active_user_id.set(cu.id)
         try:
             taste = get_user_taste(cu.id)
         finally:
             active_user_id.reset(tok)
-        cats = taste.categories
-        if cats:
-            return [{"name": c, "weight": 1} for c in cats]
+        if taste.category_configs:
+            return [
+                {"name": c.name, "weight": c.weight, "description": c.description}
+                for c in taste.category_configs
+            ]
+        if taste.categories:
+            return [{"name": c, "weight": 20} for c in taste.categories]
+        if not is_tech_niche(taste.niche):
+            return []
     except Exception:  # noqa: BLE001
         pass
     return [{"name": c, "weight": w} for c, w in load_brand()["topics_weight"].items()]
