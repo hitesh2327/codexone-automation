@@ -26,6 +26,20 @@ from src.rank_topics import RankedTopic
 
 log = get_logger("gen_content")
 
+_PREAMBLE_RE = re.compile(
+    r"^\s*(?:(?:hey|hi|hello)\s+(?:guys|everyone|devs|friends)[,!.\s]+|"
+    r"(?:stop\s+scrolling|don'?t\s+scroll)[,!.\s]+|"
+    r"in\s+(?:this|today'?s)\s+(?:video|reel|short)[,:\s]+|"
+    r"today\s+we(?:'re|\s+are)\s+(?:going\s+to|gonna)\s+(?:learn|talk\s+about|look\s+at)\s+)",
+    re.I,
+)
+_WEAK_IG_QUESTION_RE = re.compile(
+    r"(?:have you|would you|do you|what do you think|let me know|thoughts\?)",
+    re.I,
+)
+_ACTION_CTA_RE = re.compile(r"\b(?:save|bookmark|comment|share|send|dm)\b", re.I)
+_LEADING_DECOR_RE = re.compile(r"^(?:[\U0001F300-\U0001FAFF\u2600-\u27BF]+|#\S+)\s*")
+
 
 class ReelPoint(BaseModel):
     on_screen: str = Field(description="Big on-screen text, max 6 words. Use normal notation like O(1). Wrap the 1-2 key words in *asterisks*")
@@ -34,7 +48,7 @@ class ReelPoint(BaseModel):
 
 class Reel(BaseModel):
     hook_on_screen: str = Field(description="On-screen hook, max 7 words. Wrap the 1-2 key words in *asterisks*")
-    hook_narration: str = Field(description="Spoken hook, 1 sentence, creates curiosity honestly")
+    hook_narration: str = Field(description="Spoken hook under 2.5s (5-12 words), front-loaded stakes/number, no greeting or preamble")
     hook_alternatives: list[str] = Field(
         default_factory=list,
         description="3 other spoken hooks for the same reel, each 5-12 words and true to the content, each a different "
@@ -42,7 +56,7 @@ class Reel(BaseModel):
                     "No greetings ('hey guys'), no 'in this video'")
     points: list[ReelPoint] = Field(description="Exactly 3 points")
     cta_on_screen: str = Field(description="On-screen CTA, max 6 words. Wrap the 1-2 key words in *asterisks*")
-    cta_narration: str = Field(description="Spoken CTA, 1 sentence")
+    cta_narration: str = Field(description="Payoff + seamless loop-back line connecting back into the opening hook (no 'follow for more')")
 
 
 class Pointer(BaseModel):
@@ -84,8 +98,8 @@ class Content(BaseModel):
     reel: Reel
     demo: Demo | None = Field(default=None, description="Animated step-by-step example, or null if the topic has no data to animate")
     carousel: list[Slide] = Field(description="5-7 slides: first type=title, last type=cta, rest type=content or visual")
-    caption: str = Field(description="Instagram caption without hashtags, 60-150 words, ends with a question")
-    hashtags: list[str] = Field(description="10-15 hashtags, each starting with #")
+    caption: str = Field(description="Instagram SEO caption without hashtags, 60-120 words: line 1 <= 125 chars hook, natural search keywords, single save/share/keyword CTA")
+    hashtags: list[str] = Field(description="Up to 5 specific niche hashtags (Instagram Dec 2025 cap), each starting with #, no #viral/#fyp")
     # Reel narration language, set by generate() (not chosen by the model): en | hi (Hinglish)
     language: Language = "en"
     # v2 scene spec (src/reel_v2) when this post uses the animated-diagram engine; not part of
@@ -102,17 +116,106 @@ def slugify(text: str, maxlen: int = 50) -> str:
 
 def _extract_formula_from_hook(hook: str) -> str | None:
     """Parse the [#N Name] annotation Gemini adds when using the formula block."""
-    import re as _re
-    m = _re.search(r"\[#\d+\s+([^\]]+)\]", hook)
-    if m:
-        return m.group(1).strip()
-    return None
+    m = re.search(r"\[#\d+\s+([^\]]+)\]", hook)
+    return m.group(1).strip() if m else None
 
 
 def _clean_formula_annotation(hook: str) -> str:
     """Remove the [#N Name] annotation from the final spoken hook."""
-    import re as _re
-    return _re.sub(r"\s*\[#\d+[^\]]*\]\s*", " ", hook).strip()
+    return re.sub(r"\s*\[#\d+[^\]]*\]\s*", " ", hook).strip()
+
+
+def _strip_hook_preamble(hook: str) -> str:
+    """Strip dealbreaker greetings/preambles and capitalize the real hook start."""
+    cleaned = _PREAMBLE_RE.sub("", hook).strip()
+    if not cleaned:
+        return hook.strip()
+    return cleaned[0].upper() + cleaned[1:]
+
+
+def _sync_scene_hook(content: Content, new_hook: str) -> None:
+    """Keep attached v2 SceneSpec beat 1 narration and trigger word valid after hook cleanup/swap."""
+    beats = getattr(content._scene, "beats", None)
+    if not beats:
+        return
+    b0 = beats[0]
+    b0.narration = new_hook
+    spoken = [w.strip(".,?!'\"।") for w in new_hook.split() if w.strip(".,?!'\"।")]
+    if spoken and b0.trigger.lower().strip(".,?!'\"।") not in [w.lower() for w in spoken]:
+        b0.trigger = max(spoken, key=len)
+
+
+def _enforce_hook(content: Content) -> tuple[str | None, float | None, str | None]:
+    """Score the spoken hook, strip English preambles, promote stronger alternatives, and sync v2 beat 1."""
+    hook_formula = _extract_formula_from_hook(content.reel.hook_narration)
+    hook = _clean_formula_annotation(content.reel.hook_narration)
+    if hook_formula:
+        log.info("hook formula used: %s", hook_formula)
+
+    if content.language == "en":
+        stripped = _strip_hook_preamble(hook)
+        if stripped != hook:
+            log.info("stripped weak preamble from hook: %r -> %r", hook, stripped)
+            hook = stripped
+
+    content.reel.hook_narration = hook
+    if content._scene is not None and content.language == "en":
+        _sync_scene_hook(content, hook)
+
+    try:
+        from src.hookscore import run as score_hook
+        _, best_score, best_verdict, best_flags = score_hook(hook)
+        if content.language == "en" and content.reel.hook_alternatives:
+            for alt in content.reel.hook_alternatives:
+                cand = _strip_hook_preamble(_clean_formula_annotation(alt))
+                if not cand:
+                    continue
+                _, alt_score, alt_verdict, alt_flags = score_hook(cand)
+                better_clean = len(alt_flags) < len(best_flags) and alt_score >= best_score - 5
+                better_score = len(alt_flags) <= len(best_flags) and (
+                    alt_score >= best_score + 5 or (alt_verdict == "STRONG" and best_verdict != "STRONG")
+                )
+                if better_clean or better_score:
+                    log.info("promoted hook alternative (%.0f %s -> %.0f %s): %s",
+                             best_score, best_verdict, alt_score, alt_verdict, cand)
+                    hook, best_score, best_verdict, best_flags = cand, alt_score, alt_verdict, alt_flags
+                    content.reel.hook_narration = hook
+                    _sync_scene_hook(content, hook)
+        log.info("hook score: %.0f (%s)", best_score, best_verdict)
+        if content.language == "en" and (best_verdict == "WEAK" or best_flags):
+            log.warning("weak hook (%s, %.0f): %s%s", best_verdict, best_score, hook,
+                        f" | flags: {'; '.join(best_flags)}" if best_flags else "")
+        return hook_formula, best_score, best_verdict
+    except Exception:  # noqa: BLE001
+        return hook_formula, None, None
+
+
+def _enforce_ig_caption(caption: str, topic: str) -> str:
+    """Keep IG caption line 1 clean before the 125-char fold and ensure a single save/share/keyword ask."""
+    text = caption.strip()
+    if not text:
+        return text
+    lines = text.splitlines()
+    lines[0] = _LEADING_DECOR_RE.sub("", lines[0]).strip()
+    if len(lines[0]) > 125:
+        log.info("caption line 1 is %d chars (> 125-char IG '... more' fold)", len(lines[0]))
+    text = "\n".join(lines).strip()
+    if not _ACTION_CTA_RE.search(text):
+        last = lines[-1].strip()
+        cta = f"Save this {topic} breakdown for your next review."
+        if _WEAK_IG_QUESTION_RE.search(last):
+            lines[-1] = cta
+            text = "\n".join(lines).strip()
+        else:
+            text = f"{text}\n\n{cta}"
+    return text
+
+
+def youtube_metadata(content: Content) -> dict:
+    """Build YouTube Shorts SEO metadata (title < 60 chars, description, categoryId, tags) for Content."""
+    from src.publish_youtube import build_metadata
+    full = f"{content.caption.strip()}\n\n{' '.join(content.hashtags)}".strip()
+    return build_metadata(full, audio_language=content.language, category=content.category, topic=content.topic)
 
 
 def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") -> Content:
@@ -126,20 +229,13 @@ def generate(topic: RankedTopic, feedback: str = "", language: Language = "en") 
         v2.notify_failure("Script", topic.title, e)
         raise
     log.info("v2 scene: %d beats, %d words", len(spec.beats), sum(len(b.narration.split()) for b in spec.beats))
-    content = _post_process(v2.to_content(spec, topic.title, topic.category))
+    content = v2.to_content(spec, topic.title, topic.category)
     content.language = language
-    return content
+    return _post_process(content)
 
 
 def _post_process(content: Content) -> Content:
-    """Phase 2+3: caption lint + humanise + Phase 5: score the hook. Called after every generation path."""
-    # --- Phase 1: strip formula annotation from final hook, record it ---
-    hook_formula = _extract_formula_from_hook(content.reel.hook_narration)
-    if hook_formula:
-        content.reel.hook_narration = _clean_formula_annotation(content.reel.hook_narration)
-        log.info("hook formula used: %s", hook_formula)
-
-    # --- Phase 3: humanise captions and narrations ---
+    """Enforce viral hook quality, humanise text, enforce IG SEO caption + hashtag cap, and log for ig-audit."""
     try:
         from src.humanize import clean as humanize_text
         before = content.caption
@@ -153,7 +249,9 @@ def _post_process(content: Content) -> Content:
     except Exception:  # noqa: BLE001
         log.exception("humanize pass failed; continuing with original text")
 
-    # --- Phase 2: enforce caption lint rules (hashtag cap, dead tags, IG limit) ---
+    hook_formula, hook_score, hook_verdict = _enforce_hook(content)
+    content.caption = _enforce_ig_caption(content.caption, content.topic)
+
     try:
         from src.caption_lint import enforce, lint
         issues = lint(content.caption, content.hashtags)
@@ -163,16 +261,7 @@ def _post_process(content: Content) -> Content:
     except Exception:  # noqa: BLE001
         log.exception("caption_lint pass failed; continuing with original hashtags")
 
-    # Ensure hashtag format after linting
     content.hashtags = [h if h.startswith("#") else f"#{h}" for h in content.hashtags]
-
-    # --- Phase 5: score hook and log for ig-audit ---
-    try:
-        from src.hookscore import run as score_hook
-        _, hook_score, hook_verdict, _ = score_hook(content.reel.hook_narration)
-        log.info("hook score: %.0f (%s)", hook_score, hook_verdict)
-    except Exception:  # noqa: BLE001
-        hook_score, hook_verdict = None, None
 
     try:
         from src.post_log import record as log_post

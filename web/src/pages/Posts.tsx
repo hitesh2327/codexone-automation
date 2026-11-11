@@ -20,6 +20,8 @@ import { stageOf } from "@/lib/stage";
 import { cn } from "@/lib/utils";
 
 const ANY = "__any";
+const PAGE_SIZE = 20;
+const MAX_REFRESH_GROUPS = 500;
 const STATUS_OPTIONS = ["pending", "approved", "publishing", "published", "failed", "regenerate", "rejected", "expired"];
 
 // ---------------------------------------------------------------------------------------------
@@ -203,19 +205,32 @@ export default function Posts() {
   );
   const [data, setData] = useState<PostsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(params.get("post"));
   const [now, setNow] = useState(() => Date.now());
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [search, setSearch] = useState(filters.q ?? "");
   const abort = useRef<AbortController | null>(null);
+  const moreAbort = useRef<AbortController | null>(null);
+  const dataRef = useRef<PostsResponse | null>(null);
+  const loadingMoreRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  dataRef.current = data;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserveCount = false) => {
     abort.current?.abort();
+    moreAbort.current?.abort();
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+    setLoadMoreError(null);
     const ctrl = new AbortController();
     abort.current = ctrl;
+    const loaded = dataRef.current?.groups.length ?? 0;
+    const limit = preserveCount ? Math.min(MAX_REFRESH_GROUPS, Math.max(PAGE_SIZE, loaded)) : PAGE_SIZE;
     try {
-      const res = await listPosts(filters, ctrl.signal);
+      const res = await listPosts({ ...filters, limit }, ctrl.signal);
       setData(res);
       setUpdatedAt(Date.now());
       setError(null);
@@ -227,6 +242,34 @@ export default function Posts() {
     }
   }, [filters]);
 
+  const loadMore = useCallback(async () => {
+    const cur = dataRef.current;
+    if (!cur?.has_more || !cur.next_cursor || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    moreAbort.current?.abort();
+    const ctrl = new AbortController();
+    moreAbort.current = ctrl;
+    try {
+      const res = await listPosts({ ...filters, limit: PAGE_SIZE, cursor: cur.next_cursor }, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      setData((prev) => {
+        if (!prev) return res;
+        const seen = new Set(prev.groups.map((g) => g.group_id));
+        const extra = res.groups.filter((g) => !seen.has(g.group_id));
+        return { ...res, groups: [...prev.groups, ...extra] };
+      });
+      setUpdatedAt(Date.now());
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setLoadMoreError(e instanceof ApiError ? e.message : "Couldn't load more posts.");
+    } finally {
+      loadingMoreRef.current = false;
+      if (!ctrl.signal.aborted) setLoadingMore(false);
+    }
+  }, [filters]);
+
   // On open: apply any Telegram taps first, so both places agree, then load.
   useEffect(() => {
     syncTelegram()
@@ -234,11 +277,25 @@ export default function Posts() {
         if (r.changes.length) toast.info(`Applied ${r.changes.length} Telegram update(s)`);
       })
       .catch(() => {})
-      .finally(load);
+      .finally(() => load(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Infinite scroll: pre-fetch the next page slightly before the bottom sentinel enters the viewport.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !data?.has_more || loading || loadMoreError) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [data?.has_more, data?.next_cursor, loading, loadMoreError, loadMore]);
 
   // Keep fresh: quickly while something is publishing/regenerating, slowly while posts are waiting or
   // scheduled (approvals and publishes happen in CI, not here). Paused while the tab is hidden.
@@ -247,7 +304,7 @@ export default function Posts() {
   const waiting = items?.some((i) => i.status === "pending" || i.status === "approved");
   useEffect(() => {
     if (!busy && !waiting) return;
-    const t = setInterval(() => { if (!document.hidden) load(); }, busy ? 8000 : 30000);
+    const t = setInterval(() => { if (!document.hidden) load(true); }, busy ? 8000 : 30000);
     return () => clearInterval(t);
   }, [busy, waiting, load]);
 
@@ -300,7 +357,7 @@ export default function Posts() {
             </span>
           )}
           actions={(
-            <Button variant="outline" size="sm" onClick={() => { setLoading(true); syncTelegram().catch(() => {}).finally(load); }}>
+            <Button variant="outline" size="sm" onClick={() => { setLoading(true); syncTelegram().catch(() => {}).finally(() => load(true)); }}>
               <RefreshCw className={loading ? "animate-spin" : ""} />
               Refresh
             </Button>
@@ -383,7 +440,10 @@ export default function Posts() {
             )}
             {data && (
               <span className="col-span-2 font-mono text-[11px] text-muted-foreground sm:ml-auto" aria-live="polite">
-                {data.groups.length} {data.groups.length === 1 ? "topic" : "topics"}{hasFilters ? " match" : ""}
+                {data.total != null && data.total > data.groups.length
+                  ? `${data.groups.length} of ${data.total}`
+                  : data.groups.length}{" "}
+                {(data.total ?? data.groups.length) === 1 ? "topic" : "topics"}{hasFilters ? " match" : ""}
               </span>
             )}
           </div>
@@ -431,6 +491,27 @@ export default function Posts() {
                 </ol>
               </section>
             ))}
+            {loadingMore && (
+              <div className="grid gap-px overflow-hidden rounded-xl border border-border" role="status" aria-label="Loading more posts">
+                {[0, 1].map((i) => (
+                  <div key={i} className="grid grid-cols-[4rem_1fr] gap-6 p-5 lg:grid-cols-[4rem_1.25fr_1fr_1fr]">
+                    <Skeleton className="h-5 w-12" />
+                    <div className="grid gap-2"><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-24" /></div>
+                    <Skeleton className="hidden h-10 lg:block" /><Skeleton className="hidden h-10 lg:block" />
+                  </div>
+                ))}
+              </div>
+            )}
+            {data.has_more && (
+              <div ref={sentinelRef} className="flex flex-col items-center gap-3 py-2">
+                {loadMoreError && (
+                  <p role="alert" className="text-xs text-bad">{loadMoreError}</p>
+                )}
+                <Button variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? "Loading…" : loadMoreError ? "Retry loading more" : "Load more"}
+                </Button>
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -439,7 +520,7 @@ export default function Posts() {
         group={openGroup}
         open={!!openGroup}
         onOpenChange={(o) => { if (!o) { setOpenId(null); setFilter("post", ""); } }}
-        onChanged={load}
+        onChanged={() => load(true)}
         publishingEnabled={data?.publishing_enabled ?? false}
       />
     </AppShell>

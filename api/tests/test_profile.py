@@ -328,3 +328,17 @@ def test_restart_does_not_overwrite_a_password_the_admin_changed(make_user):
     finally:
         with db.session() as s:
             s.scalars(select(User).where(User.username == "admin")).one().password_hash = original
+
+
+def test_taste_default_language_and_post_format_validation(client, make_user):
+    u = make_user(username="prefs.user", email="prefs@example.com", password=PW)
+    r = client.post("/api/auth/login", json={"username": "prefs.user", "password": PW})
+    client.headers["X-CSRF-Token"] = r.json()["csrf"]
+
+    ok = client.patch("/api/profile", json={"taste": {"default_language": "hi", "default_post_format": "image_reel"}})
+    assert ok.status_code == 200
+    assert ok.json()["taste"]["default_language"] == "hi"
+    assert ok.json()["taste"]["default_post_format"] == "image_reel"
+
+    assert client.patch("/api/profile", json={"taste": {"default_language": "fr"}}).status_code == 422
+    assert client.patch("/api/profile", json={"taste": {"default_post_format": "story"}}).status_code == 422

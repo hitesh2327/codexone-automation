@@ -67,6 +67,8 @@ export type GenConfig = {
   default_language: Narration;
   /** The post's second item unless the request picks the other one (brand post_format). */
   default_post_format: PostFormat;
+  /** Owner-controlled visibility for GitHub Actions run links. */
+  show_github_run?: boolean;
 };
 
 export type GithubState = { ok: boolean; as_of: string };

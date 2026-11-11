@@ -37,13 +37,13 @@ from src.logger import get_logger
 log = get_logger("render_reel")
 
 W, H, FPS = 1080, 1920, 30
-GAP = 0.35          # silence between scenes (s)
-PART_GAP = 0.25     # silence between demo steps (s)
-TAIL = 0.8          # hold after last word (s)
+GAP = 0.20          # tight silence between scenes (s) so dead air doesn't trigger swipes
+PART_GAP = 0.20     # silence between demo steps (s)
+TAIL = 0.25         # brief tail (s) so loop-back endings snap cleanly into beat 1 on replay
 MOVE = 0.45         # pointer glide duration (s)
 HOP = 0.3           # per-node hop when a linked-list pointer follows its next links (s)
 XFADE = 0.25        # crossfade between demo steps (s)
-TTS_RATE = "+6%"
+TTS_RATE = "+10%"
 MUSIC_VOLUME = 0.12
 
 
@@ -185,7 +185,7 @@ def scene_html(scene: Scene, handle: str) -> str:
     if scene.kind == "point":
         top = f'<div class="num">{scene.index:02d}</div>'
     elif scene.kind == "cta":
-        top = '<div class="kicker">FOLLOW FOR MORE</div>'
+        top = '<div class="kicker">SAVE &amp; SHARE</div>'
     else:
         top = ""
     extra = (f'<div class="kicker" style="margin:56px 0 0;background:var(--primary)">{html.escape(handle)}</div>'
@@ -372,6 +372,25 @@ def _demo_layers(page, content: Content, scene: Scene, work: Path, is_last: bool
     return layers
 
 
+def _warn_v2_retention(spec, language: str) -> None:
+    """Surface retention risks (slow hook or >24s pacing) before rendering."""
+    beats = getattr(spec, "beats", None) or []
+    if not beats:
+        return
+    words = sum(len(b.narration.split()) for b in beats)
+    if words > 68:
+        log.warning("retention risk: %d narration words (~%.1fs) exceeds 18-24s sweet spot", words, words / 2.8)
+    if language == "en":
+        try:
+            from src.hookscore import run as score_hook
+            _, score, verdict, flags = score_hook(beats[0].narration)
+            if verdict == "WEAK" or flags:
+                log.warning("retention risk: beat 1 hook scored %.0f (%s)%s", score, verdict,
+                            f"; flags: {', '.join(flags)}" if flags else "")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def render_reel(content: Content, out_dir: Path, music: Path | None = None,
                 dry_run: bool = False, voice: str | None = None) -> Path | None:
     from src.reel_v2 import pipeline as v2
@@ -381,6 +400,7 @@ def render_reel(content: Content, out_dir: Path, music: Path | None = None,
                 log.info("[dry-run] v2 %-22s | %s", b.heading, b.narration)
             return None
         from src.reel_v2.render import render_reel as render_v2
+        _warn_v2_retention(spec, content.language)
         v2.save_scene(spec, out_dir)
         try:
             return render_v2(spec, out_dir, voice or pick_voice(content.language), language=content.language)

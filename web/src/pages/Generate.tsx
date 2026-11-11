@@ -35,7 +35,7 @@ function jobSummary(j: Job): string {
   return `Auto topic${j.category ? ` · ${j.category}` : ""}`;
 }
 
-function History({ jobs, onOpen }: { jobs: Job[]; onOpen: (j: Job) => void }) {
+function History({ jobs, onOpen, showGithubRun = true }: { jobs: Job[]; onOpen: (j: Job) => void; showGithubRun?: boolean }) {
   if (!jobs.length) {
     return (
       <div className="grid gap-1 border-t border-dashed border-border pt-4">
@@ -71,7 +71,7 @@ function History({ jobs, onOpen }: { jobs: Job[]; onOpen: (j: Job) => void }) {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:justify-end">
             {j.duration_sec != null && <span className="tabular-nums">{elapsedText(j.duration_sec)}</span>}
             {j.post_ids[0] && <Link to={`/posts?post=${encodeURIComponent(j.post_ids[0])}`} className="inline-flex items-center rounded-[4px] text-primary underline-offset-2 hover:underline touch:min-h-11">Post</Link>}
-            {safeHref(j.github_run_url, true) && (
+            {showGithubRun && safeHref(j.github_run_url, true) && (
               <a href={safeHref(j.github_run_url, true)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 rounded-[4px] text-primary underline-offset-2 hover:underline touch:min-h-11">
                 Run<ExternalLink className="size-3" aria-hidden /><span className="sr-only"> (opens in a new tab)</span>
               </a>
@@ -219,7 +219,7 @@ export default function Generate() {
           <div className="grid items-start gap-x-10 gap-y-9 lg:grid-cols-[minmax(0,1fr)_23rem]">
             <div className="grid min-w-0 gap-5 lg:col-start-1 lg:row-start-1">
               {tracked ? (
-                <RunTracker job={tracked} now={now} github={github} onRetry={retry} />
+                <RunTracker job={tracked} now={now} github={github} onRetry={retry} showGithubRun={cfg.show_github_run !== false} />
               ) : (
                 <section className="grid justify-items-start gap-3 border-t border-dashed border-border py-10 sm:grid-cols-[auto_1fr] sm:gap-x-8" aria-labelledby="tracker-title">
                   <span aria-hidden className="font-heading text-7xl leading-none font-bold text-transparent [-webkit-text-stroke:1px_var(--rule)]">00</span>
@@ -263,7 +263,7 @@ export default function Generate() {
 
             <section aria-labelledby="recent-title" className="min-w-0 lg:col-start-1 lg:row-start-3">
               <h2 id="recent-title" className="label-mono mb-3">Recent requests</h2>
-              <History jobs={jobs} onOpen={(j) => { setViewId(j.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+              <History jobs={jobs} showGithubRun={cfg.show_github_run !== false} onOpen={(j) => { setViewId(j.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
               <p className="mt-2 text-xs text-muted-foreground">
                 Regenerating from feedback happens in <Link to="/posts" className="text-primary underline-offset-2 hover:underline">Posts</Link>. Times are IST.
               </p>

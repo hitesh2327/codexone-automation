@@ -37,11 +37,12 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 }
 
 /** The live card for the running (or most recent) request: phases, elapsed time, run link, and what to do next. */
-export function RunTracker({ job, now, github, onRetry }: {
+export function RunTracker({ job, now, github, onRetry, showGithubRun = true }: {
   job: Job;
   now: number;
   github: GithubState;
   onRetry: (job: Job) => void;
+  showGithubRun?: boolean;
 }) {
   const reviewId = job.post_ids[0];
   const failed = job.status === "failed" || job.status === "cancelled";
@@ -111,7 +112,7 @@ export function RunTracker({ job, now, github, onRetry }: {
             Retry
           </Button>
         )}
-        {safeHref(job.github_run_url, true) ? (
+        {showGithubRun && safeHref(job.github_run_url, true) ? (
           <Button asChild size="sm" variant="ghost" className="touch:h-11">
             <a href={safeHref(job.github_run_url, true)} target="_blank" rel="noreferrer">
               <ExternalLink />

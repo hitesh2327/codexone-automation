@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { CreditCard, FileText, KeyRound, LayoutDashboard, LogOut, ScrollText, Settings2, Sparkles } from "lucide-react";
+import { CreditCard, FileText, LayoutDashboard, LogOut, ScrollText, Settings2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Logo } from "@/components/logo";
@@ -16,7 +16,6 @@ const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, ready: true },
   { to: "/posts", label: "Posts", icon: FileText, ready: true },
   { to: "/generate", label: "Generate", icon: Sparkles, ready: true },
-  { to: "/accounts", label: "Accounts", icon: KeyRound, ready: false },
   { to: "/config", label: "Config", icon: Settings2, ready: true },
   { to: "/subscription", label: "Subscription", icon: CreditCard, ready: true },
   { to: "/logs", label: "Logs", icon: ScrollText, ready: true },
@@ -25,7 +24,7 @@ const NAV = [
 /** Sidebar sections. Items are looked up in NAV by path, so flipping `ready` above is all a page needs. */
 const GROUPS: { label: string; paths: string[] }[] = [
   { label: "Desk", paths: ["/dashboard", "/posts", "/generate"] },
-  { label: "Setup", paths: ["/accounts", "/config", "/subscription"] },
+  { label: "Setup", paths: ["/config", "/subscription"] },
   { label: "Record", paths: ["/logs"] },
 ];
 

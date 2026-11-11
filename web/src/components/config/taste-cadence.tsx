@@ -186,6 +186,12 @@ export function TasteCadenceConfig({
   const [platforms, setPlatforms] = useState<string[]>(
     user?.taste?.default_targets || ["ig", "yt"]
   );
+  const [defaultLanguage, setDefaultLanguage] = useState<"en" | "hi">(
+    user?.taste?.default_language === "hi" ? "hi" : "en"
+  );
+  const [defaultPostFormat, setDefaultPostFormat] = useState<"carousel" | "image_reel">(
+    user?.taste?.default_post_format === "image_reel" ? "image_reel" : "carousel"
+  );
 
   const [postsPerDay, setPostsPerDay] = useState<number>(
     user?.cadence?.posts_per_day || 2
@@ -219,6 +225,8 @@ export function TasteCadenceConfig({
       if (user.taste.target_audience) setTargetAudience(user.taste.target_audience);
       if (user.taste.prompt_instructions !== undefined) setPromptInstructions(user.taste.prompt_instructions);
       if (user.taste.default_targets) setPlatforms(user.taste.default_targets);
+      if (user.taste.default_language === "en" || user.taste.default_language === "hi") setDefaultLanguage(user.taste.default_language);
+      if (user.taste.default_post_format === "carousel" || user.taste.default_post_format === "image_reel") setDefaultPostFormat(user.taste.default_post_format);
     }
     if (user?.cadence) {
       if (user.cadence.posts_per_day) setPostsPerDay(user.cadence.posts_per_day);
@@ -345,6 +353,8 @@ export function TasteCadenceConfig({
         target_audience: targetAudience,
         prompt_instructions: promptInstructions,
         default_targets: platforms,
+        default_language: defaultLanguage,
+        default_post_format: defaultPostFormat,
       },
       cadence: {
         posts_per_day: postsPerDay,
@@ -743,6 +753,67 @@ export function TasteCadenceConfig({
                   {platforms.includes("yt") && <Check className="size-3.5" />}
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Default Narration & Post Format */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                Default Narration Language
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 rounded-lg border border-border bg-background/50 p-1">
+                {([
+                  { value: "en" as const, label: "English" },
+                  { value: "hi" as const, label: "Hinglish" },
+                ]).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setDefaultLanguage(opt.value)}
+                    className={cn(
+                      "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                      defaultLanguage === opt.value
+                        ? "bg-primary/10 text-primary shadow-sm"
+                        : "text-muted-foreground hover:bg-raised hover:text-foreground"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Used by Generate &amp; scheduled runs unless overridden.
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                Default Post Format
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 rounded-lg border border-border bg-background/50 p-1">
+                {([
+                  { value: "carousel" as const, label: "Carousel" },
+                  { value: "image_reel" as const, label: "Image reel" },
+                ]).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setDefaultPostFormat(opt.value)}
+                    className={cn(
+                      "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                      defaultPostFormat === opt.value
+                        ? "bg-primary/10 text-primary shadow-sm"
+                        : "text-muted-foreground hover:bg-raised hover:text-foreground"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Second item paired with the main reel.
+              </p>
             </div>
           </div>
 

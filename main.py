@@ -73,11 +73,13 @@ def cmd_generate(args) -> int:
     log.info("slot: %s IST", f"{publish_at:%a %d %b %H:%M}")
     # Narration language: --language, else what the dashboard job asked for, else the brand default.
     from src.config import default_narration
-    args.language = args.language or generation.job_language(args.request_id) or default_narration()
+    from src.user_taste import user_generation_defaults
+    _u_lang, _u_fmt = user_generation_defaults(args.user_id)
+    args.language = args.language or generation.job_language(args.request_id) or _u_lang or default_narration()
     log.info("narration: %s", "Hinglish" if args.language == "hi" else "English")
     # Second item: --post-format, else what the dashboard job asked for, else the brand default.
     from src import image_reel
-    args.post_format = args.post_format or generation.job_post_format(args.request_id) or image_reel.default_format()
+    args.post_format = args.post_format or generation.job_post_format(args.request_id) or _u_fmt or image_reel.default_format()
     log.info("post format: reel + %s", args.post_format.replace("_", " "))
     job = generation.Reporter() if args.dry_run else generation.Reporter.begin(
         args.request_id, slot_at=publish_at, category=args.category, topic=args.topic,

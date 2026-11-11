@@ -1,15 +1,15 @@
 name: Poll Telegram approvals + publish
 
-# No server: every 20 min around each posting slot, read Telegram button presses via
-# getUpdates, publish approved items (Instagram, then YouTube Shorts for reels) once
-# their slot time has passed, and regenerate
-# items when asked. Runs exit in seconds when nothing is waiting (saves Actions minutes).
+# No server: every 5 min, read Telegram button presses via getUpdates, publish approved
+# items (Instagram, then YouTube Shorts for reels) once their slot time has passed, and
+# regenerate items when asked. Idle runs exit in ~3s at has_work.py before Python/pip setup.
 # Previews with no decision expire after 36h.
-# Primary trigger: cron-job.org every 15 min (see README); this schedule is a backup.
+# Note: GitHub's `on: schedule` can still experience 5-60+ min queue jitter under load;
+# for deterministic minute-accurate publishing, trigger workflow_dispatch via an external
+# scheduler (e.g. AWS EventBridge Scheduler or cron-job.org).
 on:
   schedule:
-    - cron: "*/20 2-7 * * *"    # 07:30–13:10 IST (10:00 slot)
-    - cron: "*/20 12-18 * * *"  # 17:30–00:10 IST (19:00 slot)
+    - cron: "*/5 * * * *"     # 24/7 every 5 min: aligns with :00 IST slots & covers custom user slots
   workflow_dispatch:
     inputs:
       dry_run:
@@ -56,11 +56,25 @@ jobs:
         if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
         with:
           python-version: "3.11"
-          cache: pip
+
+      - name: Cache Python environment
+        id: venv-cache
+        if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-3.11-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
+        if: (steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch') && steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Activate Python environment
         if: steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
-        run: pip install -r requirements.txt
+        run: echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
 
       - name: Apply database migrations
         if: env.DATABASE_URL != '' && (steps.gate.outputs.work == 'true' || github.event_name == 'workflow_dispatch')

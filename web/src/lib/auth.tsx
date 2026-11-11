@@ -24,6 +24,8 @@ export type User = {
     target_audience?: string;
     prompt_instructions?: string;
     default_targets?: string[];
+    default_language?: "en" | "hi";
+    default_post_format?: "carousel" | "image_reel";
   };
   cadence?: {
     posts_per_day?: number;

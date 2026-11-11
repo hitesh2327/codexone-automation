@@ -81,11 +81,23 @@ export type PostsResponse = {
   next_cursor?: string | null;
 };
 
-export type Filters = { status?: string; platform?: string; category?: string; date_from?: string; date_to?: string; q?: string };
+export type Filters = {
+  status?: string;
+  platform?: string;
+  category?: string;
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+  cursor?: string;
+};
 
 export function listPosts(filters: Filters, signal?: AbortSignal) {
   const params = new URLSearchParams(
-    Object.entries(filters).filter(([, v]) => v) as [string, string][],
+    Object.entries(filters)
+      .filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(([k, v]) => [k, String(v)]),
   );
   return api<PostsResponse>(`/api/posts${params.size ? `?${params}` : ""}`, { signal });
 }

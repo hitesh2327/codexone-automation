@@ -210,3 +210,44 @@ def test_one_unreadable_row_does_not_break_the_queue():
     assert q.get(bad.id) is None and q.get(good.id).status == "approved"
     with db.session() as s:
         s.execute(update(Post).where(Post.id == bad.id).values(status="rejected"))
+
+
+def test_publish_due_handles_utc_naive_and_bad_publish_at(fake_platforms, monkeypatch):
+    from datetime import timezone
+    from src import publish
+
+    past_utc = (_dt.now(timezone.utc) - _td(minutes=2)).isoformat(timespec="seconds")
+    past_naive = (_dt.now(q.IST) - _td(minutes=2)).replace(tzinfo=None).isoformat(timespec="seconds")
+    future_ist = (_dt.now(q.IST) + _td(minutes=30)).isoformat(timespec="seconds")
+
+    # _due_at normalizes naive ISO timestamps to IST instead of crashing with TypeError
+    naive_item = q.Item(id="due-naive-mem", kind="carousel", date="2026-10-06", topic="T", category="AI",
+                        post_dir="output/2026-10-06/due-naive-mem", caption="c\n\n#x", status="approved",
+                        publish_at=past_naive)
+    assert publish._due_at(naive_item).tzinfo == q.IST
+
+    def make_at(item_id: str, when: str) -> q.Item:
+        item = _due(item_id)
+        item.publish_at = when
+        q.upsert(item)
+        return item
+
+    u = make_at("due-utc", past_utc)
+    f = make_at("due-future", future_ist)
+    bad = _due("due-bad")
+    after = make_at("due-after-bad", past_utc)
+
+    orig_at = publish.item_publish_at
+
+    def flaky_at(item):
+        if item.id == bad.id:
+            raise ValueError("corrupt timestamp")
+        return orig_at(item)
+
+    monkeypatch.setattr(publish, "item_publish_at", flaky_at)
+    publish.publish_due()
+
+    published_ids = {c[1] for c in fake_platforms}
+    assert {u.id, after.id} <= published_ids
+    assert f.id not in published_ids and bad.id not in published_ids
+    assert q.get(f.id).status == "approved"

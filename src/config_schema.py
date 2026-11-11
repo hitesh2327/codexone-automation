@@ -94,7 +94,7 @@ FIELDS_BY_NAME = {f.name: f for f in FIELDS}
 # Names the resolver may look up in the store (everything above; bootstrap names are never here).
 STORE_NAMES = frozenset(FIELDS_BY_NAME)
 SECRET_NAMES = frozenset(f.name for f in FIELDS if f.secret)
-PER_USER_FIELD_NAMES = frozenset(f.name for f in FIELDS if f.per_user)
+PER_USER_FIELD_NAMES = frozenset(f.name for f in FIELDS if f.per_user) | {"TG_BOT_TOKEN"}
 BOOTSTRAP = frozenset({"DATABASE_URL", "CONFIG_MASTER_KEY", "CONFIG_PRECEDENCE", "JWT_SECRET", "SESSION_SECRET",
                        "ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_PASSWORD_FORCE", "ORIGIN_VERIFY", "PUBLIC_URL",
                        "COOKIE_SECURE", "SSM_PREFIX", "PUBLISH_VIA", "WEB_ORIGIN", "API_DEBUG"})

@@ -13,12 +13,14 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
-  deleteWebhook, detectChat, getOverview, save, verify, type DetectedChat, type FieldState, type Integration,
-  type Overview, type Readiness, type State, type VerifyResult,
+  deleteWebhook, detectChat, getOverview, getUiPreferences, save, saveUiPreferences, verify, type DetectedChat, type FieldState, type Integration,
+  type Overview, type Readiness, type State, type UiPreferences, type VerifyResult,
+
 } from "@/lib/config";
 import { ago, checkField, cleanValue } from "@/lib/config-format";
 import { cn } from "@/lib/utils";
@@ -418,11 +420,34 @@ export default function ConfigPage() {
   const [error, setError] = useState<string | null>(null);
   const [guide, setGuide] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
+  const [uiPrefs, setUiPrefs] = useState<UiPreferences | null>(null);
+  const [uiPrefBusy, setUiPrefBusy] = useState(false);
   const location = useLocation();
   const isOnboarding = user?.config_completed === false || !!(location.state as { onboarding?: boolean })?.onboarding;
   const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isOwner = user?.role === "owner";
 
-  const load = useCallback(() => { if (!isAdmin) return; getOverview().then((d) => { setData(d); setError(null); }).catch((x) => setError(errText(x, "Couldn't load the configuration."))); }, [isAdmin]);
+  const load = useCallback(() => {
+    if (!isAdmin) return;
+    getOverview().then((d) => { setData(d); setError(null); }).catch((x) => setError(errText(x, "Couldn't load the configuration.")));
+    if (isOwner) getUiPreferences().then(setUiPrefs).catch(() => {});
+  }, [isAdmin, isOwner]);
+
+  async function toggleGithubRun(next: boolean) {
+    setUiPrefBusy(true);
+    try {
+      const saved = await saveUiPreferences({ show_github_run: next });
+      setUiPrefs(saved);
+      toast.success(saved.show_github_run ? "GitHub run links enabled on Generate page" : "GitHub run links hidden on Generate page");
+    } catch (x) {
+      toast.error(errText(x, "Could not update UI preferences."));
+    } finally {
+      setUiPrefBusy(false);
+    }
+  }
+
+
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {  // deep links like /config#telegram
     if (!data || !location.hash) return;
@@ -472,6 +497,29 @@ export default function ConfigPage() {
         <TasteCadenceConfig isOnboarding={isOnboarding} onComplete={load} />
 
         {!isAdmin && <UserIntegrations />}
+
+        {isOwner && uiPrefs && (
+          <section aria-labelledby="owner-prefs-h" className="grid gap-3 rounded-xl border border-rule bg-card/50 p-5">
+            <div>
+              <p className="label-mono">Owner preferences</p>
+              <h2 id="owner-prefs-h" className="mt-1 font-heading text-lg font-semibold tracking-tight">Generate page visibility</h2>
+            </div>
+            <label className="flex cursor-pointer items-start gap-3 text-sm">
+              <Checkbox
+                checked={uiPrefs.show_github_run}
+                disabled={uiPrefBusy}
+                onCheckedChange={(v) => toggleGithubRun(v === true)}
+                className="mt-0.5"
+              />
+              <span className="grid gap-0.5">
+                <span className="font-medium">Show &ldquo;Open GitHub run&rdquo; link on the Generate page</span>
+                <span className="text-xs text-muted-foreground">
+                  Only the owner can view or change this setting. When turned off, GitHub run URLs are hidden from the Generate page and API responses.
+                </span>
+              </span>
+            </label>
+          </section>
+        )}
 
         {error && <p role="alert" className="rounded-md border border-bad/40 bg-bad/10 p-4 text-sm text-bad">{error}</p>}
         {!data && !error && isAdmin && <div className="grid gap-4" role="status" aria-label="Loading configuration"><div className="shimmer h-28 rounded-md" /><div className="shimmer h-72 rounded-md" /></div>}

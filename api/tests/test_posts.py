@@ -316,6 +316,25 @@ def test_posts_are_paged_with_a_cursor(authed):
     assert paged["groups"][0]["items"]["carousel"]["caption"]                 # page items are full items
 
 
+def test_posts_offset_pagination(authed):
+    q.save([_item(f"off{n}", "carousel", 1, "pending", topic=f"Offset {n}", date="2026-08-02",
+                  post_dir=f"output/2026-08-02/offset-{n}/", publish_at=f"2026-08-02T{10 + n}:00:00+05:30")
+            for n in range(5)])
+    full = authed.get("/api/posts").json()
+    seen = []
+    for offset in range(0, full["total"], 2):
+        r = authed.get("/api/posts", params={"limit": 2, "offset": offset}).json()
+        assert r["total"] == full["total"] and r["counts"] == full["counts"]
+        assert r["has_more"] is (offset + 2 < full["total"])
+        seen += [g["group_id"] for g in r["groups"]]
+    assert seen == [g["group_id"] for g in full["groups"]]
+    past_end = authed.get("/api/posts", params={"limit": 2, "offset": full["total"] + 5}).json()
+    assert past_end["groups"] == [] and past_end["has_more"] is False
+    filtered = authed.get("/api/posts", params={"status": "pending", "limit": 1, "offset": 1}).json()
+    assert len(filtered["groups"]) == 1 and filtered["total"] >= 2
+    assert authed.get("/api/posts", params={"offset": -1}).status_code == 422
+
+
 def test_language_round_trips_and_defaults_to_english(authed):
     q.save([_item("h1", "reel", 1, topic="Hinglish topic", date="2026-09-21", post_dir="output/2026-09-21/h/",
                   publish_at="2026-09-21T19:00:00+05:30", language="hi")])

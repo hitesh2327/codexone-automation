@@ -166,8 +166,15 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail={"code": e.code, "message": e.message, **e.extra}) from None
         if "taste" in data and data["taste"] is not None:
+            t_in = dict(data["taste"])
+            if "default_language" in t_in and t_in["default_language"] is not None:
+                if t_in["default_language"] not in ("en", "hi"):
+                    raise _bad("Default narration language must be 'en' or 'hi'.")
+            if "default_post_format" in t_in and t_in["default_post_format"] is not None:
+                if t_in["default_post_format"] not in ("carousel", "image_reel"):
+                    raise _bad("Default post format must be 'carousel' or 'image_reel'.")
             current_taste = dict(u.taste or {})
-            current_taste.update(data["taste"])
+            current_taste.update(t_in)
             u.taste = current_taste
             try:
                 from src.user_taste import invalidate as _inv

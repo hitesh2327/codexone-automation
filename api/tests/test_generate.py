@@ -515,5 +515,91 @@ def test_unknown_post_format_is_rejected(authed, gh, bad):
     assert authed.post("/api/generate", json=body(post_format=bad)).status_code == 422
 
 
+
+
 def test_job_post_format_of_no_job_is_none():
     assert generation.job_post_format(None) is None and generation.job_post_format("not-a-valid-id!") is None
+
+
+def test_user_taste_defaults_drive_generate_config_dispatch_and_pipeline(client, gh):
+    import uuid
+    from api.app.security import hash_password
+    from src.db.models import User
+    from src.user_taste import invalidate, user_generation_defaults
+
+    with db.session() as s:
+        u = User(username=f"td_{uuid.uuid4().hex[:6]}", email=f"td_{uuid.uuid4().hex[:6]}@example.com",
+                 password_hash=hash_password("password123"), role="client", is_active=True,
+                 subscription_tier="pro", subscription_status="active",
+                 taste={"default_language": "hi", "default_post_format": "image_reel"})
+        s.add(u)
+        s.flush()
+        uid = u.id
+
+    try:
+        login = client.post("/api/auth/login", json={"username": u.username, "password": "password123"})
+        client.headers["X-CSRF-Token"] = login.json()["csrf"]
+
+        cfg = client.get("/api/generate/config").json()
+        assert cfg["default_language"] == "hi" and cfg["default_post_format"] == "image_reel"
+
+        job = client.post("/api/generate", json=body()).json()
+        assert job["language"] == "hi" and job["post_format"] == "image_reel"
+        assert user_generation_defaults(uid) == ("hi", "image_reel")
+
+        # Explicit request values still override defaults
+        with db.session() as s:
+            s.execute(delete(GenerationJob))
+        route.limiter._hits.clear()
+        job2 = client.post("/api/generate", json=body(language="en", post_format="carousel")).json()
+        assert job2["language"] == "en" and job2["post_format"] == "carousel"
+    finally:
+        invalidate(uid)
+        with db.session() as s:
+            s.execute(delete(GenerationJob))
+            s.execute(delete(User).where(User.id == uid))
+
+
+def test_show_github_run_enforced_by_backend_per_role_and_setting(client, authed):
+    import uuid
+    from api.app.security import hash_password
+    from src.db.models import Setting, User
+
+    with db.session() as s:
+        s.execute(delete(Setting).where(Setting.key == "ui_preferences"))
+        c_user = User(username=f"gh_{uuid.uuid4().hex[:6]}", email=f"gh_{uuid.uuid4().hex[:6]}@example.com",
+                      password_hash=hash_password("password123"), role="client", is_active=True)
+        s.add(c_user)
+        s.flush()
+        cid = c_user.id
+
+    j_client = generation.create(trigger="dashboard", user_id=cid, status="running",
+                                 run_id=999, run_url="https://github.com/o/r/actions/runs/999")
+    j_owner = generation.create(trigger="dashboard", user_id=1, status="running",
+                                run_id=888, run_url="https://github.com/o/r/actions/runs/888")
+    try:
+        # Unset: owner sees run URL, client does not
+        assert authed.get("/api/generate/config").json()["show_github_run"] is True
+        assert authed.get(f"/api/generate/jobs/{j_owner['id']}").json()["job"]["github_run_url"].endswith("/888")
+
+        login = client.post("/api/auth/login", json={"username": c_user.username, "password": "password123"})
+        client.headers["X-CSRF-Token"] = login.json()["csrf"]
+        assert client.get("/api/generate/config").json()["show_github_run"] is False
+        c_job = client.get(f"/api/generate/jobs/{j_client['id']}").json()["job"]
+        assert c_job["github_run_url"] is None and c_job["github_run_id"] is None
+
+        # Client cannot change owner UI preference
+        assert client.put("/api/config/ui-preferences", json={"show_github_run": True}).status_code == 403
+
+        # Owner disables show_github_run -> hidden even for owner
+        login_owner = client.post("/api/auth/login", json={"username": "admin", "password": "correct horse battery"})
+        client.headers["X-CSRF-Token"] = login_owner.json()["csrf"]
+        assert client.put("/api/config/ui-preferences", json={"show_github_run": False}).status_code == 200
+        assert client.get("/api/generate/config").json()["show_github_run"] is False
+        o_job = client.get(f"/api/generate/jobs/{j_owner['id']}").json()["job"]
+        assert o_job["github_run_url"] is None and o_job["github_run_id"] is None
+    finally:
+        with db.session() as s:
+            s.execute(delete(GenerationJob))
+            s.execute(delete(Setting).where(Setting.key == "ui_preferences"))
+            s.execute(delete(User).where(User.id == cid))

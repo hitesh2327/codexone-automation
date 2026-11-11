@@ -110,3 +110,10 @@ def test_migration_step_tolerates_a_database_ahead_of_the_code(name):
     step = next(s for s in steps(doc) if s.get("name") == "Apply database migrations")
     assert step["working-directory"] == "api" and step["run"].startswith("python migrate.py")
     assert "alembic upgrade head" not in step["run"].split("#")[0]
+
+
+def test_poll_workflow_covers_all_hours_at_five_min_resolution():
+    """Poll schedule must hit :00 IST slots (which */20 UTC never did) and leave no dead-zone hours."""
+    doc = load(ROOT / ".github" / "workflows" / "poll-approvals.yml")
+    crons = {c["cron"] for c in doc["on"]["schedule"]}
+    assert crons == {"*/5 * * * *"}

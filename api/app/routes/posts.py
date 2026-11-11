@@ -138,10 +138,11 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
                category: str | None = None, date_from: date | None = None, date_to: date | None = None,
                search: str | None = Query(None, alias="q", max_length=100),
                limit: int = Query(DEFAULT_GROUPS, ge=1, le=MAX_GROUPS),
+               offset: int = Query(0, ge=0),
                cursor: str | None = Query(None, max_length=600),
                all_users: bool = Query(False),
                user: CurrentUser = Depends(current_user)) -> dict:
-    """Topic groups, newest first, `limit` per page; pass `next_cursor` back as `cursor` for the next page.
+    """Topic groups, newest first, `limit` per page; pass `next_cursor` back as `cursor` (or `offset`) for the next page.
     Filters, counts and categories cover every post; only the page's groups are read in full."""
     effective_uid = None if (all_users and user.role in ("owner", "admin")) else user.id
     groups = _group_meta(q.load_light(user_id=effective_uid))
@@ -169,7 +170,9 @@ def list_posts(status_: str | None = Query(None, alias="status"), platform: str 
     if cursor:
         after = _cursor_in(cursor)
         matching = [g for g in matching if _order(g) < after]
-    page, more = matching[:limit], len(matching) > limit
+        offset = 0
+    page = matching[offset : offset + limit]
+    more = len(matching) > offset + limit
     full = {g["group_id"]: g for g in _groups(q.load(group_ids=[g["group_id"] for g in page], user_id=effective_uid))} if page else {}
     return {"groups": [full[g["group_id"]] for g in page if g["group_id"] in full],
             "categories": sorted({g["category"] for g in groups}),

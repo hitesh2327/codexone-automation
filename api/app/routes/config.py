@@ -16,10 +16,10 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field, field_validator
 
-from api.app.deps import CurrentUser
+from api.app.deps import CurrentUser, current_user
 from api.app.ratelimit import RateLimiter
 from api.app.routes.generate import require_admin
-from src import activity, config_status, config_store
+from src import activity, config_status, config_store, db
 from src.config_schema import BY_NAME, FIELDS, FIELDS_BY_NAME, fields_of
 from src.verify import CODES, effective_values, run as run_verify
 from src.verify import telegram as tg
@@ -27,6 +27,12 @@ from src.verify.base import ERROR_CLASSES, clean_value
 
 log = logging.getLogger("codexone.api.config")
 router = APIRouter(prefix="/config", tags=["config"], dependencies=[Depends(require_admin)])
+
+
+def require_owner(user: CurrentUser = Depends(current_user)) -> CurrentUser:
+    if user.role != "owner":
+        raise HTTPException(403, "Owner access required")
+    return user
 
 limiter = RateLimiter()
 RATE_LIMIT, RATE_WINDOW = 20, 60     # provider-touching calls per user per minute (spec section 5)
@@ -161,6 +167,27 @@ def schema() -> dict:
 @router.get("/readiness")
 def readiness() -> dict:
     return config_status.readiness()
+
+
+class UiPreferencesBody(BaseModel):
+    show_github_run: bool
+
+
+@router.get("/ui-preferences")
+def get_ui_preferences(user: CurrentUser = Depends(require_owner)) -> dict:
+    prefs = db.get_setting("ui_preferences") if db.enabled() else None
+    show = bool(prefs["show_github_run"]) if isinstance(prefs, dict) and "show_github_run" in prefs else True
+    return {"show_github_run": show}
+
+
+@router.put("/ui-preferences")
+def save_ui_preferences(body: UiPreferencesBody, user: CurrentUser = Depends(require_owner)) -> dict:
+    val = {"show_github_run": bool(body.show_github_run)}
+    db.set_setting("ui_preferences", val)
+    activity.record("config.ui_preferences",
+                    f"Updated UI preferences (show_github_run={val['show_github_run']})",
+                    source="config", actor=_actor(user), detail=val)
+    return val
 
 
 @router.get("/{integration}/history")

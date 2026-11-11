@@ -49,11 +49,11 @@ def _category_descriptions(categories: list[str], niche: str) -> dict[str, str]:
 
 class RankedTopic(BaseModel):
     category: str
-    title: str = Field(description="Short, specific post topic (not clickbait)")
-    angle: str = Field(description="What the post teaches, in 1-2 sentences, beginner-friendly")
+    title: str = Field(description="Short, punchy search-friendly topic (4-8 words, specific, no fake clickbait)")
+    angle: str = Field(description="Curiosity gap, costly production mistake, or counter-intuitive trade-off this post exposes (1-2 sentences)")
     source_url: str = Field(description="URL of the chosen candidate, or empty if evergreen")
     evergreen: bool = Field(description="True if not based on a trending candidate")
-    why: str = Field(description="Why this is a good pick for today, 1 sentence")
+    why: str = Field(description="Why devs will save or share this post today, 1 sentence")
 
 
 def pick_category(weights: dict[str, int], seed: str, avoid: str | None) -> str:
@@ -124,8 +124,8 @@ Trending candidates in this category (title | source | popularity 0-1 | url):
 {lines}
 
 Pick ONE topic that:
-- is genuinely useful or entertaining for {taste.target_audience},
-- can be explained in a short reel and a 6-slide carousel,
+- exposes a real curiosity gap, costly production mistake, interview gotcha, or counter-intuitive trade-off for {taste.target_audience} (triggers saves/shares, not dry textbook definitions),
+- can be explained visually in an 18-24s reel and a 5-7 slide carousel,
 - is factually accurate and not hype or clickbait,
 - is relevant to the {taste.niche} niche.
 

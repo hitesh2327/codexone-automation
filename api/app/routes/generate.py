@@ -125,6 +125,25 @@ class GenerateBody(BaseModel):
 # --------------------------------------------------------------------------- #
 # Reads
 # --------------------------------------------------------------------------- #
+def _show_github_run(cu: CurrentUser) -> bool:
+    from src import db
+    prefs = db.get_setting("ui_preferences") if db.enabled() else None
+    if isinstance(prefs, dict) and "show_github_run" in prefs:
+        return bool(prefs["show_github_run"])
+    return cu.role == "owner"
+
+
+def _sanitize_job(job: dict, cu: CurrentUser) -> dict:
+    if _show_github_run(cu):
+        return job
+    return {**job, "github_run_id": None, "github_run_url": None}
+
+
+def _user_taste_defaults(user_id: int) -> tuple[str | None, str | None]:
+    from src.user_taste import user_generation_defaults
+    return user_generation_defaults(user_id)
+
+
 def _github_state(ok: bool) -> dict:
     return {"ok": ok, "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
@@ -151,6 +170,7 @@ def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
     now = datetime.now(IST)
     cap = _daily_cap()
     quota_at = generation.last_quota_failure(now)
+    user_lang, user_fmt = _user_taste_defaults(cu.id)
     tomorrow = _day_start(now) + timedelta(days=1)
     return {
         "dispatch_configured": github_actions.configured(),
@@ -161,8 +181,9 @@ def get_config(cu: CurrentUser = Depends(current_user)) -> dict:
         "late_limit_hours": generation.LATE_LIMIT_HOURS,
         "publishing_enabled": publishing_enabled(), "telegram_sync": approve_bot.sync_enabled(),
         "topic_length": [5, 120],
-        "default_language": default_narration(),   # the Generate page preselects it
-        "default_post_format": image_reel.default_format(),
+        "default_language": user_lang or default_narration(),   # the Generate page preselects it
+        "default_post_format": user_fmt or image_reel.default_format(),
+        "show_github_run": _show_github_run(cu),
     }
 
 
@@ -220,7 +241,7 @@ def list_jobs(limit: int = Query(20, ge=1, le=50), cu: CurrentUser = Depends(cur
     reachable = True
     if live := generation.active(user_id=cu.id):
         _, reachable = generation.reconcile(live)
-    jobs = generation.recent(limit, user_id=cu.id)
+    jobs = [_sanitize_job(j, cu) for j in generation.recent(limit, user_id=cu.id)]
     return {"jobs": jobs, "active": next((j for j in jobs if j["active"]), None), "github": _github_state(reachable)}
 
 
@@ -230,7 +251,7 @@ def get_job(job_id: str, cu: CurrentUser = Depends(current_user)) -> dict:
     if not job or (cu.role not in ("owner", "admin") and job.get("user_id") != cu.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     job, reachable = generation.reconcile(job)
-    return {"job": job, "github": _github_state(reachable)}
+    return {"job": _sanitize_job(job, cu), "github": _github_state(reachable)}
 
 
 @router.get("/for-group")
@@ -261,7 +282,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                     "token is configured. Scheduled runs still happen.")
     if replay := generation.by_idempotency_key(body.idempotency_key):
         response.status_code = status.HTTP_200_OK  # a retry of a request we already took: same job, no 2nd dispatch
-        return replay
+        return _sanitize_job(replay, user)
 
     if wait := limiter.retry_after(str(user.id), RATE_LIMIT, RATE_WINDOW):
         raise HTTPException(429, detail={"code": "rate_limited", "message": "Too many requests. Wait a moment."},
@@ -305,15 +326,18 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
     if body.topic and not body.allow_duplicate and (dup := generation.find_duplicate(body.topic, user_id=user.id)):
         raise _fail(409, "duplicate_topic", f"Looks like “{dup[0]}” ({dup[1]}).", title=dup[0], date=dup[1])
 
+    user_lang, user_fmt = _user_taste_defaults(user.id)
+    eff_language = body.language or user_lang or default_narration()
+    eff_format = body.post_format or user_fmt or image_reel.default_format()
     try:
         job = generation.create(trigger="dashboard", requested_by=_actor(user), slot_at=slot_at, category=body.category,
                                 topic=body.topic, source_url=body.source_url, force=body.force,
                                 allow_duplicate=body.allow_duplicate, idempotency_key=body.idempotency_key,
-                                language=body.language or default_narration(), user_id=user.id,
-                                post_format=body.post_format or image_reel.default_format())
+                                language=eff_language, user_id=user.id,
+                                post_format=eff_format)
     except generation.Replay as r:  # two identical requests raced: the first one owns the dispatch
         response.status_code = status.HTTP_200_OK
-        return r.job
+        return _sanitize_job(r.job, user)
     except generation.JobActive:
         raise _fail(409, "job_active", "A generation is already running.", job=generation.active(user_id=user.id)) from None
 
@@ -323,8 +347,8 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
                     source="generate", actor=_actor(user),
                     detail={"request_id": job["id"], "slot": slot_at.isoformat(), "category": body.category,
                             "topic": body.topic, "source_url": body.source_url, "force": body.force,
-                            "language": body.language or default_narration(),
-                            "post_format": body.post_format or image_reel.default_format()})
+                            "language": eff_language,
+                            "post_format": eff_format})
     # The slot the API validated (taken/stale) and showed, not "auto": a run that waits in the queue past the
     # 30-minute lead would otherwise resolve "auto" to the NEXT slot (QA-L-10).
     inputs = {"slot": f"{slot_at:%H:%M}", "date": slot_at.date().isoformat(), "category": body.category or "", "topic": body.topic or "",
@@ -338,4 +362,4 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
         generation.finish(job["id"], "failed", reason=reason, message=generation.REASON_TEXT[reason])
         raise _fail(502, "dispatch_failed", generation.REASON_TEXT[reason], job=generation.get(job["id"])) from None
     generation.mark_dispatched(job["id"])
-    return generation.get(job["id"]) or job
+    return _sanitize_job(generation.get(job["id"]) or job, user)

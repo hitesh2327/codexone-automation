@@ -518,3 +518,40 @@ def test_overview_lists_every_integration_honestly(authed, fake):
     ig = next(i for i in data["integrations"] if i["name"] == "instagram")
     assert ig["implemented"] is False and ig["editable"] is False
     assert data["precedence"] == "env" and data["master_key"] in ("ok", "empty")
+
+
+def test_ui_preferences_are_owner_only(client, authed):
+    import uuid
+    from api.app.security import hash_password
+    from src.db.models import User
+
+    with db.session() as s:
+        s.execute(delete(Setting).where(Setting.key == "ui_preferences"))
+
+    # Owner (seeded admin) can read & toggle show_github_run
+    assert authed.get("/api/config/ui-preferences").json() == {"show_github_run": True}
+    r = authed.put("/api/config/ui-preferences", json={"show_github_run": False})
+    assert r.status_code == 200 and r.json() == {"show_github_run": False}
+    assert authed.get("/api/config/ui-preferences").json() == {"show_github_run": False}
+
+    # Both client and non-owner admin get 403 on read & write
+    with db.session() as s:
+        c_user = User(username=f"c_{uuid.uuid4().hex[:6]}", email=f"c_{uuid.uuid4().hex[:6]}@example.com",
+                      password_hash=hash_password("password123"), role="client", is_active=True)
+        a_user = User(username=f"a_{uuid.uuid4().hex[:6]}", email=f"a_{uuid.uuid4().hex[:6]}@example.com",
+                      password_hash=hash_password("password123"), role="admin", is_active=True)
+        s.add_all([c_user, a_user])
+        s.flush()
+        ids = [c_user.id, a_user.id]
+
+    try:
+        for uname in (c_user.username, a_user.username):
+            login = client.post("/api/auth/login", json={"username": uname, "password": "password123"})
+            assert login.status_code == 200
+            client.headers["X-CSRF-Token"] = login.json()["csrf"]
+            assert client.get("/api/config/ui-preferences").status_code == 403
+            assert client.put("/api/config/ui-preferences", json={"show_github_run": True}).status_code == 403
+    finally:
+        with db.session() as s:
+            s.execute(delete(User).where(User.id.in_(ids)))
+            s.execute(delete(Setting).where(Setting.key == "ui_preferences"))

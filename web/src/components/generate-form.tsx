@@ -59,6 +59,9 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
   const [language, setLanguage] = useState<Narration>(defaultLanguage);
   const defaultFormat: PostFormat = cfg.default_post_format ?? "carousel";
   const [format, setFormat] = useState<PostFormat>(defaultFormat);
+
+  useEffect(() => { setLanguage(defaultLanguage); }, [defaultLanguage]);
+  useEffect(() => { setFormat(defaultFormat); }, [defaultFormat]);
   const [dup, setDup] = useState<{ title: string; date: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);

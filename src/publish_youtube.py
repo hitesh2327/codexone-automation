@@ -39,12 +39,29 @@ log = get_logger("publish_youtube")
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 TOKEN_URI = "https://oauth2.googleapis.com/token"
+CATEGORY_EDUCATION = "27"
 CATEGORY_SCIENCE_TECH = "28"
 RETRIABLE_STATUS = {500, 502, 503, 504}
 RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, ConnectionError, TimeoutError, OSError)
 MAX_RETRIES = 6
+SHORTS_TITLE_TARGET = 60
 TITLE_MAX = 100
 TAGS_MAX_CHARS = 450  # YouTube allows 500 incl. separators; stay under
+
+EDUCATION_CATEGORIES = frozenset({"dsa", "interview", "os", "algorithms", "data structures", "cs"})
+DEAD_YT_TAGS = frozenset({"viral", "fyp", "foryou", "foryoupage", "explorepage", "explore", "trending", "instagood"})
+CATEGORY_TAGS: dict[str, list[str]] = {
+    "ai": ["artificial intelligence", "llm", "ai engineering", "machine learning"],
+    "systemdesign": ["system design", "software architecture", "backend engineering", "distributed systems"],
+    "dsa": ["data structures", "algorithms", "coding interview", "leetcode"],
+    "interview": ["tech interview", "coding interview", "software engineer interview", "career"],
+    "os": ["operating systems", "linux", "concurrency", "systems programming"],
+    "dev": ["software engineering", "programming", "developer", "coding"],
+}
+YT_CTA = (
+    "Which trade-off would you pick in production? Comment below.\n"
+    "Subscribe for daily 20-second software engineering breakdowns."
+)
 
 
 class YTError(RuntimeError):
@@ -80,6 +97,25 @@ def credentials() -> Credentials:
 # Metadata
 # --------------------------------------------------------------------------- #
 _HASHTAG = re.compile(r"#\w+")
+_IG_CTA_RE = re.compile(r"(?:in your dms?\b|\bdm me\b|link in bio\b|comment\s+['\"][A-Z0-9_-]+['\"])", re.I)
+
+
+def category_id_for(category: str = "", text: str = "") -> str:
+    """Use Education (27) for DSA/Interview/OS tutorials; Science & Tech (28) for AI/SystemDesign/Dev."""
+    cat = category.strip().lower()
+    if cat in EDUCATION_CATEGORIES:
+        return CATEGORY_EDUCATION
+    if not cat and any(k in text.lower() for k in ("leetcode", "big-o", "linked list", "binary search", "interview")):
+        return CATEGORY_EDUCATION
+    return CATEGORY_SCIENCE_TECH
+
+
+def _warn_if_private(priv: str) -> None:
+    if priv == "private":
+        log.warning(
+            "YT_PRIVACY=private: uploaded Shorts get 0 organic impressions or subscribers. "
+            "Set YT_PRIVACY=public in GitHub Actions repository variables or .env to publish publicly."
+        )
 
 
 def _clean(text: str) -> str:
@@ -96,45 +132,81 @@ def split_caption(caption: str) -> tuple[str, list[str]]:
     return caption.strip(), hashtags
 
 
-def make_title(body: str) -> str:
-    """Hook = first sentence of the caption, fitted with ' #Shorts' into 100 chars."""
-    hook = re.split(r"(?<=[.!?])\s+", _clean(body), maxsplit=1)[0]
+def _strip_ig_cta(text: str) -> str:
+    """Remove Instagram-only DM/link-in-bio lines before publishing to YouTube."""
+    return "\n".join(p for p in text.splitlines() if not _IG_CTA_RE.search(p)).strip()
+
+
+def make_title(body: str, topic: str = "") -> str:
+    """Search-intent Shorts title (< 60 chars incl. ' #Shorts' so mobile never truncates)."""
     suffix = " #Shorts"
-    room = TITLE_MAX - len(suffix)
+    room = SHORTS_TITLE_TARGET - len(suffix)
+    cleaned_body = _strip_ig_cta(_clean(body))
+    first = re.split(r"(?<=[.!?])\s+", cleaned_body, maxsplit=1)[0].strip() if cleaned_body else ""
+    clean_topic = _clean(topic)
+    if clean_topic and (not first or (len(first) > room and len(clean_topic) <= room)):
+        hook = clean_topic
+    else:
+        hook = first or clean_topic or "Software Engineering Breakdown"
+    hook = hook.rstrip(".")
     if len(hook) > room:
-        hook = hook[: room - 1].rsplit(" ", 1)[0].rstrip(",;:-") + "…"
-    return hook + suffix
+        hook = hook[:room - 1].rsplit(" ", 1)[0].rstrip(",;:-—") + "…"
+    return f"{hook}{suffix}"
 
 
 def fit_title(title: str) -> str:
-    """A custom title, cleaned and cut to YouTube's 100 chars (adds #Shorts if there's room)."""
+    """A custom title, cleaned and cut to YouTube's 100 chars (logs if > 60-char Shorts limit)."""
     t = _clean(title)
     if "#shorts" not in t.lower() and len(t) + 8 <= TITLE_MAX:
         t += " #Shorts"
+    if len(t) > SHORTS_TITLE_TARGET:
+        log.info("YouTube title is %d chars (> %d mobile Shorts truncation limit)", len(t), SHORTS_TITLE_TARGET)
     return t[:TITLE_MAX]
 
 
-def build_metadata(caption: str, title: str | None = None, description: str | None = None,
-                   audio_language: str = "en") -> dict:
-    """title/description: dashboard overrides; otherwise built from the caption.
-    audio_language: "hi" for a Hinglish reel; the title and description stay English (defaultLanguage "en")."""
-    body, hashtags = split_caption(caption)
-    cta = load_brand().get("cta", "")
-    tags_line = " ".join(hashtags + (["#Shorts"] if "#Shorts" not in hashtags else []))
-    built_description = "\n\n".join(p for p in (_clean(body), cta, tags_line) if p)[:4900]
-    tags, used = [], 0
-    for t in [h.lstrip("#") for h in hashtags] + ["Shorts"]:
-        if t.lower() in (x.lower() for x in tags):
+def youtube_description(body: str, hashtags: list[str], *, topic: str = "", category: str = "") -> str:
+    """Keyword-rich YouTube Shorts SEO description (strips IG DM-bait, adds subscribe CTA + #Shorts)."""
+    clean_body = _strip_ig_cta(_clean(body))
+    lead = f"{_clean(topic)} — {category} breakdown." if topic and _clean(topic).lower() not in clean_body.lower() else ""
+    clean_tags = [h for h in hashtags if h.lstrip("#").lower() not in DEAD_YT_TAGS][:4]
+    if "#shorts" not in [t.lower() for t in clean_tags]:
+        clean_tags = ["#Shorts"] + clean_tags
+    tags_line = " ".join(clean_tags)
+    return "\n\n".join(p for p in (lead, clean_body, YT_CTA, tags_line) if p)[:4900]
+
+
+def youtube_tags(hashtags: list[str], *, category: str = "", topic: str = "") -> list[str]:
+    """Deduplicated YouTube tags combining Shorts, topic keywords, category terms, and clean hashtags."""
+    candidates = ["Shorts", "YouTube Shorts"]
+    if topic and len(_clean(topic)) <= 45:
+        candidates.append(_clean(topic))
+    candidates.extend(CATEGORY_TAGS.get(category.strip().lower(), []))
+    candidates.extend(h.lstrip("#") for h in hashtags if h.lstrip("#").lower() not in DEAD_YT_TAGS)
+    tags: list[str] = []
+    used = 0
+    for t in candidates:
+        t = t.strip()
+        if not t or t.lower() in (x.lower() for x in tags):
             continue
         cost = len(t) + (2 if " " in t else 0) + 1
         if used + cost > TAGS_MAX_CHARS:
             break
         tags.append(t)
         used += cost
+    return tags
+
+
+def build_metadata(caption: str, title: str | None = None, description: str | None = None,
+                   audio_language: str = "en", *, category: str = "", topic: str = "") -> dict:
+    """title/description: dashboard overrides; otherwise built as Shorts-optimized SEO metadata.
+    audio_language: "hi" for a Hinglish reel; the title and description stay English (defaultLanguage "en")."""
+    body, hashtags = split_caption(caption)
+    built_description = youtube_description(body, hashtags, topic=topic, category=category)
+    tags = youtube_tags(hashtags, category=category, topic=topic)
     return {
-        "snippet": {"title": fit_title(title) if title else make_title(body),
+        "snippet": {"title": fit_title(title) if title else make_title(body, topic=topic),
                     "description": _clean(description)[:4900] if description else built_description, "tags": tags,
-                    "categoryId": CATEGORY_SCIENCE_TECH, "defaultLanguage": "en",
+                    "categoryId": category_id_for(category, f"{topic} {body}"), "defaultLanguage": "en",
                     "defaultAudioLanguage": audio_language},
         "status": {"privacyStatus": privacy(), "selfDeclaredMadeForKids": False, "embeddable": True},
     }
@@ -206,17 +278,20 @@ def shorts_url(video_id: str) -> str:
 
 
 def publish_reel(video: str, caption: str, dry_run: bool = False, title: str | None = None,
-                 description: str | None = None, audio_language: str = "en") -> tuple[str, str]:
+                 description: str | None = None, audio_language: str = "en",
+                 *, category: str = "", topic: str = "") -> tuple[str, str]:
     """Upload a reel (local path or URL). Returns (video_id, shorts_url)."""
-    body = build_metadata(caption, title, description, audio_language)
+    body = build_metadata(caption, title, description, audio_language, category=category, topic=topic)
+    priv = body["status"]["privacyStatus"]
+    _warn_if_private(priv)
     if dry_run:
         credentials()
         if video.startswith("http"):
             r = requests.head(video, timeout=20)
             if not r.ok:
                 raise YTError(f"reel URL not reachable: HTTP {r.status_code}")
-        log.info("[dry-run] YouTube token OK; would upload as %s:\n  title: %s\n  tags: %s\n  description:\n%s",
-                 body["status"]["privacyStatus"], body["snippet"]["title"],
+        log.info("[dry-run] YouTube token OK; would upload as %s (categoryId=%s):\n  title: %s\n  tags: %s\n  description:\n%s",
+                 priv, body["snippet"]["categoryId"], body["snippet"]["title"],
                  ", ".join(body["snippet"]["tags"]), body["snippet"]["description"])
         return "", ""
     path, tmp = (Path(video), None) if not video.startswith("http") else (None, _download(video))
@@ -228,7 +303,7 @@ def publish_reel(video: str, caption: str, dry_run: bool = False, title: str | N
                 tmp.unlink(missing_ok=True)
             except OSError as e:  # cleanup must never mask a finished upload
                 log.warning("could not delete temp file %s: %s", tmp, e)
-    log.info("uploaded to YouTube (%s): %s", body["status"]["privacyStatus"], shorts_url(vid))
+    log.info("uploaded to YouTube (%s): %s", priv, shorts_url(vid))
     return vid, shorts_url(vid)
 
 
@@ -246,7 +321,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "check":
         credentials()
-        log.info("YouTube token OK (scope: youtube.upload); uploads will be %s", privacy())
+        priv = privacy()
+        _warn_if_private(priv)
+        log.info("YouTube token OK (scope: youtube.upload); uploads will be %s", priv)
     elif args.cmd == "metadata":
         from src import queue_store as q
         item = q.get(args.item_id)
@@ -254,7 +331,8 @@ def main(argv: list[str] | None = None) -> int:
             log.error("no queue item %s", args.item_id)
             return 1
         import json
-        print(json.dumps(build_metadata(item.caption), indent=2, ensure_ascii=False))
+        print(json.dumps(build_metadata(item.caption, category=item.category, topic=item.topic),
+                         indent=2, ensure_ascii=False))
     else:
         publish_reel(args.video, args.caption_file.read_text(encoding="utf-8"), args.dry_run)
     return 0

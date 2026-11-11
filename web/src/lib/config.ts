@@ -67,3 +67,30 @@ export const detectChat = (token?: string) =>
     "/api/config/telegram/detect", { method: "POST", body: { token: token || null } });
 export const deleteWebhook = (token?: string) =>
   api<{ ok: true }>("/api/config/telegram/delete-webhook", { method: "POST", body: { token: token || null, confirm: true } });
+
+// Owner-only UI preferences (/api/config/ui-preferences)
+export type UiPreferences = { show_github_run: boolean };
+export const getUiPreferences = () => api<UiPreferences>("/api/config/ui-preferences");
+export const saveUiPreferences = (prefs: UiPreferences) =>
+  api<UiPreferences>("/api/config/ui-preferences", { method: "PUT", body: prefs });
+
+// Per-user integrations (/api/integrations)
+export type KeyStatus = { set: boolean; masked: string | null };
+export type TelegramMeta = { connected: boolean; using_custom_bot: boolean; default_bot_configured: boolean };
+export type UserIntegrationsResponse = { values: Record<string, KeyStatus>; telegram?: TelegramMeta };
+
+export const getUserIntegrations = () => api<UserIntegrationsResponse>("/api/integrations");
+export const putUserIntegration = (key: string, value: string) =>
+  api<{ key: string; version: number }>(`/api/integrations/${key}`, { method: "PUT", body: { value } });
+export const deleteUserIntegration = (key: string) =>
+  api<null>(`/api/integrations/${key}`, { method: "DELETE" });
+
+export type TelegramLinkResponse = { url: string; bot_username: string; using_custom_bot: boolean; expires_in: number };
+export const createTelegramLink = () =>
+  api<TelegramLinkResponse>("/api/integrations/telegram/link", { method: "POST" });
+export const confirmTelegramLink = () =>
+  api<{ connected: boolean; chat_id?: string; chat_title?: string | null }>("/api/integrations/telegram/confirm", { method: "POST" });
+export const setCustomTelegramBot = (token: string) =>
+  api<{ ok: true; bot_username: string; masked: string | null }>("/api/integrations/telegram/bot", { method: "PUT", body: { token } });
+export const unlinkTelegram = (includeBot = false) =>
+  api<null>(`/api/integrations/telegram?include_bot=${includeBot ? "true" : "false"}`, { method: "DELETE" });

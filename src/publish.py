@@ -349,18 +349,24 @@ def _publish_item(item: q.Item, dry_run: bool, platforms: tuple[str, ...], claim
     return item
 
 
+def _due_at(item: q.Item) -> datetime:
+    """Slot timestamp normalized to an aware IST datetime for safe comparison."""
+    at = item_publish_at(item)
+    return at if at.tzinfo else at.replace(tzinfo=IST)
+
+
 def publish_due(dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -> list[q.Item]:
     """Publish approved items whose slot time (item.publish_at) has passed."""
-    now = datetime.now(IST)
     done = []
     for item in q.load(statuses=("approved", "failed")):
         ready = item.status == "approved" or (item.status == "failed" and _retryable(item, platforms))
         if not ready:
             continue
-        if now < item_publish_at(item):
-            log.info("%s approved; waiting for its slot %s IST", item.id, f"{item_publish_at(item):%d %b %H:%M}")
-            continue
         try:
+            due_at = _due_at(item)
+            if datetime.now(IST) < due_at:
+                log.info("%s approved; waiting for its slot %s IST", item.id, f"{due_at.astimezone(IST):%d %b %H:%M}")
+                continue
             done.append(publish_item(item, dry_run, platforms))
         except Exception:  # noqa: BLE001
             log.exception("publish %s crashed", item.id)

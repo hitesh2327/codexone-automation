@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import html
-import json
-import sys
 import io
+import json
+import secrets
+import sys
 import time
 from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
@@ -52,8 +54,45 @@ def _chat_id(user_id: int | None = None) -> int:
     return int(get_for_user("TG_CHAT_ID", user_id) or get_env("TG_CHAT_ID"))
 
 
+def _bot_token(user_id: int | None = None) -> str | None:
+    return get_for_user("TG_BOT_TOKEN", user_id) or get_env("TG_BOT_TOKEN", required=False)
+
+
 def _bot() -> Bot:
-    return Bot(get_env("TG_BOT_TOKEN"))
+    return Bot(get_for_user("TG_BOT_TOKEN") or get_env("TG_BOT_TOKEN"))
+
+
+def find_start_chat(token: str, nonce: str) -> tuple[dict | None, str | None]:
+    """Scan unread getUpdates (without advancing offset) for `/start <nonce>`. Returns (chat, err_code)."""
+    from src.verify.base import Unreachable
+    from src.verify.telegram import TOKEN_RE, _call
+    if not TOKEN_RE.match(token or ""):
+        return None, "telegram.token_format"
+    try:
+        hook, err = _call(token, "getWebhookInfo")
+        if err:
+            return None, err
+        if isinstance(hook, dict) and hook.get("url"):
+            return None, "telegram.webhook_set"
+        updates, err = _call(token, "getUpdates", limit=100, timeout=0)
+    except Unreachable:
+        return None, "telegram.unreachable"
+    if err:
+        return None, err
+    for u in reversed(updates if isinstance(updates, list) else []):
+        msg = (u or {}).get("message") or {}
+        text = (msg.get("text") or "").strip() if isinstance(msg, dict) else ""
+        parts = text.split()
+        if len(parts) < 2 or parts[0].split("@")[0] != "/start":
+            continue
+        if not secrets.compare_digest(parts[1], nonce):
+            continue
+        chat = msg.get("chat")
+        if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
+            continue
+        name = chat.get("title") or " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x) or None
+        return {"id": str(chat["id"]), "type": chat.get("type") or "private", "title": name}, None
+    return None, None
 
 
 def keyboard(item_id: str) -> InlineKeyboardMarkup:
@@ -324,10 +363,13 @@ def mark_decided(item: q.Item, note: str) -> None:
     """Remove the preview's buttons and reply with what happened (e.g. approved in the dashboard)."""
     if not item.tg_control_id or not sync_enabled():
         return
+    tok = active_user_id.set(item.user_id)
     try:
         asyncio.run(_mark_decided(item, note))
     except TelegramError as e:
         log.warning("Telegram sync failed for %s: %s", item.id, e)
+    finally:
+        active_user_id.reset(tok)
 
 
 async def _refresh_preview(item: q.Item) -> None:
@@ -346,10 +388,13 @@ def refresh_preview(item: q.Item) -> None:
     """Re-render the preview's text after an edit (caption, schedule...), keeping the buttons."""
     if not item.tg_control_id or not sync_enabled():
         return
+    tok = active_user_id.set(item.user_id)
     try:
         asyncio.run(_refresh_preview(item))
     except TelegramError as e:
         log.warning("Telegram preview refresh failed for %s: %s", item.id, e)
+    finally:
+        active_user_id.reset(tok)
 
 
 def decision_note(action: str, item: q.Item, source: str = "") -> str:
@@ -359,20 +404,84 @@ def decision_note(action: str, item: q.Item, source: str = "") -> str:
 # --------------------------------------------------------------------------- #
 # Polling for decisions
 # --------------------------------------------------------------------------- #
-def _load_offset() -> int | None:
+def _load_offset(key: str = "tg_offset") -> int | None:
     if db.enabled():
-        return (db.get_setting("tg_offset") or {}).get("offset")
+        return (db.get_setting(key) or {}).get("offset")
+    if key != "tg_offset":
+        return None
     try:
         return json.loads(OFFSET_FILE.read_text(encoding="utf-8"))["offset"]
     except (FileNotFoundError, KeyError, json.JSONDecodeError):
         return None
 
 
-def _save_offset(offset: int) -> None:
+def _save_offset(offset: int, key: str = "tg_offset") -> None:
     if db.enabled():
-        db.set_setting("tg_offset", {"offset": offset})
+        db.set_setting(key, {"offset": offset})
         return
-    OFFSET_FILE.write_text(json.dumps({"offset": offset}), encoding="utf-8")
+    if key == "tg_offset":
+        OFFSET_FILE.write_text(json.dumps({"offset": offset}), encoding="utf-8")
+
+
+def _custom_bot_tokens(default_token: str | None) -> list[str]:
+    """Distinct per-user TG_BOT_TOKEN overrides (different from the global default bot)."""
+    if not db.enabled():
+        return []
+    from sqlalchemy import select
+    from src import user_config_store
+    from src.db.models import UserConfigValue
+    with db.session() as s:
+        uids = list(s.scalars(select(UserConfigValue.user_id).where(UserConfigValue.key == "TG_BOT_TOKEN")))
+    seen: list[str] = []
+    for uid in uids:
+        tok = user_config_store.lookup("TG_BOT_TOKEN", uid)
+        if tok and tok != default_token and tok not in seen:
+            seen.append(tok)
+    return seen
+
+
+def _user_uses_token(user_id: int | None, bot_token: str | None, is_default: bool) -> bool:
+    """True when `user_id` receives previews/approvals through `bot_token`."""
+    if bot_token is None and is_default:
+        if db.enabled() and user_id:
+            from src import user_config_store
+            return not user_config_store.lookup("TG_BOT_TOKEN", user_id)
+        return True
+    return _bot_token(user_id) == bot_token
+
+
+def _bind_start_if_pending(msg, bot_token: str | None) -> None:
+    """Bind a pending 1-click TG link if `msg` is `/start <nonce>` for this bot."""
+    if not db.enabled():
+        return
+    parts = (msg.text or "").strip().split()
+    if len(parts) < 2 or parts[0].split("@")[0] != "/start":
+        return
+    nonce = parts[1]
+    from sqlalchemy import select
+    from src import user_config_store
+    from src.db.models import Setting
+    now_ts = time.time()
+    tok_hash = hashlib.sha256(bot_token.encode()).hexdigest()[:12] if bot_token else None
+    matched_uid: int | None = None
+    with db.session() as s:
+        rows = list(s.scalars(select(Setting).where(Setting.key.like("tg_link:%"))))
+        for row in rows:
+            val = row.value if isinstance(row.value, dict) else {}
+            if not val.get("nonce") or float(val.get("expires_at") or 0) < now_ts:
+                continue
+            if tok_hash and val.get("bot_hash") and val.get("bot_hash") != tok_hash:
+                continue
+            if secrets.compare_digest(str(val["nonce"]), nonce):
+                try:
+                    matched_uid = int(row.key.split(":", 1)[1])
+                except ValueError:
+                    continue
+                row.value = {"bound_chat_id": str(msg.chat.id), "expires_at": val.get("expires_at")}
+                break
+    if matched_uid is not None:
+        user_config_store.save(matched_uid, {"TG_CHAT_ID": str(msg.chat.id)}, actor="telegram-link")
+        log.info("bound TG_CHAT_ID for user %d via /start link", matched_uid)
 
 
 def _decision_note(action: str, item: q.Item) -> str:
@@ -385,14 +494,13 @@ def _decision_note(action: str, item: q.Item) -> str:
     return "🔄 Regenerating — a new preview will follow."
 
 
-async def _poll(dry_run: bool) -> list[tuple[str, str]]:
+async def _poll_bot(bot: Bot, bot_token: str | None, offset_key: str, items: dict[str, q.Item],
+                    by_msg: dict[int, q.Item], dry_run: bool, is_default: bool) -> list[tuple[str, str]]:
     applied: list[tuple[str, str]] = []
     changed: dict[str, q.Item] = {}
-    items = {i.id: i for i in q.load()}
-    by_msg = {mid: i for i in items.values() for mid in i.tg_message_ids}
-    offset = _load_offset()
+    offset = _load_offset(offset_key)
 
-    async with _bot() as bot:
+    async with bot:
         updates = await bot.get_updates(offset=offset, timeout=0,
                                         allowed_updates=["callback_query", "message"])
         for u in updates:
@@ -403,6 +511,8 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
                 action, _, item_id = cq.data.partition(":")
                 item = items.get(item_id)
                 if not item or action not in ACTIONS:
+                    continue
+                if not _user_uses_token(item.user_id, bot_token, is_default):
                     continue
                 # Accept only presses from the item owner's registered chat
                 item_chat = _chat_id(item.user_id)
@@ -434,7 +544,7 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
 
             elif msg and msg.text and msg.reply_to_message:
                 item = by_msg.get(msg.reply_to_message.message_id)
-                if not item:
+                if not item or not _user_uses_token(item.user_id, bot_token, is_default):
                     continue
                 # Only accept text replies from the item owner's chat
                 if msg.chat.id != _chat_id(item.user_id):
@@ -451,17 +561,35 @@ async def _poll(dry_run: bool) -> list[tuple[str, str]]:
                         await _safe(bot.send_message(msg.chat.id, "📝 Noted. Tap 🔄 Regenerate to apply it.",
                                                      reply_to_message_id=msg.message_id))
 
+            elif msg and msg.text and msg.text.strip().startswith("/start") and not dry_run:
+                _bind_start_if_pending(msg, bot_token)
+
     if dry_run:
         log.info("[dry-run] %d updates seen, %d changes not saved", len(updates), len(applied))
         return applied
     if offset is not None:
-        _save_offset(offset)
+        _save_offset(offset, offset_key)
     # Only what this poll changed, and only if each item is still pending: a decision made in the
     # dashboard meanwhile (or a publisher's claim) is never overwritten by this stale copy.
     for item in changed.values():
         if not q.update_if(item, "pending"):
             log.warning("%s changed while Telegram was being read; its Telegram change was not applied", item.id)
             applied = [a for a in applied if a[0] != item.id]
+    return applied
+
+
+async def _poll(dry_run: bool) -> list[tuple[str, str]]:
+    items = {i.id: i for i in q.load()}
+    by_msg = {mid: i for i in items.values() for mid in i.tg_message_ids}
+    default_tok = get_env("TG_BOT_TOKEN", required=False)
+    custom_toks = _custom_bot_tokens(default_tok)
+    applied: list[tuple[str, str]] = []
+
+    if default_tok or not custom_toks:
+        applied.extend(await _poll_bot(_bot(), default_tok, "tg_offset", items, by_msg, dry_run, is_default=True))
+    for tok in custom_toks:
+        okey = f"tg_offset:{hashlib.sha256(tok.encode()).hexdigest()[:12]}"
+        applied.extend(await _poll_bot(Bot(tok), tok, okey, items, by_msg, dry_run, is_default=False))
     return applied
 
 
