@@ -278,8 +278,6 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
     raw_handle = str(taste.get("handle") or "").strip()
     if not raw_handle and username:
         raw_handle = f"@{username}" if not username.startswith("@") else username
-    if not raw_handle:
-        raw_handle = str(brand.get("handle") or "")
 
     lang = taste.get("default_language")
     fmt = taste.get("default_post_format")

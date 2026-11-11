@@ -251,9 +251,9 @@ def _prompt(
     try:
         from src.user_taste import get_user_taste
         taste = get_user_taste()
-        t_handle = taste.effective_handle()
+        t_handle = (taste.handle or "").strip()
         if t_handle:
-            handle = t_handle
+            handle = t_handle if t_handle.startswith("@") else f"@{t_handle}"
     except Exception:  # noqa: BLE001
         pass
     is_tech = taste is None or taste.is_tech()
