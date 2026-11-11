@@ -449,7 +449,13 @@ def test_ssrf_blocks_obfuscated_hex_octal_decimal_ipv4(obfuscated_url):
         fetch_topics.validate_safe_feed_url(obfuscated_url)
 
 
-def test_ssrf_toctou_dns_rebinding_pins_validated_ip(monkeypatch):
+@pytest.mark.parametrize("feed_url", [
+    "https://rebind.example.com/feed.xml",
+    "https://rebind.example.com",
+    "https://rebind.example.com?a=1",
+    "https://rebind.example.com./feed.xml",
+])
+def test_ssrf_toctou_dns_rebinding_pins_validated_ip(monkeypatch, feed_url):
     import urllib3.util.connection as u3_conn
 
     calls = {"dns": 0, "connect": []}
@@ -467,7 +473,7 @@ def test_ssrf_toctou_dns_rebinding_pins_validated_ip(monkeypatch):
     monkeypatch.setattr(u3_conn, "create_connection", fake_create_connection)
 
     with pytest.raises(Exception):
-        fetch_topics.fetch_rss(fetch_topics._session(), "https://rebind.example.com/feed.xml")
+        fetch_topics.fetch_rss(fetch_topics._session(), feed_url)
 
     assert calls["connect"], "expected urllib3 create_connection to be called"
     assert all(addr == ("93.184.216.34", 443) for addr in calls["connect"])

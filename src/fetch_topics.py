@@ -84,14 +84,6 @@ NICHE_REDDIT_MAP: dict[str, list[str]] = {
     "design": ["web_design", "UI_Design", "graphic_design", "UXDesign"],
 }
 
-# Tech niches eligible for HN / dev.to / GitHub / arXiv default feeds.
-_TECH_NICHE_RE = re.compile(
-    r"\b(?:software|engineering|dev(?:eloper|ops)?|ai|artificial intelligence|machine learning|ml|"
-    r"llm|llms|algorithm\w*|data structure\w*|dsa|system design|cyber\w*|cloud|programming|"
-    r"coding|linux|operating system\w*|web dev|backend|frontend|full[- ]?stack|tech(?:nology)?)\b",
-    re.IGNORECASE,
-)
-
 # Keyword → category hints. Word-boundary, case-insensitive. Order matters only
 # for tie-breaking (first category with the most hits wins).
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
@@ -253,10 +245,11 @@ def _resolve_and_validate_url(url: str) -> tuple[str, str, str]:
             raise ValueError(f"Could not resolve feed host {host!r}")
 
     # Auto-convert Substack publication root URLs to their RSS /feed endpoint.
-    path = parts.path
-    if host.endswith(".substack.com") and path in ("", "/"):
+    path = parts.path or "/"
+    if host.endswith(".substack.com") and path == "/":
         path = "/feed"
-    normalized = urlunsplit(("https", parts.netloc, path, parts.query, ""))
+    norm_netloc = f"[{host}]" if ":" in host else host
+    normalized = urlunsplit(("https", norm_netloc, path, parts.query, ""))
     return normalized, host, pinned_ip
 
 
@@ -338,7 +331,7 @@ def _pinned_get(s: requests.Session, url: str, pinned_host: str, pinned_ip: str)
         return s.get(url, timeout=TIMEOUT, allow_redirects=False, stream=True)
 
     adapter = _PinnedHTTPSAdapter(pinned_host, pinned_ip)
-    prefixes = (f"https://{pinned_host}/", f"https://{pinned_host}:443/")
+    prefixes = ("https://", f"https://{pinned_host}/", f"https://{pinned_host}:443/")
     saved = {p: s.adapters.get(p) for p in prefixes}
     old_trust_env = s.trust_env
     try:
