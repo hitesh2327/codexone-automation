@@ -43,6 +43,7 @@ output/, logs/, data/
 - Log every run; handle API errors with retries + clear messages.
 - Build and test one module at a time; add a --dry-run flag everywhere.
 - Keep a README with setup + run steps.
+- **PR-First Workflow & Change Logging**: From now onwards, all development must be done via Pull Requests (PRs). Every PR must be thoroughly reviewed using skills (security, QA, ponytail) before merging into `main`. Every relevant task and commit/PR must be logged in the project JIRA spreadsheet (`Mintly JIRA Issue & Backlog Tracker`) to keep track of every change.
 
 ## Dashboard UI (web/)
 
