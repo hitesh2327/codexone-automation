@@ -4,7 +4,7 @@ Uses the SAME reel MP4 that goes to Instagram (downloaded from its Cloudinary UR
 it works in CI where local renders don't exist). Resumable upload with retries.
 
 Credentials come from YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN (see
-get_yt_token.py). Privacy comes from YT_PRIVACY (private | unlisted | public; default private).
+get_yt_token.py). Privacy comes from YT_PRIVACY (private | unlisted | public; default public).
 
 Usage:
     python -m src.publish_youtube check                           # refresh token only (read-only)
@@ -73,7 +73,7 @@ def configured() -> bool:
 
 
 def privacy() -> str:
-    p = (get_env("YT_PRIVACY", required=False, default="private") or "private").lower()
+    p = (get_env("YT_PRIVACY", required=False, default="public") or "public").lower()
     if p not in ("private", "unlisted", "public"):
         raise YTError(f"YT_PRIVACY must be private, unlisted or public (got {p!r})")
     return p
@@ -197,18 +197,29 @@ def youtube_tags(hashtags: list[str], *, category: str = "", topic: str = "") ->
 
 
 def build_metadata(caption: str, title: str | None = None, description: str | None = None,
-                   audio_language: str = "en", *, category: str = "", topic: str = "") -> dict:
+                   audio_language: str = "en", *, category: str = "", topic: str = "",
+                   publish_at: str | None = None) -> dict:
     """title/description: dashboard overrides; otherwise built as Shorts-optimized SEO metadata.
     audio_language: "hi" for a Hinglish reel; the title and description stay English (defaultLanguage "en")."""
     body, hashtags = split_caption(caption)
     built_description = youtube_description(body, hashtags, topic=topic, category=category)
     tags = youtube_tags(hashtags, category=category, topic=topic)
+    status: dict[str, str | bool] = {
+        "selfDeclaredMadeForKids": False,
+        "embeddable": True,
+    }
+    if publish_at:
+        status["privacyStatus"] = "private"
+        status["publishAt"] = publish_at
+    else:
+        status["privacyStatus"] = privacy()
+
     return {
         "snippet": {"title": fit_title(title) if title else make_title(body, topic=topic),
                     "description": _clean(description)[:4900] if description else built_description, "tags": tags,
                     "categoryId": category_id_for(category, f"{topic} {body}"), "defaultLanguage": "en",
                     "defaultAudioLanguage": audio_language},
-        "status": {"privacyStatus": privacy(), "selfDeclaredMadeForKids": False, "embeddable": True},
+        "status": status,
     }
 
 
@@ -279,11 +290,13 @@ def shorts_url(video_id: str) -> str:
 
 def publish_reel(video: str, caption: str, dry_run: bool = False, title: str | None = None,
                  description: str | None = None, audio_language: str = "en",
-                 *, category: str = "", topic: str = "") -> tuple[str, str]:
+                 *, category: str = "", topic: str = "", publish_at: str | None = None) -> tuple[str, str]:
     """Upload a reel (local path or URL). Returns (video_id, shorts_url)."""
-    body = build_metadata(caption, title, description, audio_language, category=category, topic=topic)
+    body = build_metadata(caption, title, description, audio_language, category=category, topic=topic,
+                          publish_at=publish_at)
     priv = body["status"]["privacyStatus"]
-    _warn_if_private(priv)
+    if not publish_at:
+        _warn_if_private(priv)
     if dry_run:
         credentials()
         if video.startswith("http"):

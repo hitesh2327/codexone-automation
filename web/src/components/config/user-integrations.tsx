@@ -384,7 +384,7 @@ function TelegramSection({
 // ------------------------------------------------------------------------------------------------
 // One section (e.g. Instagram) with a set of fields and a single Save button
 // ------------------------------------------------------------------------------------------------
-type SectionField = { key: string; label: string; secret: boolean; placeholder: string };
+type SectionField = { key: string; label: string; secret: boolean; placeholder: string; choices?: string[] };
 
 function IntegrationSection({
   title,
@@ -448,20 +448,39 @@ function IntegrationSection({
                   </span>
                 )}
               </div>
-              <Input
-                id={`ucf-${f.key}`}
-                type={f.secret ? "password" : "text"}
-                placeholder={st?.set ? "Enter a new value to replace" : f.placeholder}
-                value={values[f.key] ?? ""}
-                onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                disabled={busy}
-                autoComplete="off"
-                spellCheck={false}
-                autoCapitalize="none"
-                data-1p-ignore
-                data-lpignore="true"
-                className="font-mono text-sm"
-              />
+              {f.choices ? (
+                <select
+                  id={`ucf-${f.key}`}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  disabled={busy}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="" className="bg-popover text-popover-foreground">
+                    {st?.set ? `Current: ${st.masked ?? "set"}` : `Select ${f.label.toLowerCase()} (default: ${f.placeholder})`}
+                  </option>
+                  {f.choices.map((c) => (
+                    <option key={c} value={c} className="bg-popover text-popover-foreground">
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id={`ucf-${f.key}`}
+                  type={f.secret ? "password" : "text"}
+                  placeholder={st?.set ? "Enter a new value to replace" : f.placeholder}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  disabled={busy}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="none"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  className="font-mono text-sm"
+                />
+              )}
             </div>
           );
         })}
@@ -486,6 +505,7 @@ const YOUTUBE_FIELDS: SectionField[] = [
   { key: "YT_CLIENT_ID", label: "OAuth client ID", secret: false, placeholder: "....apps.googleusercontent.com" },
   { key: "YT_CLIENT_SECRET", label: "OAuth client secret", secret: true, placeholder: "GOCSPX-..." },
   { key: "YT_REFRESH_TOKEN", label: "Refresh token", secret: true, placeholder: "1//..." },
+  { key: "YT_PRIVACY", label: "Upload privacy", secret: false, placeholder: "public", choices: ["public", "unlisted", "private"] },
 ];
 
 export function UserIntegrations() {
