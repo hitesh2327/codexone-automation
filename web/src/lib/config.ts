@@ -76,7 +76,13 @@ export const saveUiPreferences = (prefs: UiPreferences) =>
 
 // Per-user integrations (/api/integrations)
 export type KeyStatus = { set: boolean; masked: string | null };
-export type TelegramMeta = { connected: boolean; using_custom_bot: boolean; default_bot_configured: boolean };
+export type TelegramMeta = {
+  connected: boolean;
+  using_custom_bot: boolean;
+  default_bot_configured: boolean;
+  bot_name?: string;
+  bot_username?: string;
+};
 export type UserIntegrationsResponse = { values: Record<string, KeyStatus>; telegram?: TelegramMeta };
 
 export const getUserIntegrations = () => api<UserIntegrationsResponse>("/api/integrations");
@@ -92,5 +98,7 @@ export const confirmTelegramLink = () =>
   api<{ connected: boolean; chat_id?: string; chat_title?: string | null }>("/api/integrations/telegram/confirm", { method: "POST" });
 export const setCustomTelegramBot = (token: string) =>
   api<{ ok: true; bot_username: string; masked: string | null }>("/api/integrations/telegram/bot", { method: "PUT", body: { token } });
+export const setTelegramBotName = (name: string): Promise<{ ok: boolean; bot_name: string; message: string }> =>
+  api<{ ok: boolean; bot_name: string; message: string }>("/api/integrations/telegram/name", { method: "PUT", body: { name } });
 export const unlinkTelegram = (includeBot = false) =>
   api<null>(`/api/integrations/telegram?include_bot=${includeBot ? "true" : "false"}`, { method: "DELETE" });

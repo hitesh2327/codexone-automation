@@ -2,7 +2,7 @@
  * Per-user integration settings: Telegram 1-click connect/unlink/bot override, Instagram, YouTube.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Check, CircleDashed, ExternalLink, LoaderCircle, RotateCcw, Send, Unlink } from "lucide-react";
+import { Bot, Check, CircleDashed, ExternalLink, LoaderCircle, Pencil, RotateCcw, Send, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
 import {
   confirmTelegramLink, createTelegramLink, deleteUserIntegration, getUserIntegrations, putUserIntegration,
-  setCustomTelegramBot, unlinkTelegram, type KeyStatus, type TelegramLinkResponse, type TelegramMeta,
+  setCustomTelegramBot, setTelegramBotName, unlinkTelegram, type KeyStatus, type TelegramLinkResponse, type TelegramMeta,
 } from "@/lib/config";
 
 // ------------------------------------------------------------------------------------------------
@@ -28,9 +28,11 @@ function TelegramSection({
   onSaved: () => void;
 }) {
   const [link, setLink] = useState<TelegramLinkResponse | null>(null);
-  const [busy, setBusy] = useState<null | "link" | "confirm" | "unlink" | "bot" | "resetBot" | "manual">(null);
+  const [busy, setBusy] = useState<null | "link" | "confirm" | "unlink" | "bot" | "resetBot" | "manual" | "name">(null);
   const [error, setError] = useState<string | null>(null);
   const [showBotForm, setShowBotForm] = useState(false);
+  const [showNameForm, setShowNameForm] = useState(false);
+  const [botNameInput, setBotNameInput] = useState("");
   const [botToken, setBotToken] = useState("");
   const [manualChatId, setManualChatId] = useState("");
   const pollTimer = useRef<number | null>(null);
@@ -164,6 +166,34 @@ function TelegramSection({
     }
   }
 
+  const handleOpenNameForm = () => {
+    setBotNameInput(meta?.bot_name || "");
+    setShowNameForm((s) => !s);
+    setShowBotForm(false);
+  };
+
+  const handleCancelNameForm = () => {
+    setShowNameForm(false);
+    setBotNameInput("");
+  };
+
+  async function handleSaveBotName() {
+    const clean = botNameInput.trim();
+    if (!clean) return;
+    setBusy("name");
+    setError(null);
+    try {
+      const res = await setTelegramBotName(clean);
+      setShowNameForm(false);
+      onSaved();
+      toast.success(res.message || `Telegram bot name updated to '${clean}'`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not update Telegram bot name.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -183,11 +213,16 @@ function TelegramSection({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <p className="text-xs text-muted-foreground">
-          {usingCustomBot
-            ? `Using your custom Telegram bot (${botStatus?.masked ?? "saved"}).`
-            : "Using Mintly's shared approval bot."}
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground">
+            {usingCustomBot
+              ? `Using your custom Telegram bot (${botStatus?.masked ?? "saved"}).`
+              : "Using Mintly's shared approval bot."}
+          </p>
+          <p className="text-xs font-medium text-foreground">
+            Bot: {meta?.bot_name || "codeXoneByHitesh"} ({meta?.bot_username || "@codeXoneByHiteshBot"})
+          </p>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={handleConnect} disabled={busy !== null}>
@@ -205,7 +240,20 @@ function TelegramSection({
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => setShowBotForm((s) => !s)}
+            onClick={handleOpenNameForm}
+            disabled={busy !== null}
+          >
+            <Pencil className="size-4" />
+            Change bot name
+          </Button>
+
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setShowBotForm((s) => !s);
+              setShowNameForm(false);
+            }}
             disabled={busy !== null}
           >
             <Bot className="size-4" />
@@ -240,6 +288,37 @@ function TelegramSection({
                 variant="ghost"
                 onClick={() => { stopPolling(); setLink(null); }}
               >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {showNameForm && (
+          <div className="grid gap-2 rounded-md border border-border bg-background/50 p-3">
+            <Label htmlFor="ucf-TG_BOT_NAME" className="text-xs font-medium">
+              Telegram bot display name
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Enter a new display name for your Telegram bot (1–64 characters).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                id="ucf-TG_BOT_NAME"
+                type="text"
+                placeholder={meta?.bot_name || "codeXoneByHitesh"}
+                value={botNameInput}
+                onChange={(e) => setBotNameInput(e.target.value)}
+                disabled={busy !== null}
+                maxLength={64}
+                autoComplete="off"
+                className="min-w-[14rem] flex-1 text-sm"
+              />
+              <Button size="sm" onClick={handleSaveBotName} disabled={busy !== null || !botNameInput.trim()}>
+                {busy === "name" ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                Save name
+              </Button>
+              <Button size="sm" variant="ghost" onClick={handleCancelNameForm} disabled={busy !== null}>
                 Cancel
               </Button>
             </div>

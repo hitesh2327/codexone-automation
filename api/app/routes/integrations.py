@@ -81,6 +81,19 @@ def _rate(cu: CurrentUser) -> None:
 def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
     data = user_config_store.snapshot(cu.id)
     default_bot_ok = bool(get_env("TG_BOT_TOKEN", required=False))
+    token, _ = _effective_tg_token(cu.id)
+    bot_name = None
+    bot_username = None
+    if token and tg.TOKEN_RE.match(token):
+        info, _ = tg.get_bot_info(token)
+        if isinstance(info, dict) and info.get("username"):
+            bot_username = f"@{str(info['username']).lstrip('@')}"
+        name, _ = tg.get_bot_name(token)
+        if name:
+            bot_name = name
+        elif isinstance(info, dict) and info.get("first_name"):
+            bot_name = info.get("first_name")
+
     return {
         "values": {
             k: {"set": data.get(k) is not None, "masked": _mask(k, data.get(k))}
@@ -91,8 +104,11 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
             "connected": bool(data.get("TG_CHAT_ID")),
             "using_custom_bot": bool(data.get("TG_BOT_TOKEN")),
             "default_bot_configured": default_bot_ok,
+            "bot_name": bot_name,
+            "bot_username": bot_username,
         },
     }
+
 
 
 @router.post("/telegram/link")
@@ -224,6 +240,59 @@ def set_custom_telegram_bot(body: BotBody, cu: CurrentUser = Depends(current_use
         "ok": True,
         "bot_username": f"@{str(me['username']).lstrip('@')}",
         "masked": _mask("TG_BOT_TOKEN", token),
+    }
+
+
+class TelegramNameRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+@router.put("/telegram/name")
+def update_telegram_bot_name(body: TelegramNameRequest, cu: CurrentUser = Depends(current_user)) -> dict:
+    """Change the Telegram bot display name via setMyName."""
+    _rate(cu)
+    token, _ = _effective_tg_token(cu.id)
+    if not token:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "telegram.not_configured",
+                    "message": "No Telegram bot is configured yet. Paste your own BotFather token or ask the owner to set Mintly's bot."},
+        )
+    if not tg.TOKEN_RE.match(token):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message},
+        )
+    clean_name = body.name.strip()
+    if not clean_name:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "telegram.invalid_name", "message": "Bot name cannot be empty."},
+        )
+    if len(clean_name) > 64:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "telegram.invalid_name", "message": "Bot name cannot exceed 64 characters."},
+        )
+
+    ok, err = tg.set_bot_name(token, clean_name)
+    if not ok or err:
+        code = err or "telegram.unavailable"
+        if code == "telegram.unreachable":
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail={"code": code, "message": CODES["telegram.unreachable"].message},
+            )
+        info = CODES.get(code)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": code, "message": info.message if info else f"Telegram rejected the bot name: {code}"},
+        )
+
+    return {
+        "ok": True,
+        "bot_name": clean_name,
+        "message": f"Telegram bot name updated to '{clean_name}'",
     }
 
 
