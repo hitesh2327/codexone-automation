@@ -184,3 +184,58 @@ def delete_webhook(token: str) -> str | None:
     except Unreachable:
         return "telegram.unreachable"
     return err
+
+
+def get_bot_info(token: str) -> tuple[dict | None, str | None]:
+    """Fetch current bot info from getMe.
+
+    Returns (info_dict, error_code).
+    """
+    if not TOKEN_RE.match(token or ""):
+        return None, "telegram.token_format"
+    try:
+        me, err = _call(token, "getMe")
+    except Unreachable:
+        return None, "telegram.unreachable"
+    if err:
+        return None, err
+    return me if isinstance(me, dict) else None, None
+
+
+def get_bot_name(token: str) -> tuple[str | None, str | None]:
+    """Get the current bot name via getMyName or fallback to getMe first_name.
+
+    Returns (name, error_code).
+    """
+    if not TOKEN_RE.match(token or ""):
+        return None, "telegram.token_format"
+    try:
+        res, err = _call(token, "getMyName")
+        if not err and isinstance(res, dict) and res.get("name"):
+            return res.get("name"), None
+        me, err_me = _call(token, "getMe")
+        if not err_me and isinstance(me, dict) and me.get("first_name"):
+            return me.get("first_name"), None
+        return None, err or err_me
+    except Unreachable:
+        return None, "telegram.unreachable"
+
+
+def set_bot_name(token: str, name: str) -> tuple[bool, str | None]:
+    """Set the bot's name via setMyName (1-64 characters).
+
+    Returns (ok, error_code).
+    """
+    if not TOKEN_RE.match(token or ""):
+        return False, "telegram.token_format"
+    clean_name = (name or "").strip()
+    if not clean_name or len(clean_name) > 64:
+        return False, "telegram.invalid_name"
+    try:
+        res, err = _call(token, "setMyName", name=clean_name)
+    except Unreachable:
+        return False, "telegram.unreachable"
+    if err:
+        return False, err
+    return (True, None) if res else (False, "telegram.unavailable")
+
