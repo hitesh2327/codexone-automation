@@ -70,6 +70,17 @@ def _seller_state() -> str:
     return (os.getenv("SELLER_STATE") or "27").strip()[:2] or "27"
 
 
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: Any) -> Any:
+    """Neutralize spreadsheet formula injection (CWE-1236) on exported CSV string cells."""
+    if isinstance(value, str) and value:
+        if value[0] in _CSV_FORMULA_PREFIXES or value.lstrip()[:1] in ("=", "+", "-", "@"):
+            return "'" + value
+    return value
+
+
 def _gst_row(user: User, plan: dict, seller_state: str) -> dict[str, Any]:
     taxable = float(plan["price_inr_monthly"])
     country = (user.billing_country or "").strip().upper()
@@ -168,6 +179,7 @@ def get_overview() -> dict[str, Any]:
     }
     by_status: dict[str, int] = {}
     mrr_inr = 0
+    billable_mrr_inr = 0
     active_subscribers = 0
     gst_totals = {"taxable_inr": 0.0, "cgst_inr": 0.0, "sgst_inr": 0.0, "igst_inr": 0.0, "export_inr": 0.0, "total_tax_inr": 0.0}
 
@@ -182,14 +194,16 @@ def get_overview() -> dict[str, Any]:
             active_subscribers += 1
             by_tier[tier]["count"] += 1
             by_tier[tier]["mrr_inr"] += price
+        elif tier in by_tier and st in ACTIVE_SUB_STATUSES:
+            by_tier[tier]["count"] += 1
+        if st in BILLABLE_SUB_STATUSES and plan is not None:
+            billable_mrr_inr += int(plan["price_inr_monthly"])
             g = _gst_row(u, plan, seller_state)
             gst_totals["taxable_inr"] = round(gst_totals["taxable_inr"] + g["taxable_inr"], 2)
             gst_totals["cgst_inr"] = round(gst_totals["cgst_inr"] + g["cgst_inr"], 2)
             gst_totals["sgst_inr"] = round(gst_totals["sgst_inr"] + g["sgst_inr"], 2)
             gst_totals["igst_inr"] = round(gst_totals["igst_inr"] + g["igst_inr"], 2)
             gst_totals["export_inr"] = round(gst_totals["export_inr"] + g["export_inr"], 2)
-        elif tier in by_tier and st in ACTIVE_SUB_STATUSES:
-            by_tier[tier]["count"] += 1
 
     gst_totals["total_tax_inr"] = round(
         gst_totals["cgst_inr"] + gst_totals["sgst_inr"] + gst_totals["igst_inr"], 2
@@ -255,6 +269,7 @@ def get_overview() -> dict[str, Any]:
     return {
         "revenue": {
             "mrr_inr": mrr_inr,
+            "billable_mrr_inr": billable_mrr_inr,
             "arr_inr": mrr_inr * 12,
             "active_subscribers": active_subscribers,
             "total_users": len(users),
@@ -326,7 +341,8 @@ def export_gst_csv() -> Response:
         plan = BY_ID.get(tier)
         if plan is None or (u.subscription_status or "") not in BILLABLE_SUB_STATUSES:
             continue
-        writer.writerow(_gst_row(u, plan, seller_state))
+        row = _gst_row(u, plan, seller_state)
+        writer.writerow({k: _csv_safe(v) for k, v in row.items()})
 
     return Response(
         content=buf.getvalue(),
@@ -532,6 +548,9 @@ def list_admin_jobs(
             stmt = stmt.where(GenerationJob.status == status_filter)
         rows = s.scalars(stmt.limit(limit if not stuck_only else 200)).all()
 
+        active_all = s.scalars(
+            select(GenerationJob).where(GenerationJob.status.in_(("queued", "running")))
+        ).all()
         recent_7d = s.scalars(select(GenerationJob).where(GenerationJob.created_at >= cutoff_7d)).all()
         user_ids = {j.user_id for j in rows if j.user_id is not None}
         user_map: dict[int, tuple[str | None, str | None]] = {}
@@ -549,12 +568,10 @@ def list_admin_jobs(
         if c_at and c_at >= cutoff_24h:
             counts_24h[st] += 1
 
+    stuck_count = sum(1 for j in active_all if _is_job_stuck(j, now))
     out = []
-    stuck_count = 0
     for j in rows:
         stuck = _is_job_stuck(j, now)
-        if stuck:
-            stuck_count += 1
         if stuck_only and not stuck:
             continue
         d = generation.to_dict(j)

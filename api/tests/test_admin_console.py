@@ -442,3 +442,138 @@ def test_gst_csv_export(authed):
     assert by_user["us_client"]["supply_type"] == "EXPORT"
     assert float(by_user["us_client"]["export_inr"]) == 5999.0
     assert float(by_user["us_client"]["igst_inr"]) == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# 8. QA Regression Tests: CSV Injection, Publish Kill-Switch, OAuth, Logs Isolation
+# --------------------------------------------------------------------------- #
+def test_gst_csv_escapes_formula_injection(authed):
+    with db.session() as s:
+        s.add(User(
+            username="evil_eq",
+            email="evil@example.com",
+            name="=cmd|' /C calc'!A0",
+            billing_name="+SUM(A1:A2)",
+            password_hash=hash_password("strong pass 1234!"),
+            role="client",
+            subscription_tier="starter",
+            subscription_status="active",
+            billing_country="IN",
+            billing_state="27",
+            config_completed=True,
+        ))
+        s.add(User(
+            username="-baduser",
+            email="evil2@example.com",
+            name="@evil",
+            billing_name="\tmalicious",
+            password_hash=hash_password("strong pass 1234!"),
+            role="client",
+            subscription_tier="lite",
+            subscription_status="active",
+            billing_country="US",
+            config_completed=True,
+        ))
+
+    r = authed.get("/api/admin/revenue/gst-export")
+    assert r.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    by_email = {row["email"]: row for row in rows}
+    assert by_email["evil@example.com"]["billing_name"].startswith("'+SUM")
+    assert by_email["evil2@example.com"]["username"].startswith("'-baduser")
+    assert by_email["evil2@example.com"]["billing_name"].startswith("'\tmalicious")
+
+
+def test_publishing_kill_switch_halts_publish_due_and_publish_item(authed, monkeypatch):
+    from src import publish, queue_store as q
+
+    uid = _make_user(username="pubclient", email="pub@example.com", tier="creator", sub_status="active")
+    past_slot = (_utc_now() - timedelta(hours=1)).isoformat(timespec="seconds")
+    with db.session() as s:
+        s.add(Post(
+            id="20261111-c-pub1", kind="carousel", date=date.today(), topic="Ready post", category="AI",
+            post_dir="output/2026-11-11/ready/carousel", media={"carousel": ["https://x/1.jpg", "https://x/2.jpg"]},
+            caption="Cap", status="approved", publish_at=_utc_now() - timedelta(hours=1), user_id=uid,
+        ))
+
+    called = {"count": 0}
+    monkeypatch.setattr(publish, "_publish_item", lambda *a, **kw: called.__setitem__("count", called["count"] + 1))
+
+    # Trip publishing kill-switch
+    assert authed.put("/api/admin/safety", json={"publishing": True, "reason": "IG outage"}).status_code == 200
+
+    assert publish.publish_due() == []
+    assert called["count"] == 0
+
+    item = q.get("20261111-c-pub1", user_id=uid)
+    assert item is not None
+    res_item = publish.publish_item(item)
+    assert called["count"] == 0
+    assert res_item.status == "approved"
+
+    with pytest.raises(actions.ActionError, match="kill-switch"):
+        actions.start_publish_now("20261111-c-pub1")
+
+
+def test_google_oauth_signup_blocked_when_signups_kill_switch_active(authed, monkeypatch):
+    from api.app.routes import auth as auth_routes
+
+    class _FakeGoogle:
+        def __init__(self, email):
+            self.email = email
+
+        async def authorize_access_token(self, request):
+            return {"userinfo": {"email": self.email, "email_verified": True, "name": "New Google User"}}
+
+    _make_user(username="existing_g", email="allowed@example.com", role="client")
+    assert authed.put("/api/admin/safety", json={"signups": True, "reason": "Spam wave"}).status_code == 200
+
+    with _new_client() as gc:
+        # New Google user is blocked from registering
+        monkeypatch.setattr(auth_routes, "_google", lambda: _FakeGoogle("other@example.com"))
+        r_new = gc.get("/api/auth/google/callback", follow_redirects=False)
+        assert r_new.status_code == 303
+        assert r_new.headers["location"].startswith("http://testserver/login?error=")
+        assert "cx_session=" not in r_new.headers.get("set-cookie", "")
+        with db.session() as s:
+            assert s.scalars(select(User).where(User.email == "other@example.com")).first() is None
+
+        # Existing Google user can still log in
+        monkeypatch.setattr(auth_routes, "_google", lambda: _FakeGoogle("allowed@example.com"))
+        r_old = gc.get("/api/auth/google/callback", follow_redirects=False)
+        assert r_old.status_code == 303
+        assert r_old.headers["location"] == "http://testserver/"
+
+
+def test_client_logs_exclude_admin_audit_events(authed):
+    uid = _make_user(username="logclient", email="logc@example.com", tier="lite", sub_status="active")
+    # Record a normal client event + internal admin events tagged to the client's user_id
+    with db.session() as s:
+        s.add(ActivityLog(
+            level="info", source="dashboard", event="post.approved",
+            message="Approved carousel", actor="logclient", user_id=uid,
+        ))
+        s.add(ActivityLog(
+            level="warning", source="admin", event="admin.impersonation.start",
+            message="Secret ticket #999: suspected chargeback", actor="superadmin", user_id=uid,
+        ))
+        s.add(ActivityLog(
+            level="info", source="system", event="admin.tenant.bonus_quota",
+            message="Internal promo note", actor="superadmin", user_id=uid,
+        ))
+
+    with _new_client() as cc:
+        _login_client(cc, "logclient", "strong pass 1234!")
+        res = cc.get("/api/logs")
+        assert res.status_code == 200
+        events = [item["event"] for item in res.json()["items"]]
+        assert events == ["post.approved"]
+        assert cc.get("/api/logs/summary").json()["last_24h"]["warning"] == 0
+
+    # Even during read-only impersonation, /api/logs must hide internal admin.* events
+    imp = authed.post(f"/api/admin/tenants/{uid}/impersonate", json={"reason": "Ticket #777: checking posts"})
+    assert imp.status_code == 200
+    imp_res = authed.get("/api/logs")
+    assert imp_res.status_code == 200
+    assert all(not e["event"].startswith("admin.") and e["source"] != "admin" for e in imp_res.json()["items"])
+

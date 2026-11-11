@@ -321,11 +321,22 @@ def _todo(item: q.Item, platforms: tuple[str, ...]) -> tuple[list[str], list[str
     return targets, [p for p in targets if not _done(item, p)]
 
 
+def _publishing_paused_by_kill_switch() -> bool:
+    try:
+        from src import flags
+        return flags.is_kill_switch_active("publishing")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def publish_item(item: q.Item, dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS,
                  claimed: bool = False) -> q.Item:
     """Publish one item. The caller either passes an approved/failed/published item (this claims
     it) or has already claimed it itself with q.claim_for_publish and says so with claimed=True.
     A "publishing" item that the caller did not claim belongs to another publisher: skipped."""
+    if _publishing_paused_by_kill_switch():
+        log.warning("publishing kill-switch is active; skipping publish_item for %s", item.id)
+        return item
     from src import plan_limits
     allowed = plan_limits.allowed_platforms(item.user_id)
     if allowed is not None:
@@ -456,6 +467,9 @@ def _due_at(item: q.Item) -> datetime:
 
 def publish_due(dry_run: bool = False, platforms: tuple[str, ...] = PLATFORMS) -> list[q.Item]:
     """Publish approved items whose slot time (item.publish_at) has passed."""
+    if _publishing_paused_by_kill_switch():
+        log.warning("publishing kill-switch is active; publish_due halted")
+        return []
     done = []
     for item in q.load(statuses=("approved", "failed")):
         ready = item.status == "approved" or (item.status == "failed" and _retryable(item, platforms))

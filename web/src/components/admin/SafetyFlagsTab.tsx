@@ -30,17 +30,23 @@ export function SafetyFlagsTab({ onMutated }: { onMutated: () => void }) {
   const [switches, setSwitches] = useState<KillSwitches | null>(null);
   const [reason, setReason] = useState("");
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
+  const [draftPct, setDraftPct] = useState<Record<string, number>>({});
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [newKey, setNewKey] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const syncFlags = (nextFlags: FeatureFlag[]) => {
+    setFlags(nextFlags);
+    setDraftPct(Object.fromEntries(nextFlags.map((f) => [f.key, f.rollout_pct])));
+  };
 
   const load = useCallback(async () => {
     try {
       const [sRes, fRes, aRes] = await Promise.all([getSafety(), listFlags(), listAudit(30)]);
       setSwitches(sRes.kill_switches);
       setReason(sRes.kill_switches.reason || "");
-      setFlags(fRes.flags);
+      syncFlags(fRes.flags);
       setAudit(aRes.events);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load safety controls");
@@ -71,8 +77,9 @@ export function SafetyFlagsTab({ onMutated }: { onMutated: () => void }) {
   async function handleToggleFlag(f: FeatureFlag) {
     setBusy(true);
     try {
-      const res = await upsertFlag({ ...f, enabled: !f.enabled });
-      setFlags(res.flags);
+      const pct = Math.max(0, Math.min(100, Math.round(draftPct[f.key] ?? f.rollout_pct)));
+      const res = await upsertFlag({ ...f, enabled: !f.enabled, rollout_pct: pct });
+      syncFlags(res.flags);
       toast.success(`${f.key} ${!f.enabled ? "enabled" : "disabled"}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update flag");
@@ -86,7 +93,7 @@ export function SafetyFlagsTab({ onMutated }: { onMutated: () => void }) {
     try {
       const clamped = Math.max(0, Math.min(100, Math.round(pct)));
       const res = await upsertFlag({ ...f, rollout_pct: clamped });
-      setFlags(res.flags);
+      syncFlags(res.flags);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update rollout %");
     } finally {
@@ -104,7 +111,7 @@ export function SafetyFlagsTab({ onMutated }: { onMutated: () => void }) {
     setBusy(true);
     try {
       const res = await upsertFlag({ key, enabled: false, rollout_pct: 0, description: newDesc.trim() });
-      setFlags(res.flags);
+      syncFlags(res.flags);
       setNewKey("");
       setNewDesc("");
       toast.success(`Added feature flag ${key}`);
@@ -119,7 +126,7 @@ export function SafetyFlagsTab({ onMutated }: { onMutated: () => void }) {
     setBusy(true);
     try {
       const res = await deleteFlag(key);
-      setFlags(res.flags);
+      syncFlags(res.flags);
       toast.success(`Deleted ${key}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete flag");
@@ -229,10 +236,14 @@ export function SafetyFlagsTab({ onMutated }: { onMutated: () => void }) {
                     type="number"
                     min={0}
                     max={100}
-                    defaultValue={f.rollout_pct}
-                    onBlur={(e) => {
+                    value={draftPct[f.key] ?? f.rollout_pct}
+                    onChange={(e) => {
                       const val = Number(e.target.value);
-                      if (!Number.isNaN(val) && val !== f.rollout_pct) handleRolloutChange(f, val);
+                      if (!Number.isNaN(val)) setDraftPct((d) => ({ ...d, [f.key]: val }));
+                    }}
+                    onBlur={() => {
+                      const val = draftPct[f.key] ?? f.rollout_pct;
+                      if (val !== f.rollout_pct) void handleRolloutChange(f, val);
                     }}
                     className="h-8 w-20 font-mono text-xs tabular-nums"
                   />

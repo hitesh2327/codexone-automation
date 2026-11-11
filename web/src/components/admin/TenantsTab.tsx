@@ -23,6 +23,7 @@ import { useAuth, type User } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const ANY = "__any";
+const PAGE_SIZE = 50;
 
 export function TenantsTab({ onMutated }: { onMutated: () => void }) {
   const { user: me, applySessionUser } = useAuth();
@@ -30,6 +31,7 @@ export function TenantsTab({ onMutated }: { onMutated: () => void }) {
 
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [tier, setTier] = useState(ANY);
@@ -50,7 +52,8 @@ export function TenantsTab({ onMutated }: { onMutated: () => void }) {
       const res = await listTenants({
         q: q.trim() || undefined,
         tier: tier === ANY ? undefined : tier,
-        limit: 100,
+        limit: PAGE_SIZE,
+        offset,
       });
       setTenants(res.tenants);
       setTotal(res.total);
@@ -59,7 +62,7 @@ export function TenantsTab({ onMutated }: { onMutated: () => void }) {
     } finally {
       setLoading(false);
     }
-  }, [q, tier]);
+  }, [q, tier, offset]);
 
   useEffect(() => {
     const t = setTimeout(load, 200);
@@ -134,13 +137,13 @@ export function TenantsTab({ onMutated }: { onMutated: () => void }) {
             <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" aria-hidden />
             <Input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => { setQ(e.target.value); setOffset(0); }}
               placeholder="Search user or email…"
               aria-label="Search tenants"
               className="pl-8"
             />
           </div>
-          <Select value={tier} onValueChange={setTier}>
+          <Select value={tier} onValueChange={(v) => { setTier(v); setOffset(0); }}>
             <SelectTrigger className="w-36" aria-label="Filter by plan tier">
               <SelectValue placeholder="All tiers" />
             </SelectTrigger>
@@ -177,7 +180,10 @@ export function TenantsTab({ onMutated }: { onMutated: () => void }) {
             <TableBody>
               {tenants.map((t) => {
                 const isLowMargin = t.margin_pct !== null && t.margin_pct < 60;
-                const canMutate = t.id !== me?.id && t.role !== "owner";
+                const canMutate =
+                  t.id !== me?.id &&
+                  t.role !== "owner" &&
+                  (t.role !== "admin" || me?.role === "owner");
                 return (
                   <TableRow key={t.id}>
                     <TableCell>
@@ -262,6 +268,33 @@ export function TenantsTab({ onMutated }: { onMutated: () => void }) {
               })}
             </TableBody>
           </Table>
+        )}
+        {total > PAGE_SIZE && (
+          <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground">
+            <span className="font-mono tabular-nums">
+              Showing {offset + 1}–{Math.min(offset + tenants.length, total)} of {total}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={offset === 0 || loading}
+                onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={offset + PAGE_SIZE >= total || loading}
+                onClick={() => setOffset((o) => o + PAGE_SIZE)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         )}
       </CardContent>
 

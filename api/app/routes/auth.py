@@ -283,6 +283,9 @@ async def google_callback(request: Request, background_tasks: BackgroundTasks):
     with db.session() as s:
         user = s.scalars(select(User).where(func.lower(User.email) == email)).first()
         if user is None:
+            if flags.is_kill_switch_active("signups"):
+                log.warning("google signup refused for %s (signups kill-switch active)", email)
+                return _login_redirect("New signups are temporarily paused for maintenance. Please try again shortly.")
             user = User(
                 email=email,
                 name=info.get("name") or "",
