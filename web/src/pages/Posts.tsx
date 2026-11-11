@@ -17,7 +17,7 @@ import {
   type PostsResponse,
 } from "@/lib/posts";
 import { stageOf } from "@/lib/stage";
-import { cn } from "@/lib/utils";
+import { cn, safeHref } from "@/lib/utils";
 
 const ANY = "__any";
 const PAGE_SIZE = 20;
@@ -35,8 +35,9 @@ function PlatformMarks({ item }: { item: Item }) {
         const tone = r?.status === "published" ? "text-ok border-ok/40 hover:bg-ok/10"
           : r?.status === "failed" ? "text-bad border-bad/45" : "text-muted-foreground border-border";
         const cls = `inline-flex h-5 items-center gap-0.5 rounded-[4px] border px-1 font-mono text-[10px] font-medium tracking-wider uppercase transition-colors ${tone}`;
-        return r?.url ? (
-          <a key={t} href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+        const href = safeHref(r?.url);
+        return href ? (
+          <a key={t} href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
              className={cls} title={`Open on ${t === "ig" ? "Instagram" : "YouTube"}`} aria-label={`Open on ${PLATFORM_LABEL[t]}`}>
             {t}<ArrowUpRight className="size-3" aria-hidden />
           </a>
@@ -219,16 +220,16 @@ export default function Posts() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   dataRef.current = data;
 
-  const load = useCallback(async (preserveCount = false) => {
+  const load = useCallback(async (quiet = false) => {
     abort.current?.abort();
     moreAbort.current?.abort();
     loadingMoreRef.current = false;
     setLoadingMore(false);
-    setLoadMoreError(null);
+    if (!quiet) setLoadMoreError(null);
     const ctrl = new AbortController();
     abort.current = ctrl;
     const loaded = dataRef.current?.groups.length ?? 0;
-    const limit = preserveCount ? Math.min(MAX_REFRESH_GROUPS, Math.max(PAGE_SIZE, loaded)) : PAGE_SIZE;
+    const limit = quiet ? Math.min(MAX_REFRESH_GROUPS, Math.max(PAGE_SIZE, loaded)) : PAGE_SIZE;
     try {
       const res = await listPosts({ ...filters, limit }, ctrl.signal);
       setData(res);
@@ -427,9 +428,9 @@ export default function Posts() {
                 {(data?.categories ?? []).map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
-            <div className="col-span-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">
+            <div className="col-span-2 flex flex-col gap-2 min-[375px]:grid min-[375px]:grid-cols-[1fr_auto_1fr] min-[375px]:items-center sm:flex sm:flex-row">
               <Input type="date" value={filters.date_from ?? ""} onChange={(e) => setFilter("date_from", e.target.value)} aria-label="From date" className="w-full sm:w-38" />
-              <span aria-hidden className="font-mono text-xs text-muted-foreground">to</span>
+              <span aria-hidden className="text-center font-mono text-xs text-muted-foreground min-[375px]:text-left">to</span>
               <Input type="date" value={filters.date_to ?? ""} onChange={(e) => setFilter("date_to", e.target.value)} aria-label="To date" className="w-full sm:w-38" />
             </div>
             {hasFilters && (

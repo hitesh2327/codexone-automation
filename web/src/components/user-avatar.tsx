@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { avatarUrl, initials } from "@/lib/profile";
 import { cn } from "@/lib/utils";
@@ -18,9 +18,9 @@ function tint(seed: string): string {
 export function UserAvatar({
   name, email, version, className, text = "text-sm",
 }: { name?: string | null; email?: string | null; version?: number | null; className?: string; text?: string }) {
-  const [broken, setBroken] = useState(false);
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const src = avatarUrl(version);
-  useEffect(() => setBroken(false), [src]);
+  const broken = !!src && brokenSrc === src;
 
   return (
     <span
@@ -28,7 +28,7 @@ export function UserAvatar({
       style={{ background: tint(name || email || "?") }}
     >
       {src && !broken ? (
-        <img src={src} alt="" className="absolute inset-0 size-full object-cover" onError={() => setBroken(true)} draggable={false} />
+        <img src={src} alt="" className="absolute inset-0 size-full object-cover" onError={() => setBrokenSrc(src)} draggable={false} />
       ) : (
         <span aria-hidden>{initials(name, email ?? "?")}</span>
       )}

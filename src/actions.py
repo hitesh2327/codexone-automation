@@ -204,16 +204,38 @@ def start_publish_now(item_id: str, targets: list[str] | None = None, source: st
     """Approve for right now. Inline mode marks it publishing (call finish_publish() next); dispatch
     mode leaves it approved (slot = now) and starts the poll job, which publishes it."""
     _require_publishing()
-    item = approve(item_id, targets=targets, publish_at=datetime.now(IST), source=source)
-    if item.status != "approved":  # e.g. rejected because no platforms were selected
-        return item
+    item = _get(item_id)
+    _set_targets(item, targets)
+    if not item.effective_targets:
+        return reject(item_id, source=source, reason="no platforms selected", item=item)
+
     if publish_via_dispatch():
+        item = approve(item_id, targets=targets, publish_at=datetime.now(IST), source=source)
         trigger_pipeline_run()  # if it can't start, the next scheduled poll publishes it
         return item
-    # Same compare-and-set claim as the poll's publisher: exactly one of them gets to publish.
-    if not q.claim_for_publish(item.id, ("approved",)):
+
+    # Inline mode: atomically claim directly from its current status into "publishing".
+    # This eliminates the two-step race where approve() sets "approved" and publish_due
+    # steals the claim before claim_for_publish() runs.
+    if item.status == "publishing":
         raise ActionError("Another run is already publishing this post")
+    if item.status not in q.DECIDABLE["approve"]:
+        raise ActionError(f"{item.kind} is already {item.status}")
+
+    before_status = item.status
     item.status = "publishing"
+    item.publish_at = datetime.now(IST).isoformat(timespec="seconds")
+    item.decided_at = q.now_iso()
+
+    if not q.update_if(item, before_status):
+        now = q.get(item.id)
+        if now and now.status == "publishing":
+            raise ActionError("Another run is already publishing this post")
+        raise ActionError(f"This post changed meanwhile (it is now {now.status if now else 'gone'}); "
+                          "reload and try again")
+
+    approve_bot.mark_decided(item, approve_bot.decision_note("approve", item, f"from the {source}"))
+    log.info("%s claimed for publish now (%s) -> %s", item.id, source, item.effective_targets)
     activity.record("publish.requested", f"Publish now: {item.kind} “{item.topic}”", source=source,
                     post_id=item.id, detail={"targets": item.effective_targets})
     return item

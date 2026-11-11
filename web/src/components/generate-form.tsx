@@ -66,6 +66,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const submittingRef = useRef(false);
   const key = useRef(newIdempotencyKey());
   const root = useRef<HTMLFormElement>(null);
 
@@ -81,7 +82,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
     setAllowDup(false);
     setError(null);
     root.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [prefill]);
+  }, [prefill, defaultLanguage, defaultFormat]);
 
   const t = topic.trim();
   const [minLen, maxLen] = cfg.topic_length;
@@ -101,7 +102,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
   }, [t, minLen, maxLen]);
 
   const topicErr = t && (t.length < minLen ? `At least ${minLen} characters` : t.length > maxLen ? `At most ${maxLen} characters` : null);
-  const categoryErr = t && category === AUTO ? "Pick a category for your own topic" : null;
+  const categoryErr = t && category === AUTO && cfg.categories.length > 0 ? "Pick a category for your own topic" : null;
   const urlErr = url.trim() && !/^https:\/\/\S+$/i.test(url.trim()) ? "Use a full https:// link" : null;
   const invalid = !!(topicErr || categoryErr || urlErr || (url.trim() && !t));
   const waiting = (needsForce && !force) || (!!dup && !allowDup);
@@ -109,6 +110,8 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
   const quotaWarn = cfg.quota_cooldown_until && new Date(cfg.quota_cooldown_until).getTime() > Date.now();
 
   async function submit() {
+    if (submittingRef.current || busy) return;
+    submittingRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -124,14 +127,15 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
       onRequested(job);
     } catch (e) {
       if (!(e instanceof ApiError)) throw e;
-      if (e.status !== 0) key.current = newIdempotencyKey();  // a network failure may still have reached the server: keep the key
+      if (e.status !== 0 && e.status !== 502 && e.status !== 503 && e.status !== 504) key.current = newIdempotencyKey();  // a network failure may still have reached the server: keep the key
       if (e.code === "job_active" && e.data?.job) onActive(e.data.job as Job);
       else if (e.code === "duplicate_topic") setDup({ title: String(e.data?.title ?? ""), date: String(e.data?.date ?? "") });
       else setError(e.message);
-      if (["job_active", "cap_reached", "quota_cooldown", "not_configured", "dispatch_failed"].includes(e.code ?? "")) onRefresh();
+      if (["job_active", "cap_reached", "quota_cooldown", "not_configured", "dispatch_failed"].includes(e.code ?? "") || e.status === 504) onRefresh();
       if (e.code !== "duplicate_topic") toast.error(e.message);
     } finally {
       setBusy(false);
+      submittingRef.current = false;
     }
   }
 
@@ -293,7 +297,7 @@ export function GenerateForm({ cfg, slots, blocked, prefill, onRequested, onActi
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={submit}>{quotaWarn ? "Generate anyway" : "Generate"}</AlertDialogAction>
+            <AlertDialogAction onClick={submit} disabled={busy}>{quotaWarn ? "Generate anyway" : "Generate"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

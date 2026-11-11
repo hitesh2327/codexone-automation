@@ -276,9 +276,12 @@ def for_group(group_id: str, user_id: int | None = None) -> dict | None:
         return to_dict(row) if row else None
 
 
-def by_idempotency_key(key: str) -> dict | None:
+def by_idempotency_key(key: str, user_id: int | None = None) -> dict | None:
     with db.session() as s:
-        row = s.scalars(select(GenerationJob).where(GenerationJob.idempotency_key == key)).first()
+        stmt = select(GenerationJob).where(GenerationJob.idempotency_key == key)
+        if user_id is not None:
+            stmt = stmt.where(_job_scope(user_id))
+        row = s.scalars(stmt).first()
         return to_dict(row) if row else None
 
 
@@ -331,7 +334,7 @@ def create(*, trigger: str, requested_by: str | None = None, slot_at: datetime |
             s.add(row)
         return to_dict(row)
     except IntegrityError as e:
-        if idempotency_key and (existing := by_idempotency_key(idempotency_key)):
+        if idempotency_key and (existing := by_idempotency_key(idempotency_key, user_id=user_id)):
             raise Replay(existing) from e
         raise JobActive() from e
 

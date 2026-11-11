@@ -57,13 +57,15 @@ def _call(method: str, path: str, retries: int = 4, **params) -> dict:
     `requests` builds from the URL) is never kept raw: it is scrubbed before it can reach a log line,
     an IGError, the post's `error` field, the activity log or Telegram.
     """
-    params["access_token"] = get_for_user("IG_ACCESS_TOKEN") or get_env("IG_ACCESS_TOKEN")
+    params["access_token"] = get_for_user("IG_ACCESS_TOKEN")
     url = f"{_base()}/{path.lstrip('/')}"
+    had_network_error = False
     for attempt in range(1, retries + 1):
         try:
             r = requests.request(method, url, params=params if method == "GET" else None,
                                  data=params if method != "GET" else None, timeout=60)
         except requests.RequestException as e:
+            had_network_error = True
             err, transient = f"network error: {redact_exc(e, 300)}", True
         else:
             if r.ok:
@@ -76,6 +78,21 @@ def _call(method: str, path: str, retries: int = 4, **params) -> dict:
             sub = e.get("error_subcode")
             msg = redact(e.get("error_user_msg") or e.get("message") or r.text[:300])
             err = f"HTTP {r.status_code}, IG error {code}/{sub}: {msg}"
+            if (sub == 2207027 or "2207027" in msg) and path.endswith("/media_publish"):
+                log.warning("%s %s: 2207027 received (already published or not ready); inspecting recent media", method, path)
+                try:
+                    uid = path.split("/")[0] if "/" in path and not path.startswith("http") else _user()
+                    token = params.get("access_token")
+                    rec_res = requests.request("GET", f"{_base()}/{uid}/media",
+                                               params={"access_token": token, "fields": "id", "limit": 1}, timeout=30)
+                    if rec_res.ok:
+                        m_data = rec_res.json().get("data", [])
+                        if m_data and m_data[0].get("id"):
+                            recovered = m_data[0]["id"]
+                            log.info("Recovered published media ID %s after 2207027", recovered)
+                            return {"id": recovered}
+                except Exception as rec_ex:
+                    log.warning("Could not recover media ID after 2207027: %s", rec_ex)
             transient = r.status_code >= 500 or e.get("is_transient") or code in TRANSIENT_CODES \
                 or sub in TRANSIENT_CODES
             if code == 190:
@@ -112,7 +129,7 @@ def _user() -> str:
     uid = active_user_id.get()
     if uid in _resolved_users:
         return _resolved_users[uid]
-    configured = get_for_user("IG_USER_ID") or get_env("IG_USER_ID", required=False, default="")
+    configured = get_for_user("IG_USER_ID") or ""
     if configured.isdigit():
         _resolved_users[uid] = configured
     else:
@@ -127,31 +144,68 @@ def _user() -> str:
 # --------------------------------------------------------------------------- #
 # Publishing
 # --------------------------------------------------------------------------- #
-def publish_carousel(image_urls: list[str], caption: str) -> str:
-    if not 2 <= len(image_urls) <= 10:
-        raise IGError(f"carousel needs 2-10 images, got {len(image_urls)}")
-    children = []
-    for i, url in enumerate(image_urls, 1):
-        c = _call("POST", f"{_user()}/media", image_url=url, is_carousel_item="true")
-        children.append(c["id"])
-        log.info("child %d/%d container %s", i, len(image_urls), c["id"])
-    for cid in children:
-        _wait_finished(cid, timeout=180, interval=4)
-    parent = _call("POST", f"{_user()}/media", media_type="CAROUSEL",
-                   children=",".join(children), caption=caption)["id"]
+def publish_carousel(image_urls: list[str], caption: str, container_id: str | None = None,
+                     on_container: callable | None = None) -> str:
+    if not container_id:
+        if not 2 <= len(image_urls) <= 10:
+            raise IGError(f"carousel needs 2-10 images, got {len(image_urls)}")
+        children = []
+        for i, url in enumerate(image_urls, 1):
+            c = _call("POST", f"{_user()}/media", image_url=url, is_carousel_item="true")
+            children.append(c["id"])
+            log.info("child %d/%d container %s", i, len(image_urls), c["id"])
+        for cid in children:
+            _wait_finished(cid, timeout=180, interval=4)
+        parent = _call("POST", f"{_user()}/media", media_type="CAROUSEL",
+                       children=",".join(children), caption=caption)["id"]
+        if on_container:
+            on_container(parent)
+    else:
+        parent = container_id
+        log.info("reusing carousel container %s", parent)
     _wait_finished(parent, timeout=180, interval=4)
-    return _call("POST", f"{_user()}/media_publish", creation_id=parent)["id"]
+    try:
+        return _call("POST", f"{_user()}/media_publish", creation_id=parent)["id"]
+    except IGError as e:
+        if "2207027" in str(e):
+            log.warning("media_publish failed with 2207027; recovering from recent media")
+            try:
+                recent = _call("GET", f"{_user()}/media", fields="id", limit=1)
+                data = recent.get("data") or []
+                if data and data[0].get("id"):
+                    return data[0]["id"]
+            except Exception as rec_ex:
+                log.warning("failed to recover from recent media: %s", rec_ex)
+        raise
 
 
-def publish_reel(video_url: str, caption: str) -> str:
+def publish_reel(video_url: str, caption: str, container_id: str | None = None,
+                 on_container: callable | None = None) -> str:
     # No cover_url: IG put containers into ERROR with our Cloudinary cover JPEG. The first
     # frame (thumb_offset 0) is the hook screen, which is designed to be the thumbnail.
-    params = {"media_type": "REELS", "video_url": video_url, "caption": caption,
-              "share_to_feed": "true", "thumb_offset": "0"}
-    container = _call("POST", f"{_user()}/media", **params)["id"]
-    log.info("reel container %s, waiting for processing…", container)
-    _wait_finished(container, timeout=900, interval=10)
-    return _call("POST", f"{_user()}/media_publish", creation_id=container)["id"]
+    if not container_id:
+        params = {"media_type": "REELS", "video_url": video_url, "caption": caption,
+                  "share_to_feed": "true", "thumb_offset": "0"}
+        container_id = _call("POST", f"{_user()}/media", **params)["id"]
+        log.info("reel container %s, waiting for processing…", container_id)
+        if on_container:
+            on_container(container_id)
+    else:
+        log.info("reusing reel container %s", container_id)
+    _wait_finished(container_id, timeout=900, interval=10)
+    try:
+        return _call("POST", f"{_user()}/media_publish", creation_id=container_id)["id"]
+    except IGError as e:
+        if "2207027" in str(e):
+            log.warning("media_publish failed with 2207027; recovering from recent media")
+            try:
+                recent = _call("GET", f"{_user()}/media", fields="id", limit=1)
+                data = recent.get("data") or []
+                if data and data[0].get("id"):
+                    return data[0]["id"]
+            except Exception as rec_ex:
+                log.warning("failed to recover from recent media: %s", rec_ex)
+        raise
 
 
 def check() -> dict:
@@ -180,25 +234,58 @@ def _done(item: q.Item, p: str) -> bool:
     return item.platforms.get(p, {}).get("status") in ("published", "skipped")
 
 
+def _is_quota_reset(at_iso: str | None) -> bool:
+    """Return True if midnight Pacific Time (resets daily API quota) has passed since at_iso."""
+    if not at_iso:
+        return True
+    try:
+        from zoneinfo import ZoneInfo
+        pt = ZoneInfo("America/Los_Angeles")
+        fail_dt = datetime.fromisoformat(at_iso).astimezone(pt)
+        now_dt = datetime.now(pt)
+        return now_dt.date() > fail_dt.date()
+    except Exception:
+        return True
+
+
 def _retryable(item: q.Item, platforms: tuple[str, ...]) -> bool:
     """A failed item is retried while some failed platform is still under MAX_ATTEMPTS."""
-    return any(item.platforms.get(p, {}).get("status") == "failed"
-               and item.platforms[p].get("attempts", 1) < MAX_ATTEMPTS
-               for p in _targets(item, platforms))
+    for p in _targets(item, platforms):
+        plat = item.platforms.get(p, {})
+        if plat.get("status") != "failed":
+            continue
+        if plat.get("quota_exhausted"):
+            if _is_quota_reset(plat.get("at")):
+                return True
+            continue
+        if plat.get("attempts", 1) < MAX_ATTEMPTS:
+            return True
+    return False
 
 
 def _publish_ig(item: q.Item) -> dict:
+    existing_cid = item.platforms.get("ig", {}).get("container_id")
+    def save_cid(cid: str) -> None:
+        item.platforms.setdefault("ig", {})["container_id"] = cid
+        q.upsert(item)
+
     if item.kind == "carousel":
-        media_id = publish_carousel(item.media["carousel"], item.caption)
+        media_id = publish_carousel(item.media["carousel"], item.caption,
+                                    container_id=existing_cid, on_container=save_cid)
     else:
-        media_id = publish_reel(item.video, item.caption)      # a reel, or an image reel
+        media_id = publish_reel(item.video, item.caption,
+                                container_id=existing_cid, on_container=save_cid)
     item.ig_media_id = media_id
     permalink = ""
     try:
         permalink = _call("GET", media_id, fields="permalink").get("permalink", "")
     except IGError:
         pass
-    return {"status": "published", "id": media_id, "url": permalink}
+    res = {"status": "published", "id": media_id, "url": permalink}
+    cid = existing_cid or item.platforms.get("ig", {}).get("container_id")
+    if cid:
+        res["container_id"] = cid
+    return res
 
 
 def _publish_yt(item: q.Item) -> dict:
@@ -304,27 +391,39 @@ def _publish_item(item: q.Item, dry_run: bool, platforms: tuple[str, ...], claim
     item = fresh
     targets, todo = _todo(item, platforms)
     if not todo:  # nothing left to do: hand the claim back with the true status
-        item.status = "failed" if any(item.platforms.get(p, {}).get("status") == "failed" for p in targets) \
-            else "published"
+        all_targets = item.effective_targets
+        failed = [p for p in all_targets if item.platforms.get(p, {}).get("status") == "failed"]
+        item.status = "failed" if failed else "published"
+        item.error = "; ".join(f"{LABEL[p]}: {item.platforms[p]['error']}" for p in failed) or None
         q.update_if(item, "publishing")
         return item
 
     item.attempts += 1
     for p in todo:  # Instagram first, then YouTube; saved after each so nothing double-posts
-        tries = item.platforms.get(p, {}).get("attempts", 0) + 1
+        prev_attempts = item.platforms.get(p, {}).get("attempts", 0)
         try:
             rec = _publish_ig(item) if p == "ig" else _publish_yt(item)
+            rec["attempts"] = prev_attempts + 1
         except Exception as e:  # noqa: BLE001 -- one platform failing must not stop the other
-            rec = {"status": "failed", "error": str(e)[:300]}
-            log.error("%s: %s publish failed (attempt %d/%d): %s", item.id, LABEL[p], tries, MAX_ATTEMPTS, e)
-        rec["attempts"] = tries
+            err_msg = str(e)[:300]
+            is_quota = p == "yt" and (isinstance(e, yt.YTQuotaExceeded) or "quotaExceeded" in err_msg)
+            rec = {"status": "failed", "error": err_msg}
+            if is_quota:
+                rec["quota_exhausted"] = True
+                rec["attempts"] = prev_attempts or 1
+            else:
+                rec["attempts"] = prev_attempts + 1
+            if p == "ig" and item.platforms.get("ig", {}).get("container_id"):
+                rec["container_id"] = item.platforms["ig"]["container_id"]
+            log.error("%s: %s publish failed (attempt %d/%d): %s", item.id, LABEL[p], rec["attempts"], MAX_ATTEMPTS, e)
         rec["at"] = q.now_iso()
-        _log_platform(item, p, rec, tries)
+        _log_platform(item, p, rec, rec["attempts"])
         item.platforms[p] = rec
         q.upsert(item)
 
-    failed = [p for p in targets if item.platforms.get(p, {}).get("status") == "failed"]
-    published = [p for p in targets if item.platforms.get(p, {}).get("status") == "published"]
+    all_targets = item.effective_targets
+    failed = [p for p in all_targets if item.platforms.get(p, {}).get("status") == "failed"]
+    published = [p for p in all_targets if item.platforms.get(p, {}).get("status") == "published"]
     item.status = "failed" if failed else "published"
     item.error = "; ".join(f"{LABEL[p]}: {item.platforms[p]['error']}" for p in failed) or None
     if published and not item.published_at:

@@ -44,7 +44,7 @@ export function rupees(paise: number): string {
 }
 
 function day(ts: number): string {
-  return new Date(ts * 1000).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(ts * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" });
 }
 
 /** Razorpay's checkout script, loaded once, the first time someone pays. */

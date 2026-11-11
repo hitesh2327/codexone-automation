@@ -124,8 +124,8 @@ def test_control_text_names_the_image_reel():
 
 def test_instagram_publishes_an_image_reel_as_a_reel(monkeypatch):
     calls = []
-    monkeypatch.setattr(publish, "publish_reel", lambda url, cap: calls.append(("reel", url)) or "m1")
-    monkeypatch.setattr(publish, "publish_carousel", lambda urls, cap: calls.append(("carousel", urls)) or "m2")
+    monkeypatch.setattr(publish, "publish_reel", lambda url, cap, **kw: calls.append(("reel", url)) or "m1")
+    monkeypatch.setattr(publish, "publish_carousel", lambda urls, cap, **kw: calls.append(("carousel", urls)) or "m2")
     monkeypatch.setattr(publish, "_call", lambda *a, **k: {"permalink": "https://instagram.com/reel/x"})
     item = q.Item(id="i", kind="image", date="2026-11-03", topic="t", category="DSA",
                   post_dir="output/2026-11-03/t", caption="c", media={"image_reel": "https://res.cloudinary.com/v.mp4"})
