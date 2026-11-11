@@ -59,7 +59,22 @@ def _media_urls(media: dict | None) -> list[str]:
 
 
 def delete_account(user_id: int) -> dict:
-    from src.db.models import ActivityLog, GenerationJob, OtpCode, Post, User, UserConfigValue
+    from src.db.models import (
+        ActivityLog,
+        ContentTemplate,
+        GenerationJob,
+        MediaAsset,
+        OAuthToken,
+        OtpCode,
+        PlatformAnalytic,
+        Post,
+        PostedTopic,
+        PublishingTarget,
+        SocialAccount,
+        User,
+        UserConfigValue,
+        WebhookEvent,
+    )
     with db.session() as s:
         user = s.get(User, user_id, with_for_update=True)
         if user is None:
@@ -76,7 +91,47 @@ def delete_account(user_id: int) -> dict:
         s.execute(update(GenerationJob).where(jobs).values(requested_by=ANONYMOUS, user_id=None))
 
         posts = s.scalars(select(Post).where(Post.user_id == user_id)).all()
-        urls = [u for p in posts for u in _media_urls(p.media)]
+        post_ids = [p.id for p in posts]
+        acct_ids = list(s.scalars(select(SocialAccount.id).where(SocialAccount.user_id == user_id)))
+        asset_urls = list(s.scalars(select(MediaAsset.public_url).where(MediaAsset.user_id == user_id)))
+        urls = list(dict.fromkeys([u for p in posts for u in _media_urls(p.media)] + asset_urls))
+
+        pt_filters = []
+        if post_ids:
+            pt_filters.append(PublishingTarget.post_id.in_(post_ids))
+        if acct_ids:
+            pt_filters.append(PublishingTarget.social_account_id.in_(acct_ids))
+        pt_ids = list(s.scalars(select(PublishingTarget.id).where(or_(*pt_filters)))) if pt_filters else []
+
+        pa_filters = [PlatformAnalytic.user_id == user_id]
+        if pt_ids:
+            pa_filters.append(PlatformAnalytic.publishing_target_id.in_(pt_ids))
+        s.execute(delete(PlatformAnalytic).where(or_(*pa_filters)))
+
+        if pt_filters:
+            s.execute(delete(PublishingTarget).where(or_(*pt_filters)))
+
+        wh_filters = [WebhookEvent.user_id == user_id]
+        if acct_ids:
+            wh_filters.append(WebhookEvent.social_account_id.in_(acct_ids))
+        s.execute(delete(WebhookEvent).where(or_(*wh_filters)))
+
+        if acct_ids:
+            s.execute(delete(OAuthToken).where(OAuthToken.social_account_id.in_(acct_ids)))
+        s.execute(delete(SocialAccount).where(SocialAccount.user_id == user_id))
+
+        ma_filters = [MediaAsset.user_id == user_id]
+        if post_ids:
+            ma_filters.append(MediaAsset.post_id.in_(post_ids))
+        s.execute(delete(MediaAsset).where(or_(*ma_filters)))
+
+        s.execute(delete(ContentTemplate).where(ContentTemplate.user_id == user_id))
+
+        topic_filters = [PostedTopic.user_id == user_id]
+        if post_ids:
+            topic_filters.append(PostedTopic.item_id.in_(post_ids))
+        s.execute(delete(PostedTopic).where(or_(*topic_filters)))
+
         for p in posts:
             s.delete(p)
         s.execute(delete(UserConfigValue).where(UserConfigValue.user_id == user_id))

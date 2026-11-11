@@ -78,6 +78,7 @@ class PostedTopic(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ig_media_id: Mapped[str | None] = mapped_column(String(64))
     platforms: Mapped[dict] = mapped_column(JSONType, default=dict)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -328,3 +329,170 @@ class UserConfigValue(Base):
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(254))
+
+
+# --------------------------------------------------------------------------- #
+# Multi-platform normalized schema (Phase 1 Expand)
+# --------------------------------------------------------------------------- #
+class SocialAccount(Base):
+    """One connected destination profile/page/channel per user (supports multiple accounts per platform)."""
+    __tablename__ = "social_accounts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "platform", "external_account_id", name="uq_social_accounts_user_plat_ext"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    platform: Mapped[str] = mapped_column(String(24))
+    external_account_id: Mapped[str] = mapped_column(String(128))
+    account_type: Mapped[str] = mapped_column(String(32), default="business", server_default="business")
+    handle: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    display_name: Mapped[str] = mapped_column(String(160), default="", server_default="")
+    avatar_url: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="active", server_default="active", index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSONType, default=dict)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OAuthToken(Base):
+    """AES-256-GCM encrypted OAuth credentials bound by AAD to social_account_id and dek_version."""
+    __tablename__ = "oauth_tokens"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    social_account_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("social_accounts.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    access_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
+    access_token_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    refresh_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
+    refresh_token_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    dek_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    token_type: Mapped[str] = mapped_column(String(24), default="Bearer", server_default="Bearer")
+    scopes: Mapped[list] = mapped_column(JSONType, default=list)
+    access_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refresh_error_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class PublishingTarget(Base):
+    """Per-destination publish state, copy overrides, and retry tracking for a Post."""
+    __tablename__ = "publishing_targets"
+    __table_args__ = (
+        UniqueConstraint("post_id", "social_account_id", name="uq_publishing_targets_post_acct"),
+        Index("ix_publishing_targets_status_sched", "status", "scheduled_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    post_id: Mapped[str] = mapped_column(String(40), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    social_account_id: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("social_accounts.id", ondelete="SET NULL"),
+    )
+    platform: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(24), default="queued", server_default="queued", index=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    external_post_id: Mapped[str | None] = mapped_column(String(128))
+    external_url: Mapped[str | None] = mapped_column(Text)
+    title_override: Mapped[str | None] = mapped_column(Text)
+    caption_override: Mapped[str | None] = mapped_column(Text)
+    platform_options: Mapped[dict] = mapped_column(JSONType, default=dict)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class MediaAsset(Base):
+    """Normalized inventory of rendered media, user uploads, and thumbnails across storage providers."""
+    __tablename__ = "media_assets"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    post_id: Mapped[str | None] = mapped_column(String(40), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(24))
+    slide_index: Mapped[int | None] = mapped_column(Integer)
+    storage_provider: Mapped[str] = mapped_column(String(16), default="cloudinary", server_default="cloudinary")
+    storage_key: Mapped[str] = mapped_column(Text)
+    public_url: Mapped[str] = mapped_column(Text)
+    mime_type: Mapped[str] = mapped_column(String(64), default="application/octet-stream", server_default="application/octet-stream")
+    bytes_size: Mapped[int | None] = mapped_column(BigInteger)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ContentTemplate(Base):
+    """Custom brand kits, multi-aspect rendering profiles, and marketplace templates."""
+    __tablename__ = "content_templates"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    slug: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(24))
+    aspect_ratio: Mapped[str] = mapped_column(String(16), default="9:16", server_default="9:16")
+    brand_tokens: Mapped[dict] = mapped_column(JSONType, default=dict)
+    prompt_system_hint: Mapped[str] = mapped_column(Text, default="", server_default="")
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class PlatformAnalytic(Base):
+    """Time-series engagement snapshots fetched from platform Insights APIs."""
+    __tablename__ = "platform_analytics"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    publishing_target_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("publishing_targets.id", ondelete="CASCADE"),
+        index=True,
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    platform: Mapped[str] = mapped_column(String(24))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    impressions: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    reach: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    views: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    likes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    comments: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    shares: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    saves: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    avg_watch_time_ms: Mapped[int | None] = mapped_column(Integer)
+    engagement_rate_bps: Mapped[int | None] = mapped_column(Integer)
+    raw_metrics: Mapped[dict] = mapped_column(JSONType, default=dict)
+
+
+class WebhookEvent(Base):
+    """Idempotent inbound webhook inbox across billing and social providers."""
+    __tablename__ = "webhook_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "event_id", name="uq_webhook_events_provider_event"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(24))
+    event_id: Mapped[str] = mapped_column(String(128))
+    event_type: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    social_account_id: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("social_accounts.id", ondelete="SET NULL"),
+    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    signature_valid: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    status: Mapped[str] = mapped_column(String(24), default="received", server_default="received", index=True)
+    payload: Mapped[dict] = mapped_column(JSONType, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
