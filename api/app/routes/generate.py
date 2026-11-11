@@ -280,7 +280,7 @@ def request_generation(body: GenerateBody, response: Response, user: CurrentUser
     if not github_actions.configured():
         raise _fail(503, "not_configured", "Generation can't be started from the dashboard until the GitHub "
                     "token is configured. Scheduled runs still happen.")
-    if replay := generation.by_idempotency_key(body.idempotency_key):
+    if replay := generation.by_idempotency_key(body.idempotency_key, user_id=user.id):
         response.status_code = status.HTTP_200_OK  # a retry of a request we already took: same job, no 2nd dispatch
         return _sanitize_job(replay, user)
 

@@ -430,14 +430,14 @@ def email_code(body: EmailOtpBody, cu: CurrentUser = Depends(current_user)) -> d
 
 
 @router.post("/email")
-def change_email(body: EmailBody, cu: CurrentUser = Depends(current_user)) -> dict:
+def change_email(body: EmailBody, response: Response, cu: CurrentUser = Depends(current_user)) -> dict:
     try:
-        return _change_email(body, cu)
+        return _change_email(body, cu, response)
     except IntegrityError:  # another account took this address at the same moment (QA-L-09)
         raise _bad("That email belongs to another account.", status.HTTP_409_CONFLICT) from None
 
 
-def _change_email(body: EmailBody, cu: CurrentUser) -> dict:
+def _change_email(body: EmailBody, cu: CurrentUser, response: Response | None = None) -> dict:
     new = body.email.strip().lower()
     ok, conflict = False, False
     with db.session() as ses:
@@ -452,6 +452,9 @@ def _change_email(body: EmailBody, cu: CurrentUser) -> dict:
                 conflict, ok = True, False
             else:
                 u.email, u.email_verified_at = new, datetime.now(timezone.utc)
+                u.token_version += 1
+                if response is not None:
+                    start_session(response, u)
                 ses.flush()
                 return profile_out(u)
     if conflict:

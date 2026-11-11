@@ -22,6 +22,19 @@ active_user_id: contextvars.ContextVar[int | None] = contextvars.ContextVar(
 )
 
 
+def _is_admin_or_owner(uid: int) -> bool:
+    from src import db
+    if not db.enabled():
+        return uid == 1
+    try:
+        from src.db.models import User
+        with db.session() as s:
+            u = s.get(User, uid)
+            return bool(u and u.role in ("owner", "admin"))
+    except Exception:
+        return False
+
+
 def get_for_user(name: str, user_id: int | None = None) -> str | None:
     """Resolve a setting for a user. Per-user keys check the user store first."""
     uid = user_id if user_id is not None else active_user_id.get()
@@ -30,4 +43,6 @@ def get_for_user(name: str, user_id: int | None = None) -> str | None:
         val = user_config_store.lookup(name, uid)
         if val:
             return val
+        if not _is_admin_or_owner(uid):
+            return None
     return get_env(name, required=False)

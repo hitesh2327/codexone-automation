@@ -65,6 +65,7 @@ class Item(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     decided_at: str | None = None
     published_at: str | None = None
+    updated_at: str | None = None
     ig_media_id: str | None = None
     # Per-platform results: {"ig"|"yt": {"status": published|failed|skipped, "id", "url", "error", "at"}}
     platforms: dict = Field(default_factory=dict)
@@ -109,7 +110,7 @@ def make_id(date: str, kind: str, slug: str, version: int = 1) -> str:
 # --------------------------------------------------------------------------- #
 # Item <-> row conversion (DB stores real timestamps; Item keeps ISO strings)
 # --------------------------------------------------------------------------- #
-_TS_FIELDS = ("created_at", "decided_at", "published_at")
+_TS_FIELDS = ("created_at", "decided_at", "published_at", "updated_at")
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -128,6 +129,8 @@ def _to_row_values(item: Item) -> dict:
     d["publish_at"] = _parse_ts(item.publish_at)
     for f in _TS_FIELDS:
         d[f] = _parse_ts(d[f])
+    if d.get("updated_at") is None:
+        d.pop("updated_at", None)
     return d
 
 
@@ -156,7 +159,7 @@ def _valid_items(rows, convert) -> list[Item]:
     return out
 
 
-_owner_cache: tuple[float, set[int]] = (-1.0, {1, 2})
+_owner_cache: tuple[float, set[int]] = (-1.0, {1})
 OWNER_CACHE_TTL = 300.0
 
 
@@ -174,7 +177,7 @@ def get_owner_user_ids() -> set[int]:
         from src.db.models import User
         with db.session() as s:
             ids = set(s.scalars(select(User.id).where(User.role == "owner")).all())
-            _owner_cache = (now, ids or {1, 2})
+            _owner_cache = (now, ids or {1})
             return _owner_cache[1]
     except Exception:
         return _owner_cache[1]
@@ -188,7 +191,7 @@ class _OwnerUserIds(tuple):
         return iter(get_owner_user_ids())
 
 
-OWNER_USER_IDS = _OwnerUserIds((1, 2))
+OWNER_USER_IDS = _OwnerUserIds((1,))
 
 
 def _user_scope_condition(model_cls, user_id: int | None):
@@ -471,6 +474,7 @@ def claim_for_publish(item_id: str, from_status: tuple[str, ...] = CLAIMABLE) ->
         if not item or item.status not in allowed:
             return False
         item.status = "publishing"
+        item.updated_at = now_iso()
         upsert(item)
         return True
     from sqlalchemy import update
@@ -491,8 +495,30 @@ def release_stuck_publishing(minutes: int, dry_run: bool = False) -> list[str]:
     still running is never taken away from it.
     """
     if not db.enabled():
-        return []
-    from datetime import timedelta
+        items = load()
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        stuck: list[str] = []
+        for item in items:
+            if item.status != "publishing":
+                continue
+            ts_str = item.updated_at or item.created_at
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except (ValueError, TypeError):
+                continue
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts <= cutoff:
+                stuck.append(item.id)
+                if not dry_run:
+                    item.status = "failed"
+                    item.error = "Publishing was interrupted; it will be retried."
+                    item.updated_at = now_iso()
+        if stuck and not dry_run:
+            save(items)
+        return stuck
     from sqlalchemy import select, update
     from src.db.models import Post
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)

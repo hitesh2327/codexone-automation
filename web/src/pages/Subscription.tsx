@@ -57,7 +57,7 @@ function usageLine(u: Usage | undefined): string | null {
   const parts = [];
   if (u.quota.reels) parts.push(`${u.used.reels} of ${u.quota.reels} reels`);
   parts.push(`${u.used.carousels} of ${u.quota.carousels} carousels`);
-  const resets = new Date(u.resets_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const resets = new Date(u.resets_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
   return `${parts.join(" and ")} used this month. Resets ${resets}.`;
 }
 
@@ -166,7 +166,7 @@ export default function SubscriptionPage() {
   }
 
   const statusKey = status?.status ?? "active";
-  const renews = status?.renews_at ? new Date(status.renews_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : null;
+  const renews = status?.renews_at ? new Date(status.renews_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }) : null;
 
   return (
     <AppShell>

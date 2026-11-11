@@ -29,7 +29,7 @@ from pathlib import Path
 import requests
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, NetworkError, TelegramError, TimedOut
+from telegram.error import BadRequest, Conflict, NetworkError, TelegramError, TimedOut
 
 from src import activity, db
 from src import queue_store as q
@@ -501,8 +501,18 @@ async def _poll_bot(bot: Bot, bot_token: str | None, offset_key: str, items: dic
     offset = _load_offset(offset_key)
 
     async with bot:
-        updates = await bot.get_updates(offset=offset, timeout=0,
-                                        allowed_updates=["callback_query", "message"])
+        try:
+            updates = await bot.get_updates(offset=offset, timeout=0,
+                                            allowed_updates=["callback_query", "message"])
+        except Conflict as e:
+            log.warning("Telegram getUpdates conflict (HTTP 409: %s); another poll is running. Backing off 5s", e)
+            await asyncio.sleep(5)
+            try:
+                updates = await bot.get_updates(offset=offset, timeout=0,
+                                                allowed_updates=["callback_query", "message"])
+            except Conflict as e2:
+                log.warning("Telegram getUpdates conflict persisted (%s); cleanly skipping poll", e2)
+                return []
         for u in updates:
             offset = u.update_id + 1
             cq, msg = u.callback_query, u.message
@@ -510,7 +520,10 @@ async def _poll_bot(bot: Bot, bot_token: str | None, offset_key: str, items: dic
             if cq and cq.data and cq.message:
                 action, _, item_id = cq.data.partition(":")
                 item = items.get(item_id)
-                if not item or action not in ACTIONS:
+                if not item:
+                    await _safe(bot.answer_callback_query(cq.id, "This post was deleted."))
+                    continue
+                if action not in ACTIONS:
                     continue
                 if not _user_uses_token(item.user_id, bot_token, is_default):
                     continue
@@ -520,6 +533,7 @@ async def _poll_bot(bot: Bot, bot_token: str | None, offset_key: str, items: dic
                     continue
                 if item.status != "pending":  # e.g. already decided in the dashboard
                     await _safe(bot.answer_callback_query(cq.id, f"Already {item.status}."))
+                    await _safe(bot.edit_message_reply_markup(item_chat, cq.message.message_id, reply_markup=None))
                     continue
                 if action == "regen":
                     from src import plan_limits
@@ -605,6 +619,8 @@ def poll(dry_run: bool = False, retries: int = 3) -> list[tuple[str, str]]:
     if not sync_enabled():
         log.info("TELEGRAM_SYNC is off: not reading Telegram")
         return []
+    applied: list[tuple[str, str]] = []
+    conflict_retried = False
     for attempt in range(1, retries + 1):
         try:
             applied = asyncio.run(_poll(dry_run))
@@ -614,6 +630,20 @@ def poll(dry_run: bool = False, retries: int = 3) -> list[tuple[str, str]]:
                 raise
             log.warning("Telegram poll failed (%s); retrying (%d/%d)", e, attempt, retries)
             time.sleep(5 * attempt)
+        except Conflict as e:
+            log.warning("Telegram getUpdates conflict (HTTP 409: %s); another poll is running. Backing off 5s", e)
+            time.sleep(5)
+            if not conflict_retried:
+                conflict_retried = True
+                try:
+                    applied = asyncio.run(_poll(dry_run))
+                    break
+                except Conflict as e2:
+                    log.warning("Telegram getUpdates conflict persisted (%s); cleanly exiting poll", e2)
+                    return []
+            else:
+                log.warning("Telegram getUpdates conflict persisted (%s); cleanly exiting poll", e)
+                return []
     log.info("poll: %d change(s)", len(applied))
     return applied
 

@@ -26,14 +26,22 @@ _PRUNE_ODDS = 0.02  # prune on ~1 in 50 writes: cheap, and the poll job also cal
 
 
 def record(event: str, message: str, *, level: str = "info", source: str = "system", post_id: str | None = None,
-           actor: str | None = None, detail: dict | None = None) -> None:
+           actor: str | None = None, detail: dict | None = None, user_id: int | None = None) -> None:
     try:
         if not db.enabled():
             return
+        uid = user_id
+        if uid is None:
+            try:
+                from src.credentials import active_user_id
+                uid = active_user_id.get()
+            except Exception:
+                uid = None
         # Scrubbed even though callers are told not to pass secrets: exception text is a common leak path.
         row = ActivityLog(level=level if level in LEVELS else "info", source=(source or "system")[:24],
                           event=event[:48], message=redact((message or "")[:2000]), post_id=(post_id or None) and post_id[:160],
-                          actor=(actor or None) and actor[:254], detail=redact_obj(detail) if detail else None)
+                          actor=(actor or None) and actor[:254], detail=redact_obj(detail) if detail else None,
+                          user_id=uid or 1)
         with db.session() as s:
             s.add(row)
             if random.random() < _PRUNE_ODDS:

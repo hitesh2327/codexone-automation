@@ -36,6 +36,7 @@ function TelegramSection({
   const [botToken, setBotToken] = useState("");
   const [manualChatId, setManualChatId] = useState("");
   const pollTimer = useRef<number | null>(null);
+  const pollAbort = useRef<AbortController | null>(null);
 
   const chatStatus = statuses.TG_CHAT_ID;
   const botStatus = statuses.TG_BOT_TOKEN;
@@ -47,14 +48,19 @@ function TelegramSection({
       window.clearInterval(pollTimer.current);
       pollTimer.current = null;
     }
+    pollAbort.current?.abort();
   }, []);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   const checkOnce = useCallback(async (quiet = false) => {
     if (!quiet) setBusy("confirm");
+    pollAbort.current?.abort();
+    const ctrl = new AbortController();
+    pollAbort.current = ctrl;
     try {
-      const res = await confirmTelegramLink();
+      const res = await confirmTelegramLink(ctrl.signal);
+      if (ctrl.signal.aborted) return;
       if (res.connected) {
         stopPolling();
         setLink(null);
@@ -65,11 +71,12 @@ function TelegramSection({
         setError("Haven't seen /start yet. Open the Telegram link, press Start, then click Check again.");
       }
     } catch (e) {
+      if ((e as Error).name === "AbortError" || ctrl.signal.aborted) return;
       stopPolling();
       if (e instanceof ApiError && e.code === "telegram.link_expired") setLink(null);
       setError(e instanceof ApiError ? e.message : "Could not verify Telegram link.");
     } finally {
-      if (!quiet) setBusy(null);
+      if (!ctrl.signal.aborted && !quiet) setBusy(null);
     }
   }, [onSaved, stopPolling]);
 

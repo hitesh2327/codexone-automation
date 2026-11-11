@@ -108,6 +108,17 @@ def providers() -> dict:
 def signup(body: SignupBody, request: Request, response: Response, background_tasks: BackgroundTasks) -> dict:
     if "application/json" not in request.headers.get("content-type", ""):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
+    ip = client_ip(request)
+    signup_key = f"signup:{ip}"
+    wait = rl.login_limiter.retry_after(signup_key, 5, 3600)
+    if wait:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many signup attempts. Try again in {wait // 60 + 1} min.",
+            headers={"Retry-After": str(wait)},
+        )
+    rl.login_limiter.hit(signup_key)
+
     username = body.username.strip().lower()
     email = body.email.strip().lower()
     name = body.name.strip()
@@ -121,7 +132,6 @@ def signup(body: SignupBody, request: Request, response: Response, background_ta
     if issues:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose a stronger password: " + ", ".join(issues) + ".")
 
-    ip = client_ip(request)
     with db.session() as s:
         existing = s.scalars(select(User).where(or_(func.lower(User.username) == username,
                                                    func.lower(User.email) == email))).first()

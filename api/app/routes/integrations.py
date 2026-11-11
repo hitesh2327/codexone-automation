@@ -251,7 +251,12 @@ class TelegramNameRequest(BaseModel):
 def update_telegram_bot_name(body: TelegramNameRequest, cu: CurrentUser = Depends(current_user)) -> dict:
     """Change the Telegram bot display name via setMyName."""
     _rate(cu)
-    token, _ = _effective_tg_token(cu.id)
+    token, is_custom = _effective_tg_token(cu.id)
+    if not is_custom and cu.role not in ("owner", "admin"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={"code": "forbidden", "message": "Only administrators can change the shared platform bot name."},
+        )
     if not token:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -316,13 +321,18 @@ def put_integration(key: str, body: PutBody, cu: CurrentUser = Depends(current_u
     if key not in PER_USER_FIELD_NAMES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail={"code": "unknown_key", "message": f"Not a per-user setting: {key}"})
+    if key == "TG_CHAT_ID":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "telegram.direct_bind_disallowed",
+                "message": "TG_CHAT_ID cannot be set directly. Connect Telegram via 1-click verification (/telegram/link).",
+            },
+        )
     val = clean_value(body.value, key)[0]
     if key == "TG_BOT_TOKEN" and not tg.TOKEN_RE.match(val):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message})
-    if key == "TG_CHAT_ID" and not tg.CHAT_RE.match(val):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
-                            detail={"code": "telegram.chat_format", "message": CODES["telegram.chat_format"].message})
     versions = user_config_store.save(cu.id, {key: val}, actor=_actor(cu))
     return {"key": key, "version": versions[key]}
 

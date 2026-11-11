@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import hashlib
+import hmac
 
 from src.config import get_env
 
@@ -42,9 +44,10 @@ def settings() -> Settings:
     if len(jwt_secret) < 32:
         raise RuntimeError("JWT_SECRET must be at least 32 characters (python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
     emails = get_env("ALLOWED_GOOGLE_EMAILS", required=False, default="") or ""
+    derived_session_secret = hmac.new(jwt_secret.encode(), b"starlette-session-key", hashlib.sha256).hexdigest()
     return Settings(
         jwt_secret=jwt_secret,
-        session_secret=get_env("SESSION_SECRET", required=False) or jwt_secret[::-1],
+        session_secret=get_env("SESSION_SECRET", required=False) or derived_session_secret,
         session_hours=int(get_env("SESSION_HOURS", required=False, default="12")),
         cookie_secure=_bool("COOKIE_SECURE", True),
         public_url=(get_env("PUBLIC_URL", required=False, default="http://localhost:5173") or "").rstrip("/"),

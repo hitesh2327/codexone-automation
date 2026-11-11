@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpRight, CalendarClock, Check, LoaderCircle, RefreshCw, RotateCcw, Send, Undo2, X,
 } from "lucide-react";
@@ -292,6 +292,20 @@ export function PostPanel({
   const [feedback, setFeedback] = useState("");
   const sheetRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (!open) {
+      sheetRef.current?.querySelectorAll("video").forEach((v) => v.pause());
+      return;
+    }
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        sheetRef.current?.querySelectorAll("video").forEach((v) => v.pause());
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [open]);
+
   const boxes: TargetBox[] = [
     { key: "ig-reel", label: "IG Reel", sub: "Instagram", item: reel, platform: "ig" },
     ...(image ? [{ key: "ig-image", label: "IG Image reel", sub: "Instagram", item: image, platform: "ig" } as TargetBox]
@@ -445,7 +459,13 @@ export function PostPanel({
               </div>
             </section>
 
-            <Tabs defaultValue={reel ? "reel" : image ? "image" : "carousel"} className="gap-6">
+            <Tabs
+              defaultValue={reel ? "reel" : image ? "image" : "carousel"}
+              className="gap-6"
+              onValueChange={() => {
+                sheetRef.current?.querySelectorAll("video").forEach((v) => v.pause());
+              }}
+            >
               <TabsList className="w-full justify-start">
                 {reel && <TabsTrigger value="reel" className="flex-none">Reel <StatusBadge status={reel.status} short className="ml-1.5 max-[360px]:hidden" /></TabsTrigger>}
                 {carousel && <TabsTrigger value="carousel" className="flex-none">Carousel <StatusBadge status={carousel.status} short className="ml-1.5 max-[360px]:hidden" /></TabsTrigger>}

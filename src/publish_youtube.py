@@ -41,7 +41,7 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 CATEGORY_EDUCATION = "27"
 CATEGORY_SCIENCE_TECH = "28"
-RETRIABLE_STATUS = {500, 502, 503, 504}
+RETRIABLE_STATUS = {429, 500, 502, 503, 504}
 RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, ConnectionError, TimeoutError, OSError)
 MAX_RETRIES = 6
 SHORTS_TITLE_TARGET = 60
@@ -65,6 +65,10 @@ YT_CTA = (
 
 
 class YTError(RuntimeError):
+    pass
+
+
+class YTQuotaExceeded(YTError):
     pass
 
 
@@ -230,11 +234,15 @@ def _download(url: str) -> Path:
     fd, name = tempfile.mkstemp(suffix=".mp4")
     os.close(fd)  # an open handle would block deleting the file on Windows
     tmp = Path(name)
-    with requests.get(url, stream=True, timeout=120) as r:
-        r.raise_for_status()
-        with tmp.open("wb") as f:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
+    try:
+        with requests.get(url, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            with tmp.open("wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     log.info("downloaded reel %.1f MB", tmp.stat().st_size / 1e6)
     return tmp
 
@@ -268,7 +276,10 @@ def _run_upload(request) -> str:
                 reason = _reason(e)
                 hint = {"quotaExceeded": " (daily API quota used up; resets at midnight Pacific time)",
                         "uploadLimitExceeded": " (channel's daily upload limit reached)"}.get(reason, "")
-                raise YTError(f"YouTube upload rejected: HTTP {e.resp.status} {reason}{hint}") from e
+                msg = f"YouTube upload rejected: HTTP {e.resp.status} {reason}{hint}"
+                if reason == "quotaExceeded" or "quotaExceeded" in str(e):
+                    raise YTQuotaExceeded(msg) from e
+                raise YTError(msg) from e
             err = f"HTTP {e.resp.status}"
         except RETRIABLE_EXCEPTIONS as e:
             err = f"{type(e).__name__}: {e}"
