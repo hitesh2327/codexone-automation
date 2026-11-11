@@ -110,6 +110,9 @@ def cookie_name() -> str:
     return "__Host-cx_session" if settings().cookie_secure else "cx_session"
 
 
+IMPERSONATION_TTL_MINUTES = 15
+
+
 def create_session_token(user_id: int, token_version: int) -> tuple[str, str]:
     """Returns (jwt, csrf_token)."""
     s = settings()
@@ -121,20 +124,61 @@ def create_session_token(user_id: int, token_version: int) -> tuple[str, str]:
     return token, csrf
 
 
+def create_impersonation_token(
+    target_user_id: int,
+    target_token_version: int,
+    admin_id: int,
+    admin_token_version: int,
+    reason: str,
+    read_only: bool = True,
+) -> tuple[str, str, datetime]:
+    """Issue a short-lived (15-min) non-renewable impersonation token: (jwt, csrf, expires_at)."""
+    s = settings()
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=IMPERSONATION_TTL_MINUTES)
+    csrf = secrets.token_urlsafe(32)
+    token = jwt.encode(
+        {
+            "sub": str(target_user_id),
+            "tv": target_token_version,
+            "csrf": csrf,
+            "typ": "impersonation",
+            "impersonated_by": admin_id,
+            "atv": admin_token_version,
+            "read_only": bool(read_only),
+            "reason": reason[:200],
+            "jti": secrets.token_hex(8),
+            "iat": now,
+            "exp": expires_at,
+        },
+        s.jwt_secret,
+        algorithm=ALGORITHM,
+    )
+    return token, csrf, expires_at
+
+
 def decode_session_token(token: str) -> dict | None:
     try:
         claims = jwt.decode(token, settings().jwt_secret, algorithms=[ALGORITHM],
                             options={"require": ["sub", "exp", "tv", "csrf"]})
     except jwt.PyJWTError:
         return None
-    return claims if claims.get("typ") == "session" else None
+    typ = claims.get("typ")
+    if typ == "session":
+        return claims
+    if typ == "impersonation":
+        if "impersonated_by" in claims and "atv" in claims and "read_only" in claims:
+            return claims
+        return None
+    return None
 
 
-def set_session_cookie(response: Response, token: str) -> None:
+def set_session_cookie(response: Response, token: str, max_age: int | None = None) -> None:
     s = settings()
     # SameSite=None requires Secure=True in modern browsers, otherwise cookies are rejected outright
     samesite = "none" if (s.cross_site and s.cookie_secure) else "lax"
-    response.set_cookie(cookie_name(), token, max_age=s.session_hours * 3600, httponly=True,
+    age = s.session_hours * 3600 if max_age is None else max_age
+    response.set_cookie(cookie_name(), token, max_age=age, httponly=True,
                         secure=s.cookie_secure, samesite=samesite, path="/")
 
 

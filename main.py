@@ -221,7 +221,7 @@ def expire_stale(dry_run: bool) -> None:
 
 
 def cmd_poll(args) -> int:
-    from src import approve_bot, generation, publish
+    from src import approve_bot, flags, generation, publish
 
     approve_bot.poll(args.dry_run)
     expire_stale(args.dry_run)
@@ -230,6 +230,9 @@ def cmd_poll(args) -> int:
         activity.prune()
         generation.expire_stuck()
         generation.prune()
+    if flags.is_kill_switch_active("publishing"):
+        log.warning("publishing kill-switch is active; skipping publish_due in poll")
+        return 0
     publish.publish_due(args.dry_run, publish.platforms_arg(args.platform))
     return 0
 

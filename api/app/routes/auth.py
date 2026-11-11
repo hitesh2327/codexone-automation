@@ -18,7 +18,7 @@ from api.app.clientip import client_ip
 from api.app.deps import CurrentUser, access_allowed, current_user, require_csrf
 from api.app.security import check_password, clear_session_cookie, create_session_token, hash_password, password_problems, set_session_cookie
 from api.app.settings import settings
-from src import activity, db
+from src import activity, db, flags
 from src.db.models import User
 
 log = logging.getLogger("codexone.api.auth")
@@ -64,8 +64,8 @@ def avatar_version(u: User) -> int | None:
     return int((ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).timestamp())
 
 
-def _user_out(u: User, csrf: str) -> dict:
-    return {
+def _user_out(u: User, csrf: str, cu: CurrentUser | None = None) -> dict:
+    out = {
         "id": u.id,
         "username": u.username,
         "email": u.email,
@@ -88,6 +88,12 @@ def _user_out(u: User, csrf: str) -> dict:
             "slots": ["10:00", "18:00"],
         },
     }
+    if cu and cu.impersonated_by is not None:
+        out["impersonated_by"] = cu.impersonated_by
+        out["impersonation_read_only"] = cu.read_only
+        out["impersonation_expires_at"] = cu.impersonation_expires_at
+        out["impersonation_reason"] = cu.impersonation_reason
+    return out
 
 
 def start_session(response: Response, user: User) -> str:
@@ -108,6 +114,11 @@ def providers() -> dict:
 def signup(body: SignupBody, request: Request, response: Response, background_tasks: BackgroundTasks) -> dict:
     if "application/json" not in request.headers.get("content-type", ""):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JSON body required")
+    if flags.is_kill_switch_active("signups"):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "New signups are temporarily paused for maintenance. Please try again shortly.",
+        )
     ip = client_ip(request)
     signup_key = f"signup:{ip}"
     wait = rl.login_limiter.retry_after(signup_key, 5, 3600)
@@ -235,7 +246,7 @@ def logout(response: Response, background_tasks: BackgroundTasks, user: CurrentU
 def me(user: CurrentUser = Depends(current_user)) -> dict:
     with db.session() as s:
         row = s.get(User, user.id)
-        return _user_out(row, user.csrf)
+        return _user_out(row, user.csrf, user)
 
 
 # --------------------------------------------------------------------------- #
@@ -272,6 +283,9 @@ async def google_callback(request: Request, background_tasks: BackgroundTasks):
     with db.session() as s:
         user = s.scalars(select(User).where(func.lower(User.email) == email)).first()
         if user is None:
+            if flags.is_kill_switch_active("signups"):
+                log.warning("google signup refused for %s (signups kill-switch active)", email)
+                return _login_redirect("New signups are temporarily paused for maintenance. Please try again shortly.")
             user = User(
                 email=email,
                 name=info.get("name") or "",

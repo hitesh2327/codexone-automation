@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from api.app.deps import CurrentUser, current_user
-from sqlalchemy import func, select
+from sqlalchemy import func, not_, select
 
 from src import db
 from src.db.models import ActivityLog
@@ -13,6 +13,17 @@ from src.db.models import ActivityLog
 router = APIRouter(prefix="/logs", tags=["logs"])
 ESC = chr(92)  # LIKE escape character
 IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _is_operator(user: CurrentUser) -> bool:
+    return user.role in ("owner", "admin") and user.impersonated_by is None
+
+
+def _client_log_guards() -> list:
+    return [
+        ActivityLog.source != "admin",
+        not_(ActivityLog.event.like("admin.%", escape=ESC)),
+    ]
 
 
 def _iso(dt: datetime) -> str:
@@ -40,8 +51,9 @@ def list_logs(level: list[str] | None = Query(None), source: str | None = Query(
     every filter except the facet's own, so the filter chips show what choosing them would give."""
     def conds(skip: str = "") -> list:
         c = []
-        if user.role not in ("owner", "admin"):
+        if not _is_operator(user):
             c.append(ActivityLog.user_id == user.id)
+            c.extend(_client_log_guards())
         if level and skip != "level":
             c.append(ActivityLog.level.in_(level))
         if source and skip != "source":
@@ -83,10 +95,11 @@ def summary(user: CurrentUser = Depends(current_user)) -> dict:
         stmt_counts = select(ActivityLog.level, func.count()).where(ActivityLog.created_at >= since)
         stmt_error = select(ActivityLog).where(ActivityLog.level == "error")
         stmt_pub = select(ActivityLog).where(ActivityLog.event == "post.published")
-        if user.role not in ("owner", "admin"):
-            stmt_counts = stmt_counts.where(ActivityLog.user_id == user.id)
-            stmt_error = stmt_error.where(ActivityLog.user_id == user.id)
-            stmt_pub = stmt_pub.where(ActivityLog.user_id == user.id)
+        if not _is_operator(user):
+            guards = [ActivityLog.user_id == user.id, *_client_log_guards()]
+            stmt_counts = stmt_counts.where(*guards)
+            stmt_error = stmt_error.where(*guards)
+            stmt_pub = stmt_pub.where(*guards)
         counts = dict(s.execute(stmt_counts.group_by(ActivityLog.level)).all())
         last_error = s.scalars(stmt_error.order_by(ActivityLog.id.desc()).limit(1)).first()
         last_publish = s.scalars(stmt_pub.order_by(ActivityLog.id.desc()).limit(1)).first()

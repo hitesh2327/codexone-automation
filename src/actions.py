@@ -36,7 +36,16 @@ class ActionError(ValueError):
 
 
 def publishing_enabled() -> bool:
-    return (get_env("PUBLISH_ENABLED", required=False, default="true") or "true").lower() not in ("0", "false", "no")
+    env_ok = (get_env("PUBLISH_ENABLED", required=False, default="true") or "true").lower() not in ("0", "false", "no")
+    if not env_ok:
+        return False
+    try:
+        from src import flags
+        if flags.is_kill_switch_active("publishing"):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
 
 
 def _get(item_id: str) -> q.Item:
@@ -187,6 +196,14 @@ def edit(item_id: str, *, caption: str | None = None, hashtags: list[str] | None
 # Publishing (the API runs finish_publish in the background)
 # --------------------------------------------------------------------------- #
 def _require_publishing() -> None:
+    try:
+        from src import flags
+        if flags.is_kill_switch_active("publishing"):
+            raise ActionError("Publishing is temporarily paused by the operator kill-switch")
+    except ActionError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
     if not publishing_enabled():
         raise ActionError("Publishing is turned off in this environment (PUBLISH_ENABLED=false)")
 
