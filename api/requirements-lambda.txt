@@ -19,3 +19,4 @@ authlib>=1.3
 itsdangerous>=2.1
 httpx>=0.27
 mangum>=0.19
+cloudinary>=1.36

@@ -16,8 +16,11 @@ import sys
 import time
 from pathlib import Path
 
-import cloudinary
-import cloudinary.uploader
+try:
+    import cloudinary
+    import cloudinary.uploader
+except ImportError:  # pragma: no cover - slim environments (e.g. AWS Lambda API)
+    cloudinary = None
 
 from src.config import OUTPUT_DIR, get_env
 from src.logger import get_logger
@@ -27,6 +30,8 @@ FOLDER = "codexone"
 
 
 def _configure() -> None:
+    if cloudinary is None:
+        raise RuntimeError("CLOUDINARY_URL is configured but the cloudinary package is not installed")
     url = get_env("CLOUDINARY_URL")
     # Tolerate the whole "CLOUDINARY_URL=cloudinary://..." line pasted as the value.
     url = url.split("=", 1)[1] if url.upper().startswith("CLOUDINARY_URL=") else url
@@ -38,6 +43,8 @@ def _configure() -> None:
 
 
 def _upload(path: Path, public_id: str, resource_type: str, retries: int = 3, **opts) -> str:
+    if cloudinary is None:
+        raise RuntimeError("cloudinary package is not installed")
     for attempt in range(1, retries + 1):
         try:
             res = cloudinary.uploader.upload(
@@ -62,7 +69,11 @@ def public_id_of(url: str) -> tuple[str, str] | None:
 
 def delete_media(urls: list[str]) -> int:
     """Delete these uploaded files from Cloudinary (only ones under our folder). Returns how many were deleted."""
-    import cloudinary.api
+    try:
+        import cloudinary.api
+    except ImportError:
+        log.warning("cloudinary package not installed; skipping remote media deletion")
+        return 0
     by_type: dict[str, list[str]] = {}
     for url in urls:
         if found := public_id_of(url):
