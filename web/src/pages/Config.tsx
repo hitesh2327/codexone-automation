@@ -531,7 +531,7 @@ export default function ConfigPage() {
 
         <TasteCadenceConfig isOnboarding={isOnboarding} onComplete={load} />
 
-        {!isAdmin && <UserIntegrations />}
+        <UserIntegrations />
 
         {isOwner && uiPrefs && (
           <section aria-labelledby="owner-prefs-h" className="grid gap-3 rounded-xl border border-rule bg-card/50 p-5">

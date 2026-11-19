@@ -72,26 +72,46 @@ class YTQuotaExceeded(YTError):
     pass
 
 
+def _effective_client_id_and_secret() -> tuple[str | None, str | None]:
+    cid = (
+        get_for_user("YT_CLIENT_ID")
+        or get_env("YT_OAUTH_CLIENT_ID", required=False)
+        or get_env("GOOGLE_WEB_CLIENT_ID", required=False)
+    )
+    sec = (
+        get_for_user("YT_CLIENT_SECRET")
+        or get_env("YT_OAUTH_CLIENT_SECRET", required=False)
+        or get_env("GOOGLE_WEB_CLIENT_SECRET", required=False)
+    )
+    return cid, sec
+
+
 def configured() -> bool:
-    return all(get_for_user(k) for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"))
+    cid, sec = _effective_client_id_and_secret()
+    ref = get_for_user("YT_REFRESH_TOKEN")
+    return bool(cid and sec and ref)
 
 
 def privacy() -> str:
-    p = (get_env("YT_PRIVACY", required=False, default="public") or "public").lower()
+    p = (get_for_user("YT_PRIVACY") or get_env("YT_PRIVACY", required=False, default="public") or "public").lower()
     if p not in ("private", "unlisted", "public"):
         raise YTError(f"YT_PRIVACY must be private, unlisted or public (got {p!r})")
     return p
 
 
 def credentials() -> Credentials:
-    creds = Credentials(token=None, refresh_token=get_for_user("YT_REFRESH_TOKEN"), token_uri=TOKEN_URI,
-                        client_id=get_for_user("YT_CLIENT_ID"), client_secret=get_for_user("YT_CLIENT_SECRET"),
+    cid, sec = _effective_client_id_and_secret()
+    ref = get_for_user("YT_REFRESH_TOKEN")
+    if not (cid and sec and ref):
+        raise YTError("YouTube is not configured. Connect your YouTube account in Settings -> Integrations.")
+    creds = Credentials(token=None, refresh_token=ref, token_uri=TOKEN_URI,
+                        client_id=cid, client_secret=sec,
                         scopes=SCOPES)
     try:
         creds.refresh(Request())
     except RefreshError as e:
         raise YTError(
-            f"YouTube refresh token rejected ({e}). Re-run get_yt_token.py and update YT_REFRESH_TOKEN. "
+            f"YouTube refresh token rejected ({e}). Reconnect YouTube in Settings -> Integrations. "
             "If the OAuth consent screen is in 'Testing' mode, Google expires refresh tokens after 7 days; "
             "switch it to 'In production' to stop that.") from e
     return creds

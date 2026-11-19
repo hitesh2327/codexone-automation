@@ -168,6 +168,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(recovery.router)  # public: forgot / reset password
     app.include_router(subscription.public_router, prefix="/api")
+    app.include_router(integrations.public_router, prefix="/api")
 
     # Everything else under /api: signed in + CSRF on writes. Later phases add routers here.
     api = APIRouter(prefix="/api", dependencies=protected)

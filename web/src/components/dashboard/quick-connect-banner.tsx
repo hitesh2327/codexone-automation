@@ -3,10 +3,18 @@ import { Link } from "react-router-dom";
 import { ArrowRight, CheckCircle2, Circle, ExternalLink, LoaderCircle, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 
+function YouTubeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+    </svg>
+  );
+}
+
 import { Button } from "@/components/ui/button";
 import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
 import { useAuth } from "@/lib/auth";
-import { createTelegramLink, getUserIntegrations } from "@/lib/config";
+import { createTelegramLink, createYouTubeLink, getUserIntegrations } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "mintly_dismiss_quick_connect";
@@ -25,7 +33,9 @@ export function QuickConnectBanner() {
   const [tgConnected, setTgConnected] = useState(false);
   const [igConnected, setIgConnected] = useState(false);
   const [ytConnected, setYtConnected] = useState(false);
+  const [ytChannelInfo, setYtChannelInfo] = useState<string | null>(null);
   const [busyTg, setBusyTg] = useState(false);
+  const [busyYt, setBusyYt] = useState(false);
   const [botDialogOpen, setBotDialogOpen] = useState(false);
 
   const defaultBotName = user?.name ? `${user.name}'s Assistant` : "";
@@ -35,7 +45,11 @@ export function QuickConnectBanner() {
       const data = await getUserIntegrations();
       setTgConnected(Boolean(data.telegram?.connected || data.values?.TG_CHAT_ID?.set));
       setIgConnected(Boolean(data.values?.IG_USER_ID?.set && data.values?.IG_ACCESS_TOKEN?.set));
-      setYtConnected(Boolean(data.values?.YOUTUBE_CLIENT_SECRET?.set));
+      const ytIsConn = Boolean(data.youtube?.connected || data.values?.YT_REFRESH_TOKEN?.set);
+      setYtConnected(ytIsConn);
+      if (ytIsConn && data.youtube) {
+        setYtChannelInfo(data.youtube.channel_handle || data.youtube.channel_title || null);
+      }
     } catch {
       // Non-critical background telemetry
     } finally {
@@ -48,6 +62,28 @@ export function QuickConnectBanner() {
       loadStatus();
     }
   }, [dismissed, loadStatus]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") === "youtube") {
+      toast.success("YouTube channel connected!", {
+        description: "Your channel is ready for auto-publishing approved YouTube Shorts.",
+      });
+      loadStatus();
+      params.delete("connected");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    } else if (params.get("error")?.startsWith("youtube")) {
+      const err = params.get("error") || "";
+      const msg = err.includes("no_youtube_channel")
+        ? "No YouTube channel found on this Google account. Please create a channel on youtube.com first."
+        : "YouTube connection was cancelled or rejected. Please try again.";
+      toast.error("Could not connect YouTube", { description: msg });
+      params.delete("error");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    }
+  }, [loadStatus]);
 
   const handleDismiss = () => {
     setDismissed(true);
@@ -222,7 +258,7 @@ export function QuickConnectBanner() {
           <div>
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                🎥 YouTube
+                <YouTubeIcon className="size-3.5 text-red-500" /> YouTube
               </span>
               {ytConnected ? (
                 <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
@@ -235,18 +271,42 @@ export function QuickConnectBanner() {
               )}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Reach technical developers via YouTube Shorts feed.
+              {ytConnected && ytChannelInfo
+                ? `Connected as ${ytChannelInfo}. Auto-publishes approved Shorts.`
+                : "Reach technical developers via YouTube Shorts feed."}
             </p>
           </div>
           <div className="mt-3">
             {ytConnected ? (
               <span className="text-[11px] text-muted-foreground/70">Ready to publish</span>
             ) : (
-              <Button asChild variant="outline" size="sm" className="w-full text-xs font-medium">
-                <Link to="/config">
-                  Connect YouTube
-                  <ArrowRight className="ml-1 size-3" />
-                </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  setBusyYt(true);
+                  try {
+                    const res = await createYouTubeLink();
+                    window.location.href = res.url;
+                  } catch (err: any) {
+                    toast.error(err?.message || "Could not initialize YouTube connection.");
+                    setBusyYt(false);
+                  }
+                }}
+                disabled={busyYt}
+                className="w-full text-xs font-medium hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500"
+              >
+                {busyYt ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                    Opening Google…
+                  </>
+                ) : (
+                  <>
+                    <YouTubeIcon className="mr-1.5 size-3.5 text-red-500" />
+                    Connect YouTube
+                  </>
+                )}
               </Button>
             )}
           </div>

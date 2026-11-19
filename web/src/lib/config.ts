@@ -83,7 +83,20 @@ export type TelegramMeta = {
   bot_name?: string;
   bot_username?: string;
 };
-export type UserIntegrationsResponse = { values: Record<string, KeyStatus>; telegram?: TelegramMeta };
+export type YouTubeMeta = {
+  connected: boolean;
+  channel_id?: string | null;
+  channel_title?: string | null;
+  channel_handle?: string | null;
+  channel_thumb?: string | null;
+  privacy?: string;
+  oauth_configured: boolean;
+};
+export type UserIntegrationsResponse = {
+  values: Record<string, KeyStatus>;
+  telegram?: TelegramMeta;
+  youtube?: YouTubeMeta;
+};
 
 export const getUserIntegrations = () => api<UserIntegrationsResponse>("/api/integrations");
 export const putUserIntegration = (key: string, value: string) =>
@@ -105,3 +118,8 @@ export const setTelegramBotName = (name: string): Promise<{ ok: boolean; bot_nam
   api<{ ok: boolean; bot_name: string; message: string }>("/api/integrations/telegram/name", { method: "PUT", body: { name } });
 export const unlinkTelegram = (includeBot = false) =>
   api<null>(`/api/integrations/telegram?include_bot=${includeBot ? "true" : "false"}`, { method: "DELETE" });
+
+export const createYouTubeLink = () =>
+  api<{ url: string; expires_in: number }>("/api/integrations/youtube/link", { method: "POST" });
+export const unlinkYouTube = () =>
+  api<null>("/api/integrations/youtube", { method: "DELETE" });

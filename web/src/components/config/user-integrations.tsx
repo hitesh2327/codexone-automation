@@ -5,6 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Check, CircleDashed, ExternalLink, LoaderCircle, Pencil, RotateCcw, Send, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
+function YouTubeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+    </svg>
+  );
+}
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,8 +20,8 @@ import { Label } from "@/components/ui/label";
 import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
 import { ApiError } from "@/lib/api";
 import {
-  confirmTelegramLink, createTelegramLink, deleteUserIntegration, getUserIntegrations, putUserIntegration,
-  setCustomTelegramBot, setTelegramBotName, unlinkTelegram, type KeyStatus, type TelegramLinkResponse, type TelegramMeta,
+  confirmTelegramLink, createTelegramLink, createYouTubeLink, deleteUserIntegration, getUserIntegrations, putUserIntegration,
+  setCustomTelegramBot, setTelegramBotName, unlinkTelegram, unlinkYouTube, type KeyStatus, type TelegramLinkResponse, type TelegramMeta, type YouTubeMeta,
 } from "@/lib/config";
 
 // ------------------------------------------------------------------------------------------------
@@ -517,31 +525,357 @@ function IntegrationSection({
 
 // ------------------------------------------------------------------------------------------------
 // Full component
+function CustomFieldEditor({
+  keyName,
+  label,
+  placeholder,
+  secret = false,
+  status,
+  onSaved,
+}: {
+  keyName: string;
+  label: string;
+  placeholder: string;
+  secret?: boolean;
+  status?: KeyStatus;
+  onSaved: () => void;
+}) {
+  const [val, setVal] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!val.trim()) return;
+    setSaving(true);
+    try {
+      await putUserIntegration(keyName, val.trim());
+      setVal("");
+      onSaved();
+      toast.success(`${label} saved`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setSaving(true);
+    try {
+      await deleteUserIntegration(keyName);
+      onSaved();
+      toast.success(`${label} removed`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to delete.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">{label}</span>
+        {status?.set ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-ok">
+            <Check className="size-3" />
+            Set{status.masked ? ` (${status.masked})` : ""}
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Not set</span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          type={secret ? "password" : "text"}
+          placeholder={status?.set ? "Enter a new value to replace" : placeholder}
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          disabled={saving}
+          autoComplete="off"
+          className="h-8 font-mono text-xs"
+        />
+        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSave} disabled={saving || !val.trim()}>
+          {saving ? "…" : "Save"}
+        </Button>
+        {status?.set && (
+          <Button size="sm" variant="ghost" className="h-8 text-xs text-bad hover:bg-bad/10" onClick={handleDelete} disabled={saving}>
+            Remove
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------
+// YouTube 1-Click Connect + Disconnect + Channel Display
+// ------------------------------------------------------------------------------------------------
+function YouTubeSection({
+  statuses,
+  meta,
+  onSaved,
+}: {
+  statuses: Record<string, KeyStatus>;
+  meta?: YouTubeMeta;
+  onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState<null | "link" | "unlink" | "privacy">(null);
+  const [error, setError] = useState<string | null>(null);
+  const [privacy, setPrivacy] = useState(meta?.privacy || "public");
+
+  const connected = Boolean(meta?.connected || statuses.YT_REFRESH_TOKEN?.set);
+
+  useEffect(() => {
+    if (meta?.privacy) setPrivacy(meta.privacy);
+  }, [meta?.privacy]);
+
+  async function handleConnect() {
+    setBusy("link");
+    setError(null);
+    try {
+      const res = await createYouTubeLink();
+      window.location.href = res.url;
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not initialize YouTube connection.");
+      setBusy(null);
+    }
+  }
+
+  async function handleUnlink() {
+    setBusy("unlink");
+    setError(null);
+    try {
+      await unlinkYouTube();
+      onSaved();
+      toast.success("YouTube channel disconnected");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not disconnect YouTube.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handlePrivacyChange(newPrivacy: string) {
+    setPrivacy(newPrivacy);
+    setBusy("privacy");
+    try {
+      await putUserIntegration("YT_PRIVACY", newPrivacy);
+      onSaved();
+      toast.success(`YouTube upload privacy set to ${newPrivacy}`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not update privacy setting.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden border-border/80">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-red-600/10 text-red-600 dark:bg-red-600/20 dark:text-red-400">
+              <YouTubeIcon className="size-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-semibold">YouTube Shorts</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Auto-publish approved 20–25s videos directly to your YouTube channel as Shorts.
+              </p>
+            </div>
+          </div>
+          {connected ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-500 dark:text-emerald-400">
+              <Check className="size-3.5" />
+              Connected
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <CircleDashed className="size-3.5" />
+              Not connected
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4 pt-1">
+        {connected ? (
+          <div className="grid gap-4 rounded-xl border border-border/70 bg-card/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {meta?.channel_thumb ? (
+                  <img
+                    src={meta.channel_thumb}
+                    alt={meta.channel_title || "YouTube Channel"}
+                    className="size-11 rounded-full border border-border object-cover"
+                  />
+                ) : (
+                  <div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <YouTubeIcon className="size-5" />
+                  </div>
+                )}
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground">
+                    {meta?.channel_title || "Connected YouTube Channel"}
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    {meta?.channel_handle || meta?.channel_id || "Ready to publish Shorts"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleUnlink}
+                disabled={busy !== null}
+                className="text-xs text-bad hover:bg-bad/10 hover:text-bad"
+              >
+                {busy === "unlink" ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                    Disconnecting…
+                  </>
+                ) : (
+                  <>
+                    <Unlink className="mr-1.5 size-3.5" />
+                    Disconnect
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+              <div>
+                <Label htmlFor="yt-privacy-select" className="text-xs font-medium">
+                  Upload Privacy
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Controls whether uploaded Shorts are immediately visible to everyone.
+                </p>
+              </div>
+              <select
+                id="yt-privacy-select"
+                value={privacy}
+                onChange={(e) => handlePrivacyChange(e.target.value)}
+                disabled={busy !== null}
+                className="h-8 rounded-md border border-input bg-background px-2.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+              >
+                <option value="public">Public (Recommended for Shorts)</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-xl border border-dashed border-border/80 bg-muted/20 p-5 text-center sm:text-left">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">Link your YouTube channel in 1 click</h4>
+                <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">
+                  Authorize Mintly to upload approved videos to your YouTube channel as Shorts. No Google Cloud Console or developer keys required.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleConnect}
+                disabled={busy !== null}
+                className="shrink-0 bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700"
+              >
+                {busy === "link" ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                    Opening Google…
+                  </>
+                ) : (
+                  <>
+                    <YouTubeIcon className="mr-1.5 size-4" />
+                    Connect YouTube
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground">
+            Advanced: Enter custom Google Cloud credentials
+          </summary>
+          <div className="mt-3 grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-3.5">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              If your organization uses its own dedicated Google Cloud OAuth Client ID, you can override the central platform credentials here.
+            </p>
+            <CustomFieldEditor
+              keyName="YT_CLIENT_ID"
+              label="Custom OAuth Client ID"
+              placeholder="....apps.googleusercontent.com"
+              status={statuses.YT_CLIENT_ID}
+              onSaved={onSaved}
+            />
+            <CustomFieldEditor
+              keyName="YT_CLIENT_SECRET"
+              label="Custom OAuth Client Secret"
+              placeholder="GOCSPX-..."
+              secret
+              status={statuses.YT_CLIENT_SECRET}
+              onSaved={onSaved}
+            />
+          </div>
+        </details>
+
+        {error && <p className="text-xs text-bad">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------
+// Full component
 // ------------------------------------------------------------------------------------------------
 const INSTAGRAM_FIELDS: SectionField[] = [
   { key: "IG_USER_ID", label: "Instagram user ID", secret: false, placeholder: "17841400000000000" },
   { key: "IG_ACCESS_TOKEN", label: "Access token", secret: true, placeholder: "a long token from the Meta App Dashboard" },
 ];
 
-const YOUTUBE_FIELDS: SectionField[] = [
-  { key: "YT_CLIENT_ID", label: "OAuth client ID", secret: false, placeholder: "....apps.googleusercontent.com" },
-  { key: "YT_CLIENT_SECRET", label: "OAuth client secret", secret: true, placeholder: "GOCSPX-..." },
-  { key: "YT_REFRESH_TOKEN", label: "Refresh token", secret: true, placeholder: "1//..." },
-  { key: "YT_PRIVACY", label: "Upload privacy", secret: false, placeholder: "public", choices: ["public", "unlisted", "private"] },
-];
-
 export function UserIntegrations() {
   const [statuses, setStatuses] = useState<Record<string, KeyStatus>>({});
   const [tgMeta, setTgMeta] = useState<TelegramMeta | undefined>(undefined);
+  const [ytMeta, setYtMeta] = useState<YouTubeMeta | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     getUserIntegrations()
-      .then((r) => { setStatuses(r.values); setTgMeta(r.telegram); setLoadError(null); })
+      .then((r) => {
+        setStatuses(r.values);
+        setTgMeta(r.telegram);
+        setYtMeta(r.youtube);
+        setLoadError(null);
+      })
       .catch((e) => setLoadError(e instanceof ApiError ? e.message : "Couldn't load integration status."));
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") === "youtube") {
+      toast.success("YouTube channel connected!", {
+        description: "Your channel is now ready for auto-publishing approved YouTube Shorts.",
+      });
+      load();
+      params.delete("connected");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    } else if (params.get("error")?.startsWith("youtube")) {
+      const err = params.get("error") || "";
+      const msg = err.includes("no_youtube_channel")
+        ? "No YouTube channel found on this Google account. Please create a channel on youtube.com first."
+        : "YouTube connection was cancelled or rejected. Please try again.";
+      toast.error("Could not connect YouTube", { description: msg });
+      params.delete("error");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    }
+  }, [load]);
 
   return (
     <div className="grid gap-6">
@@ -555,7 +889,7 @@ export function UserIntegrations() {
       {loadError && <p className="rounded-md border border-bad/40 bg-bad/10 p-4 text-sm text-bad">{loadError}</p>}
       <TelegramSection statuses={statuses} meta={tgMeta} onSaved={load} />
       <IntegrationSection title="Instagram" fields={INSTAGRAM_FIELDS} statuses={statuses} onSaved={load} />
-      <IntegrationSection title="YouTube" fields={YOUTUBE_FIELDS} statuses={statuses} onSaved={load} />
+      <YouTubeSection statuses={statuses} meta={ytMeta} onSaved={load} />
     </div>
   );
 }

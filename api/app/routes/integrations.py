@@ -13,24 +13,34 @@ Mounted under /api (signed in + CSRF on writes).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
+import hmac
 import secrets
 import time
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+import requests
+from starlette.responses import RedirectResponse
 
 from api.app.deps import CurrentUser, current_user
 from api.app.ratelimit import RateLimiter
-from src import approve_bot, db, user_config_store
+from api.app.settings import settings
+from src import activity, approve_bot, db, user_config_store
 from src.config import get_env
 from src.config_schema import FIELDS_BY_NAME, PER_USER_FIELD_NAMES
 from src.db.models import Setting
+from src.logger import get_logger
 from src.verify import CODES
 from src.verify import telegram as tg
 from src.verify.base import Unreachable, clean_value
 
+log = get_logger("integrations")
+
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+public_router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 limiter = RateLimiter()
 TG_RATE_LIMIT, TG_RATE_WINDOW = 20, 60
@@ -64,6 +74,56 @@ def _effective_tg_token(user_id: int) -> tuple[str | None, bool]:
     if custom:
         return custom, True
     return get_env("TG_BOT_TOKEN", required=False), False
+
+
+def _effective_yt_client(user_id: int) -> tuple[str | None, str | None]:
+    """Return (client_id, client_secret) for YouTube OAuth."""
+    custom_id = user_config_store.lookup("YT_CLIENT_ID", user_id)
+    custom_sec = user_config_store.lookup("YT_CLIENT_SECRET", user_id)
+    client_id = (
+        custom_id
+        or get_env("YT_OAUTH_CLIENT_ID", required=False)
+        or get_env("GOOGLE_WEB_CLIENT_ID", required=False)
+    )
+    client_secret = (
+        custom_sec
+        or get_env("YT_OAUTH_CLIENT_SECRET", required=False)
+        or get_env("GOOGLE_WEB_CLIENT_SECRET", required=False)
+    )
+    return client_id, client_secret
+
+
+def _sign_oauth_state(user_id: int, provider: str = "youtube") -> str:
+    nonce = secrets.token_urlsafe(16)
+    ts = int(time.time())
+    payload = f"{user_id}:{provider}:{ts}:{nonce}"
+    sig = hmac.new(settings().jwt_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    db.set_setting(f"oauth_state:{nonce}", {"user_id": user_id, "provider": provider, "ts": ts})
+    return f"{payload}:{sig}"
+
+
+def _verify_oauth_state(state_str: str, expected_provider: str = "youtube") -> int | None:
+    parts = state_str.split(":")
+    if len(parts) != 5:
+        return None
+    user_id_str, provider, ts_str, nonce, sig = parts
+    payload = f"{user_id_str}:{provider}:{ts_str}:{nonce}"
+    expected_sig = hmac.new(settings().jwt_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected_sig):
+        return None
+    if provider != expected_provider:
+        return None
+    try:
+        ts = int(ts_str)
+        if time.time() - ts > 900:  # 15 min TTL
+            return None
+    except ValueError:
+        return None
+    stored = db.get_setting(f"oauth_state:{nonce}")
+    if not stored:
+        return None
+    db.set_setting(f"oauth_state:{nonce}", None)  # Prevent replay attacks
+    return int(user_id_str)
 
 
 def _rate(cu: CurrentUser) -> None:
@@ -100,6 +160,13 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
             else:
                 bot_name = None
 
+    yt_token = data.get("YT_REFRESH_TOKEN")
+    yt_channel = db.get_setting(f"yt_channel:{cu.id}") or {}
+    if not isinstance(yt_channel, dict):
+        yt_channel = {}
+    yt_client_id, yt_client_sec = _effective_yt_client(cu.id)
+    yt_privacy = data.get("YT_PRIVACY") or "public"
+
     return {
         "values": {
             k: {"set": data.get(k) is not None, "masked": _mask(k, data.get(k))}
@@ -112,6 +179,15 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
             "default_bot_configured": default_bot_ok,
             "bot_name": bot_name,
             "bot_username": bot_username,
+        },
+        "youtube": {
+            "connected": bool(yt_token),
+            "channel_id": yt_channel.get("id"),
+            "channel_title": yt_channel.get("title"),
+            "channel_handle": yt_channel.get("handle"),
+            "channel_thumb": yt_channel.get("thumb"),
+            "privacy": yt_privacy,
+            "oauth_configured": bool(yt_client_id and yt_client_sec),
         },
     }
 
@@ -329,6 +405,152 @@ def unlink_telegram(include_bot: bool = Query(False), cu: CurrentUser = Depends(
     with db.session() as s:
         if row := s.get(Setting, _link_key(cu.id)):
             s.delete(row)
+
+
+# --------------------------------------------------------------------------- #
+# YouTube 1-Click OAuth Connect, Callback, and Disconnect
+# --------------------------------------------------------------------------- #
+@router.post("/youtube/link")
+def create_youtube_link(cu: CurrentUser = Depends(current_user)) -> dict:
+    """Generate a 1-click Google OAuth URL to link the user's YouTube channel."""
+    client_id, client_secret = _effective_yt_client(cu.id)
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "youtube.not_configured",
+                "message": "YouTube OAuth is not configured on the server. Please contact an administrator or provide custom credentials.",
+            },
+        )
+    pub_url = settings().public_url.rstrip("/")
+    redirect_uri = f"{pub_url}/api/integrations/youtube/callback"
+    state = _sign_oauth_state(cu.id, "youtube")
+    scopes = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly",
+    ]
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(scopes),
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+        "include_granted_scopes": "true",
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+    return {"url": auth_url, "expires_in": 900}
+
+
+@public_router.get("/youtube/callback")
+def youtube_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    """Google OAuth callback: exchanges authorization code for refresh token and retrieves channel snippet."""
+    pub_url = settings().public_url.rstrip("/")
+    if error:
+        log.warning("youtube oauth user error: %s", error)
+        return RedirectResponse(f"{pub_url}/config?error=youtube_{quote(str(error))}", status_code=303)
+    if not code or not state:
+        return RedirectResponse(f"{pub_url}/config?error=youtube_invalid_callback", status_code=303)
+
+    user_id = _verify_oauth_state(state, "youtube")
+    if not user_id:
+        return RedirectResponse(f"{pub_url}/config?error=youtube_state_expired", status_code=303)
+
+    client_id, client_secret = _effective_yt_client(user_id)
+    if not client_id or not client_secret:
+        return RedirectResponse(f"{pub_url}/config?error=youtube_not_configured", status_code=303)
+
+    redirect_uri = f"{pub_url}/api/integrations/youtube/callback"
+    token_url = "https://oauth2.googleapis.com/token"
+    token_payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+    }
+    try:
+        resp = requests.post(token_url, data=token_payload, timeout=15)
+        token_data = resp.json()
+    except Exception as e:
+        log.error("youtube oauth token exchange network error: %s", e)
+        return RedirectResponse(f"{pub_url}/config?error=youtube_network_error", status_code=303)
+
+    if resp.status_code != 200 or "access_token" not in token_data:
+        log.error("youtube oauth token exchange failed: %s %s", resp.status_code, token_data)
+        return RedirectResponse(f"{pub_url}/config?error=youtube_auth_failed", status_code=303)
+
+    access_token = token_data["access_token"]
+    refresh_token = token_data.get("refresh_token")
+
+    if not refresh_token:
+        existing_ref = user_config_store.lookup("YT_REFRESH_TOKEN", user_id)
+        if existing_ref:
+            refresh_token = existing_ref
+
+    if not refresh_token:
+        log.error("youtube oauth did not return refresh_token and none was stored for user %s", user_id)
+        return RedirectResponse(f"{pub_url}/config?error=youtube_missing_refresh_token", status_code=303)
+
+    # Fetch YouTube channel info
+    channel_id = ""
+    channel_title = ""
+    channel_handle = ""
+    channel_thumb = ""
+    try:
+        ch_resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=15,
+        )
+        if ch_resp.status_code == 200:
+            items = ch_resp.json().get("items") or []
+            if not items:
+                return RedirectResponse(f"{pub_url}/config?error=no_youtube_channel", status_code=303)
+            first = items[0]
+            channel_id = first.get("id") or ""
+            snip = first.get("snippet") or {}
+            channel_title = snip.get("title") or ""
+            channel_handle = snip.get("customUrl") or ""
+            channel_thumb = snip.get("thumbnails", {}).get("default", {}).get("url") or ""
+    except Exception as e:
+        log.warning("failed to fetch youtube channel metadata: %s", e)
+
+    # Persist credentials and metadata
+    user_config_store.save(user_id, {"YT_REFRESH_TOKEN": refresh_token}, actor=f"user {user_id}")
+    db.set_setting(f"yt_channel:{user_id}", {
+        "id": channel_id,
+        "title": channel_title,
+        "handle": channel_handle,
+        "thumb": channel_thumb,
+        "connected_at": datetime.now(timezone.utc).isoformat(),
+    })
+    activity.record(
+        "integration.youtube.connected",
+        f"Connected YouTube channel '{channel_title}' ({channel_handle or channel_id})",
+        source="integrations",
+        actor=f"user {user_id}",
+    )
+    return RedirectResponse(f"{pub_url}/config?connected=youtube", status_code=303)
+
+
+@router.delete("/youtube", status_code=status.HTTP_204_NO_CONTENT)
+def unlink_youtube(cu: CurrentUser = Depends(current_user)) -> None:
+    """Unlink YouTube channel and revoke stored refresh token."""
+    token = user_config_store.lookup("YT_REFRESH_TOKEN", cu.id)
+    user_config_store.delete(cu.id, "YT_REFRESH_TOKEN")
+    db.set_setting(f"yt_channel:{cu.id}", None)
+    if token:
+        try:
+            requests.post("https://oauth2.googleapis.com/revoke", params={"token": token}, timeout=5)
+        except Exception:
+            pass
+    activity.record("integration.youtube.unlinked", "Unlinked YouTube channel", source="integrations", actor=_actor(cu))
 
 
 class PutBody(BaseModel):
