@@ -496,3 +496,19 @@ class WebhookEvent(Base):
     error: Mapped[str | None] = mapped_column(Text)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DataDeletionRequest(Base):
+    """Immutable audit trail for Meta & platform data deletion requests (Meta Platform Term 4.a, GDPR Art. 17)."""
+    __tablename__ = "data_deletion_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    confirmation_code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    platform: Mapped[str] = mapped_column(String(24), default="instagram", server_default="instagram")
+    external_user_id: Mapped[str] = mapped_column(String(128), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="completed", server_default="completed", index=True)
+    details: Mapped[dict] = mapped_column(JSONType, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utcnow)
+

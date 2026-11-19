@@ -66,17 +66,26 @@ function fitPage() {
     }
   });
 }
-function build(spec, handle, category) {
+function build(spec, handle, category, theme) {
+  if (theme) {
+    const safeTheme = String(theme).toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+    document.body.setAttribute('data-theme', safeTheme);
+  }
+  const isNonTech = theme && !['technical_dark', 'technicaldark', 'default'].includes(String(theme).toLowerCase());
+  const monogram = (handle || '@').replace(/^@/, '').slice(0, 2).toUpperCase() || '&lt;/&gt;';
+  const logoContent = isNonTech ? monogram : '&lt;/&gt;';
+  const ctaText = isNonTech ? 'Save this guide for later' : 'Save it for your next interview';
+
   const beats = spec.beats.map((b, i) => [b, i]).filter(([b]) => b.on_carousel);
   const total = beats.length + 2;
   const D = ReelDiagram.makeDiagram(spec, 940, 660);
   const at = i => D.draw(ReelDiagram.viewAt(spec, spec.beats.map((_, k) => k <= i ? -1 : 1e9), 2.2), 2.2);
-  const top = n => `<div class="topbar"><div class="brand"><div class="logo">&lt;/&gt;</div>${esc(handle)}</div><div class="count">${n}/${total}</div></div>`;
+  const top = n => `<div class="topbar"><div class="brand"><div class="logo">${logoContent}</div>${esc(handle)}</div><div class="count">${n}/${total}</div></div>`;
   const slides = [];
   // cover: the diagram at its "solved" moment = last story beat before the payoff
   const solved = spec.beats.length - 2;
   slides.push(`<section class="slide cover">${top(1)}
-    <span class="chip" style="color:${T.cyan}">${esc((category || 'System Design').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase())}</span>
+    <span class="chip" style="color:${T.cyan}">${esc((category || 'Guide').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase())}</span>
     <h1 class="fit">${titleHtml(spec.title)}</h1><div class="sub">${esc(spec.subtitle)}</div>
     <div class="lead">${emph(spec.cover_lead)}</div>
     <div class="dia">${at(solved)}</div>
@@ -86,23 +95,24 @@ function build(spec, handle, category) {
       <span class="chip" style="color:${HI[b.tone]}">${esc(b.heading)}</span>
       <h1>${emph(b.slide_title)}</h1><div class="lead">${emph(b.slide_text)}</div>
       <div class="dia">${at(i)}</div>
-      ${b.term ? `<div class="term"><span class="p">$ </span>${esc(b.term)}</div>`
+      ${b.term ? `<div class="term"><span class="p">${isNonTech ? '• ' : '$ '}</span>${esc(b.term)}</div>`
                : `<div class="stats3">${b.counters.map(c => statHtml(c.label, c.value, c.tone)).join('')}</div>`}
     </section>`);
   });
   const c = spec.cheat;
+  const codeBlock = (c && c.code && c.code.trim()) ? `<div class="card" style="margin-top:20px"><h3 style="color:${T.cyan}">⚡ ${esc(c.code_title || 'KEY TAKEAWAYS')}</h3><pre class="fit" data-min="15">${esc(c.code)}</pre></div>` : '';
   slides.push(`<section class="slide cheat">${top(total)}
-    <span class="chip" style="color:${T.cyan}">CHEAT SHEET · SAVE THIS</span>
+    <span class="chip" style="color:${T.cyan}">SUMMARY · SAVE THIS</span>
     <h1 class="fit" style="font-size:62px;margin-bottom:0;white-space:nowrap">${titleHtml(spec.title)} <span style="font-size:.8em">in one page</span></h1>
     <div class="grid2">
       <div class="card"><h3 style="color:${HI.green}">✓ USE WHEN</h3><ul>${c.use_when.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="card"><h3 style="color:${T.amber}">⚠ TRADE-OFFS</h3><ul>${c.tradeoffs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
     </div>
-    <div class="card" style="margin-top:20px"><h3 style="color:${T.cyan}">⚡ ${esc(c.code_title)}</h3><pre class="fit" data-min="15">${esc(c.code)}</pre></div>
+    ${codeBlock}
     <div class="card" style="margin-top:20px"><table>
       <tr>${c.compare.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr>
       ${c.compare.rows.map(r => `<tr>${r.map(x => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}</table></div>
-    <div class="cta"><div class="t">Save it for your next interview</div><div class="f">Follow ${esc(handle)}</div></div>
+    <div class="cta"><div class="t">${ctaText}</div><div class="f">Follow ${esc(handle)}</div></div>
   </section>`);
   document.getElementById('deck').innerHTML = slides.join('');
 

@@ -32,3 +32,35 @@ body { color: var(--text); font-family: Inter, sans-serif; -webkit-font-smoothin
   font: 500 30px 'JetBrains Mono'; white-space: pre; overflow: hidden; }
 .term .p { color: var(--green); } .term .c { color: var(--muted); }
 .term .cur { display: inline-block; width: 15px; height: 32px; background: #E6EDF3; margin-left: 2px; vertical-align: -5px; }
+
+/* Non-Tech Visual Template Themes (MNT-404) */
+body[data-theme="minimal_clean"], .theme-minimal-clean {
+  --bg: #0F172A;
+  --cyan: #38BDF8;
+  --amber: #F59E0B;
+  --text: #F8FAFC;
+  --muted: #94A3B8;
+  --line: rgba(255,255,255,0.12);
+  --panel: rgba(30, 41, 59, 0.7);
+}
+
+body[data-theme="vibrant_lifestyle"], .theme-vibrant-lifestyle {
+  --bg: #141E1B;
+  --cyan: #10B981;
+  --amber: #F97316;
+  --text: #F0FDF4;
+  --muted: #86EFAC;
+  --line: rgba(16, 185, 129, 0.2);
+  --panel: rgba(20, 83, 45, 0.25);
+}
+
+body[data-theme="playful_colorful"], .theme-playful-colorful {
+  --bg: #18182E;
+  --cyan: #818CF8;
+  --amber: #F43F5E;
+  --text: #FFFFFF;
+  --muted: #C7D2FE;
+  --line: rgba(129, 140, 248, 0.25);
+  --panel: rgba(79, 70, 229, 0.18);
+}
+

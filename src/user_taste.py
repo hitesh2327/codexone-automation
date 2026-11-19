@@ -50,6 +50,7 @@ def default_user_taste() -> dict[str, Any]:
         "default_language": "en",
         "default_post_format": "carousel",
         "target_duration": "20-25",
+        "delivery_mode": "auto_publish",
     }
 
 
@@ -220,6 +221,7 @@ class UserTaste:
     default_language: str | None = None
     default_post_format: str | None = None
     target_duration: str = "20-25"
+    delivery_mode: str = "auto_publish"
     category_configs: list[CategoryConfig] = field(default_factory=list)
     sources: list[TopicSourceConfig] = field(default_factory=list)
     handle: str = ""
@@ -315,6 +317,7 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
     lang = taste.get("default_language")
     fmt = taste.get("default_post_format")
     dur = taste.get("target_duration")
+    del_mode = taste.get("delivery_mode")
     result = UserTaste(
         niche=niche,
         tone=taste.get("tone") or "Educational & Insightful",
@@ -327,6 +330,7 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
         default_language=lang if lang in ("en", "hi") else None,
         default_post_format=fmt if fmt in ("carousel", "image_reel") else None,
         target_duration=dur if dur in ("16-20", "20-25", "25-30") else "20-25",
+        delivery_mode=del_mode if del_mode in ("auto_publish", "download_only") else "auto_publish",
         category_configs=configs,
         sources=sources,
         handle=raw_handle,

@@ -248,6 +248,11 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
             if "target_duration" in t_in and t_in["target_duration"] is not None:
                 if str(t_in["target_duration"]) not in ("16-20", "20-25", "25-30"):
                     raise _bad("Target duration must be '16-20', '20-25', or '25-30'.")
+            if "delivery_mode" in t_in and t_in["delivery_mode"] is not None:
+                if t_in["delivery_mode"] not in ("auto_publish", "download_only"):
+                    raise _bad("Delivery mode must be 'auto_publish' or 'download_only'.")
+            if "template_style" in t_in and t_in["template_style"] is not None:
+                t_in["template_style"] = str(t_in["template_style"]).strip()[:40]
             if "categories" in t_in and t_in["categories"] is not None:
                 if len(t_in["categories"]) == 0:
                     t_in.pop("categories")
@@ -357,7 +362,6 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
         "gemini-3.8-flash",
-        "gemini-flash-latest",
     ]
     result: dict | None = None
     deadline = _time.monotonic() + 10.0
@@ -458,7 +462,6 @@ def suggest_categories(
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
         "gemini-3.8-flash",
-        "gemini-flash-latest",
     ]
     result: dict | None = None
     deadline = _time.monotonic() + 10.0

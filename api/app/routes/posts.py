@@ -2,11 +2,18 @@
 publish now, retry, regenerate, edit). All logic lives in src/ (actions, queue_store)."""
 from __future__ import annotations
 
+import asyncio
 import base64
+import io
 import json
+import re
+import zipfile
 from datetime import date, datetime, timezone
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from api.app.deps import CurrentUser, current_user
 from api.app.routes.generate import require_admin
 from pydantic import BaseModel, Field
@@ -300,3 +307,131 @@ def sync_telegram() -> dict:
     except Exception as e:  # noqa: BLE001 -- Telegram being down must not break the page
         return {"enabled": True, "changes": [], "error": str(e)[:200]}
     return {"enabled": True, "changes": [{"id": i, "change": c} for i, c in changes]}
+
+
+# --------------------------------------------------------------------------- #
+# Web Download Mode (MNT-105): SSRF-safe Media Proxy & ZIP Carousel Bundling
+# --------------------------------------------------------------------------- #
+def _validate_media_url(raw_url: str) -> None:
+    if not raw_url or not isinstance(raw_url, str):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Missing media URL")
+    try:
+        parts = urlsplit(raw_url)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid media URL")
+    if parts.scheme != "https":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insecure media URL scheme")
+    if parts.username or parts.password:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Userinfo not permitted in media URL")
+    if parts.port not in (None, 443):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Non-standard port in media URL")
+    host = (parts.hostname or "").lower()
+    if not (host == "res.cloudinary.com" or host.endswith(".cloudinary.com")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Host not permitted for media download")
+
+
+def _resolve_media_url(item: q.Item, media_key: str, slide_index: int = 0) -> tuple[str, str]:
+    """Returns (url, filename)."""
+    media = item.media or {}
+    slug = re.sub(r"[^a-zA-Z0-9_\-]+", "_", item.id).strip("_") or "post"
+    if media_key == "reel":
+        url = media.get("reel") or media.get("image_reel")
+        ext = "mp4"
+        fname = f"{slug}-reel.{ext}"
+    elif media_key in ("cover", "image_cover"):
+        url = media.get(media_key) or media.get("cover")
+        ext = "png"
+        fname = f"{slug}-cover.{ext}"
+    elif media_key == "carousel":
+        slides = media.get("carousel") or []
+        if isinstance(slides, list) and 0 <= slide_index < len(slides):
+            url = slides[slide_index]
+        else:
+            url = media.get("cover")
+        ext = "png" if str(url or "").endswith(".png") else "jpg"
+        fname = f"{slug}-slide-{slide_index+1:02d}.{ext}"
+    else:
+        url = media.get(media_key)
+        ext = "png"
+        fname = f"{slug}-{media_key}.{ext}"
+
+    if not url:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Media '{media_key}' not found on this post")
+    return url, fname
+
+
+@router.get("/{item_id}/download-media")
+async def download_media(
+    item_id: str,
+    media_key: str = Query("reel", pattern="^(reel|cover|image_reel|image_cover|carousel)$"),
+    slide_index: int = Query(0, ge=0, le=30),
+    user: CurrentUser = Depends(current_user),
+):
+    item = _require_post(item_id, user)
+    url, filename = _resolve_media_url(item, media_key, slide_index)
+    _validate_media_url(url)
+
+    async def stream_chunks():
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+            async with client.stream("GET", url) as resp:
+                if resp.status_code != 200:
+                    raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Failed to fetch upstream media")
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    yield chunk
+
+    ctype = "video/mp4" if filename.endswith(".mp4") else ("image/png" if filename.endswith(".png") else "image/jpeg")
+    return StreamingResponse(
+        stream_chunks(),
+        media_type=ctype,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
+@router.get("/{item_id}/download-zip")
+async def download_carousel_zip(
+    item_id: str,
+    user: CurrentUser = Depends(current_user),
+):
+    item = _require_post(item_id, user)
+    media = item.media or {}
+    slides = media.get("carousel") or []
+    if not isinstance(slides, list) or not slides:
+        cover = media.get("cover")
+        slides = [cover] if cover else []
+    if not slides:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No carousel slide media found on this post")
+
+    for url in slides:
+        _validate_media_url(url)
+
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+        tasks = [client.get(u) for u in slides]
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+    slug = re.sub(r"[^a-zA-Z0-9_\-]+", "_", item.id).strip("_") or "post"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, resp in enumerate(responses):
+            if isinstance(resp, Exception) or resp.status_code != 200:
+                continue
+            ext = "png" if slides[idx].endswith(".png") else "jpg"
+            zf.writestr(f"slide_{idx+1:02d}.{ext}", resp.content)
+        caption_text = (item.caption or "").strip()
+        zf.writestr("caption.txt", caption_text.encode("utf-8"))
+
+    zip_bytes = buf.getvalue()
+    zip_filename = f"{slug}-carousel.zip"
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_filename}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+

@@ -228,18 +228,24 @@ def render_reel(spec: SceneSpec, out_dir: Path, voice: str | None = None, previe
     return out
 
 
-def render_carousel(spec: SceneSpec, folder: Path, category: str = "") -> list[Path]:
+def render_carousel(spec: SceneSpec, folder: Path, category: str = "", theme: str = "") -> list[Path]:
     """Write slide_01.png ... into `folder` (the classic <post>/carousel)."""
     w, h = (int(x) for x in load_brand()["carousel"]["size"].lower().split("x"))
     folder.mkdir(parents=True, exist_ok=True)
     paths = []
+    if not theme:
+        try:
+            from src.user_taste import get_user_taste
+            theme = get_user_taste().template_style
+        except Exception:  # noqa: BLE001
+            theme = "technical_dark"
     with sync_playwright() as p:
         browser = launch(p)
         try:
             page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
             page.goto((TPL / "carousel.html").as_uri())
             page.evaluate("document.fonts.ready")
-            n = page.evaluate("([s, h, c]) => build(s, h, c)", [spec.model_dump(), _effective_handle(), category])
+            n = page.evaluate("([s, h, c, t]) => build(s, h, c, t)", [spec.model_dump(), _effective_handle(), category, theme])
             page.evaluate("async () => { await document.fonts.ready; fitAll(); }")  # fonts load on first use
             page.wait_for_timeout(200)
             for i, el in enumerate(page.query_selector_all(".slide"), 1):

@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.app.deps import protected
-from api.app.routes import admin, auth, config, dashboard, generate, integrations, logs, posts, profile, public, recovery, subscription
+from api.app.routes import admin, auth, config, dashboard, generate, integrations, logs, posts, profile, public, recovery, subscription, webhooks
 from api.app.security import hash_password, verify_password
 from api.app.settings import settings
 from src import db, redact
@@ -169,6 +169,7 @@ def create_app() -> FastAPI:
     app.include_router(recovery.router)  # public: forgot / reset password
     app.include_router(subscription.public_router, prefix="/api")
     app.include_router(integrations.public_router, prefix="/api")
+    app.include_router(webhooks.public_router, prefix="/api")
 
     # Everything else under /api: signed in + CSRF on writes. Later phases add routers here.
     api = APIRouter(prefix="/api", dependencies=protected)

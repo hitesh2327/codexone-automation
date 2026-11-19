@@ -323,6 +323,10 @@ def send_preview(item: q.Item, dry_run: bool = False) -> q.Item:
     if dry_run:
         log.info("[dry-run] would send %s preview %s: %s", item.kind, item.id, item.topic)
         return item
+    from src.user_taste import get_user_taste
+    if get_user_taste(item.user_id).delivery_mode == "download_only":
+        log.info("delivery_mode is download_only; skipping telegram preview for item %s", item.id)
+        return item
     tok = active_user_id.set(item.user_id)
     try:
         item = asyncio.run(_send_preview(item))

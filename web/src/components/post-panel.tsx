@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowUpRight, CalendarClock, Check, LoaderCircle, RefreshCw, RotateCcw, Send, Undo2, X,
+  ArrowUpRight, CalendarClock, Check, Copy, Download, FileArchive, ImageDown, LoaderCircle, RefreshCw, RotateCcw, Send, Undo2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -10,7 +10,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -269,6 +269,73 @@ function Feedback({ text }: { text: string }) {
   );
 }
 
+function DownloadBar({ item, kind }: { item: Item; kind: "reel" | "carousel" | "image" }) {
+  const [copying, setCopying] = useState(false);
+
+  const fullCaption = [item.caption, item.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const copyCaption = async () => {
+    try {
+      await navigator.clipboard.writeText(fullCaption);
+      setCopying(true);
+      toast.success("Caption copied to clipboard");
+      setTimeout(() => setCopying(false), 2000);
+    } catch {
+      toast.error("Could not copy caption");
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-sunken/40 p-2.5 text-xs">
+      <span className="font-mono text-muted-foreground mr-1">Download:</span>
+      {kind === "reel" && item.media.reel && (
+        <>
+          <a
+            href={`/api/posts/${item.id}/download-media?asset=reel`}
+            download
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <Download className="size-3.5 mr-1" /> MP4 Video
+          </a>
+          {item.media.cover && (
+            <a
+              href={`/api/posts/${item.id}/download-media?asset=cover`}
+              download
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <ImageDown className="size-3.5 mr-1" /> Cover
+            </a>
+          )}
+        </>
+      )}
+      {kind === "carousel" && (
+        <a
+          href={`/api/posts/${item.id}/download-zip`}
+          download
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          <FileArchive className="size-3.5 mr-1" /> Download ZIP (.zip)
+        </a>
+      )}
+      {kind === "image" && item.media.image_reel && (
+        <a
+          href={`/api/posts/${item.id}/download-media?asset=image_reel`}
+          download
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          <Download className="size-3.5 mr-1" /> Video Reel
+        </a>
+      )}
+      <Button variant="ghost" size="sm" onClick={copyCaption} className="ml-auto">
+        {copying ? <Check className="size-3.5 mr-1 text-good" /> : <Copy className="size-3.5 mr-1" />}
+        {copying ? "Copied" : "Copy Caption"}
+      </Button>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The panel
 // ---------------------------------------------------------------------------
@@ -475,6 +542,7 @@ export function PostPanel({
               {reel && (
                 <TabsContent value="reel" className="grid gap-7">
                   <PlatformResults item={reel} publishingEnabled={publishingEnabled} onChanged={onChanged} />
+                  <DownloadBar item={reel} kind="reel" />
                   <div className="grid gap-6 sm:grid-cols-[minmax(0,14rem)_1fr]">
                     <div className="relative mx-auto w-full max-w-56">
                       {reel.media.reel ? (
@@ -507,6 +575,7 @@ export function PostPanel({
               {carousel && (
                 <TabsContent value="carousel" className="grid gap-7">
                   <PlatformResults item={carousel} publishingEnabled={publishingEnabled} onChanged={onChanged} />
+                  <DownloadBar item={carousel} kind="carousel" />
                   <div className="grid gap-2">
                     <p className={MONO}>{(carousel.media.carousel ?? []).length} slides</p>
                     <div className="-mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-3 sm:-mx-7 sm:px-7" aria-label="Carousel slides" role="list">
@@ -536,6 +605,7 @@ export function PostPanel({
               {image && (
                 <TabsContent value="image" className="grid gap-7">
                   <PlatformResults item={image} publishingEnabled={publishingEnabled} onChanged={onChanged} />
+                  <DownloadBar item={image} kind="image" />
                   <div className="grid gap-6 sm:grid-cols-[minmax(0,14rem)_1fr]">
                     <div className="relative mx-auto w-full max-w-56">
                       {image.media.image_reel ? (
