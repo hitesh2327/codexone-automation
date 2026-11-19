@@ -176,7 +176,7 @@ Resources:
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols: [TLSv1.2]
-              OriginResponseTimeout: 60
+              OriginReadTimeout: 60
             OriginCustomHeaders:
               - {HeaderName: X-Origin-Verify, HeaderValue: !Ref OriginVerify}
         DefaultCacheBehavior:
