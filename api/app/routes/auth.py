@@ -20,6 +20,7 @@ from api.app.security import check_password, clear_session_cookie, create_sessio
 from api.app.settings import settings
 from src import activity, db, flags
 from src.db.models import User
+from src.user_taste import default_user_cadence, default_user_taste
 
 log = logging.getLogger("codexone.api.auth")
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -157,19 +158,11 @@ def signup(body: SignupBody, request: Request, response: Response, background_ta
             name=name or username,
             password_hash=hash_password(body.password),
             role="client",
-            config_completed=False,
+            config_completed=True,
             subscription_tier="free",
             subscription_status="active",
-            taste={
-                "niche": "AI & Tech",
-                "tone": "Engaging & Informative",
-                "aesthetic": "Modern Minimalist",
-                "default_targets": ["ig", "yt"],
-            },
-            cadence={
-                "posts_per_day": 2,
-                "slots": ["10:00", "18:00"],
-            },
+            taste=default_user_taste(),
+            cadence=default_user_cadence(),
         )
         s.add(user)
         try:
@@ -292,7 +285,11 @@ async def google_callback(request: Request, background_tasks: BackgroundTasks):
                 role="client",
                 via_google=True,
                 email_verified_at=datetime.now(timezone.utc),
-                config_completed=False,
+                config_completed=True,
+                subscription_tier="free",
+                subscription_status="active",
+                taste=default_user_taste(),
+                cadence=default_user_cadence(),
             )
             s.add(user)
             s.flush()

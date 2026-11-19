@@ -30,6 +30,38 @@ def is_tech_niche(niche: str | None) -> bool:
     return bool(_TECH_NICHE_RE.search(niche))
 
 
+def default_user_taste() -> dict[str, Any]:
+    """Smart defaults provisioned automatically on client signup for zero-friction onboarding."""
+    return {
+        "niche": "Software Engineering & AI",
+        "tone": "Educational & Insightful",
+        "content_type": "Educational & How-To",
+        "aesthetic": "Dark Minimalist Luxury",
+        "template_style": "Technical Dark",
+        "target_audience": "Developers & Tech Founders",
+        "prompt_instructions": "Focus on actionable engineering insights, architecture patterns, and practical coding value.",
+        "categories": [
+            {"name": "System Design & Architecture", "weight": 30, "keywords": ["microservices", "scaling", "caching", "sql"]},
+            {"name": "AI & Agentic Systems", "weight": 30, "keywords": ["llm", "agents", "rag", "evals"]},
+            {"name": "Engineering Culture & Productivity", "weight": 20, "keywords": ["devtools", "ci/cd", "career", "clean code"]},
+            {"name": "Cloud Infra & Security", "weight": 20, "keywords": ["docker", "k8s", "aws", "security"]},
+        ],
+        "default_targets": ["ig", "yt"],
+        "default_language": "en",
+        "default_post_format": "carousel",
+        "target_duration": "20-25",
+    }
+
+
+def default_user_cadence() -> dict[str, Any]:
+    """Smart cadence defaults provisioned automatically on client signup."""
+    return {
+        "posts_per_day": 2,
+        "slots": ["10:00", "18:00"],
+        "schedule_mode": "uniform",
+    }
+
+
 def clean_category_name(value: Any) -> str:
     """Validate and normalize a category name (1..64 Unicode chars, no control or markup metachars)."""
     text = " ".join(str(value or "").split())

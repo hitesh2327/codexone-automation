@@ -4,6 +4,7 @@ import { RefreshCw, TriangleAlert } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { PageHeader } from "@/components/page-header";
+import { QuickConnectBanner } from "@/components/dashboard/quick-connect-banner";
 import { Cadence } from "@/components/dashboard/cadence";
 import { PipelineConsole, Turnaround } from "@/components/dashboard/engine";
 import { Funnel, Mix } from "@/components/dashboard/funnel-mix";
@@ -164,6 +165,8 @@ export default function Dashboard() {
               <Stamp data={data} fetchedAt={fetchedAt} stale={stale} loading={loading} onRefresh={() => void reload()} />
               </>}
             />
+
+            <QuickConnectBanner />
 
             {error && (
               <div role="alert" className="flex flex-wrap items-center gap-3 border-l-[3px] border-bad bg-bad/10 py-2.5 pr-3 pl-4 text-sm text-bad">

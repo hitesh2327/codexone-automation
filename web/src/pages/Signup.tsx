@@ -51,7 +51,7 @@ export default function Signup({ brand }: { brand: Brand | null }) {
 
   useEffect(() => {
     if (user) {
-      navigate("/config", { replace: true, state: { onboarding: true } });
+      navigate("/dashboard", { replace: true });
     }
   }, [user, navigate]);
 
@@ -89,7 +89,7 @@ export default function Signup({ brand }: { brand: Brand | null }) {
         password,
         name: name.trim() || username.trim(),
       });
-      navigate("/config", { replace: true, state: { onboarding: true } });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message || "Failed to create account.");

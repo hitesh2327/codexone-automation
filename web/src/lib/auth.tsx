@@ -139,7 +139,7 @@ export function useAuth(): AuthState {
 }
 
 /** Renders children only when signed in; otherwise redirects to /login. If config is incomplete, redirects to /config. */
-export function RequireAuth({ children, allowUnconfigured = false }: { children: ReactNode; allowUnconfigured?: boolean }) {
+export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) {
@@ -150,17 +150,6 @@ export function RequireAuth({ children, allowUnconfigured = false }: { children:
     );
   }
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (
-    user.config_completed === false &&
-    !allowUnconfigured &&
-    !user.impersonated_by &&
-    !location.pathname.startsWith("/config") &&
-    !location.pathname.startsWith("/profile") &&
-    !location.pathname.startsWith("/subscription") &&
-    !location.pathname.startsWith("/admin")
-  ) {
-    return <Navigate to="/config" replace state={{ onboarding: true }} />;
-  }
   return <>{children}</>;
 }
 
