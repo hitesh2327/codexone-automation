@@ -92,8 +92,11 @@ export const deleteUserIntegration = (key: string) =>
   api<null>(`/api/integrations/${key}`, { method: "DELETE" });
 
 export type TelegramLinkResponse = { url: string; bot_username: string; using_custom_bot: boolean; expires_in: number };
-export const createTelegramLink = () =>
-  api<TelegramLinkResponse>("/api/integrations/telegram/link", { method: "POST" });
+export const createTelegramLink = (botName?: string) =>
+  api<TelegramLinkResponse>("/api/integrations/telegram/link", {
+    method: "POST",
+    body: botName ? { bot_name: botName } : undefined,
+  });
 export const confirmTelegramLink = (signal?: AbortSignal) =>
   api<{ connected: boolean; chat_id?: string; chat_title?: string | null }>("/api/integrations/telegram/confirm", { method: "POST", signal });
 export const setCustomTelegramBot = (token: string) =>

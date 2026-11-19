@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
 import { ApiError } from "@/lib/api";
 import {
   confirmTelegramLink, createTelegramLink, deleteUserIntegration, getUserIntegrations, putUserIntegration,
@@ -32,6 +33,7 @@ function TelegramSection({
   const [error, setError] = useState<string | null>(null);
   const [showBotForm, setShowBotForm] = useState(false);
   const [showNameForm, setShowNameForm] = useState(false);
+  const [showConnectBotDialog, setShowConnectBotDialog] = useState(false);
   const [botNameInput, setBotNameInput] = useState("");
   const [botToken, setBotToken] = useState("");
   const [manualChatId, setManualChatId] = useState("");
@@ -80,13 +82,18 @@ function TelegramSection({
     }
   }, [onSaved, stopPolling]);
 
-  async function handleConnect() {
+  function handleConnect() {
+    setShowConnectBotDialog(true);
+  }
+
+  async function handleConfirmConnect(botName: string) {
     setBusy("link");
     setError(null);
     stopPolling();
     try {
-      const res = await createTelegramLink();
+      const res = await createTelegramLink(botName);
       setLink(res);
+      setShowConnectBotDialog(false);
       window.open(res.url, "_blank", "noopener,noreferrer");
       const deadline = Date.now() + 120_000;
       pollTimer.current = window.setInterval(() => {
@@ -384,6 +391,14 @@ function TelegramSection({
 
         {error && <p className="text-xs text-bad">{error}</p>}
       </CardContent>
+
+      <ConnectBotDialog
+        open={showConnectBotDialog}
+        onOpenChange={setShowConnectBotDialog}
+        initialBotName={meta?.bot_name || "CodeXone Assistant"}
+        onConfirm={handleConfirmConnect}
+        isConnecting={busy === "link"}
+      />
     </Card>
   );
 }

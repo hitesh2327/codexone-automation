@@ -4,6 +4,8 @@ import { ArrowRight, CheckCircle2, Circle, ExternalLink, LoaderCircle, Send, Spa
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
+import { useAuth } from "@/lib/auth";
 import { createTelegramLink, getUserIntegrations } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +20,15 @@ export function QuickConnectBanner() {
     }
   });
 
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [tgConnected, setTgConnected] = useState(false);
   const [igConnected, setIgConnected] = useState(false);
   const [ytConnected, setYtConnected] = useState(false);
   const [busyTg, setBusyTg] = useState(false);
+  const [botDialogOpen, setBotDialogOpen] = useState(false);
+
+  const defaultBotName = user?.name ? `${user.name}'s Assistant` : "CodeXone Assistant";
 
   const loadStatus = useCallback(async () => {
     try {
@@ -52,13 +58,18 @@ export function QuickConnectBanner() {
     }
   };
 
-  const handleConnectTelegram = async () => {
+  const handleOpenConnectDialog = () => {
+    setBotDialogOpen(true);
+  };
+
+  const handleConfirmConnectBot = async (botName: string) => {
     setBusyTg(true);
     try {
-      const res = await createTelegramLink();
+      const res = await createTelegramLink(botName);
+      setBotDialogOpen(false);
       window.open(res.url, "_blank", "noopener,noreferrer");
       toast.success("Opened Telegram! Tap 'Start' in the bot to link your account.", {
-        description: "Your dashboard will automatically recognize the connection.",
+        description: `Your chatbot '${botName}' is ready to link.`,
       });
     } catch (err: any) {
       toast.error(err?.message || "Could not generate Telegram link. Please try again.");
@@ -144,7 +155,7 @@ export function QuickConnectBanner() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleConnectTelegram}
+                onClick={handleOpenConnectDialog}
                 disabled={busyTg}
                 className="w-full text-xs font-medium hover:border-sky-500/50 hover:text-sky-400"
               >
@@ -241,6 +252,14 @@ export function QuickConnectBanner() {
           </div>
         </div>
       </div>
+
+      <ConnectBotDialog
+        open={botDialogOpen}
+        onOpenChange={setBotDialogOpen}
+        initialBotName={defaultBotName}
+        onConfirm={handleConfirmConnectBot}
+        isConnecting={busyTg}
+      />
     </div>
   );
 }

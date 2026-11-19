@@ -17,7 +17,7 @@ import hashlib
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.app.deps import CurrentUser, current_user
@@ -111,8 +111,12 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
 
 
 
+class CreateTelegramLinkBody(BaseModel):
+    bot_name: str | None = Field(default=None, max_length=64)
+
+
 @router.post("/telegram/link")
-def create_telegram_link(cu: CurrentUser = Depends(current_user)) -> dict:
+def create_telegram_link(body: CreateTelegramLinkBody | None = Body(default=None), cu: CurrentUser = Depends(current_user)) -> dict:
     """Create a single-use deep link https://t.me/<bot>?start=<nonce> scoped strictly to `cu.id`."""
     _rate(cu)
     token, is_custom = _effective_tg_token(cu.id)
@@ -127,6 +131,12 @@ def create_telegram_link(cu: CurrentUser = Depends(current_user)) -> dict:
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "telegram.token_format", "message": CODES["telegram.token_format"].message},
         )
+    if body and body.bot_name and body.bot_name.strip():
+        clean_name = body.bot_name.strip()
+        try:
+            tg.set_bot_name(token, clean_name)
+        except Exception as set_err:
+            log.warning("failed to set bot name on link creation: %s", set_err)
     try:
         me, err = tg._call(token, "getMe")
     except Unreachable:
