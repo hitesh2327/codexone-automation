@@ -68,7 +68,7 @@ Resources:
       PackageType: Image
       Code: {ImageUri: !Ref ImageUri}
       Role: !GetAtt ApiRole.Arn
-      Timeout: 30
+      Timeout: 60
       MemorySize: 1024
       ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref "AWS::NoValue"]
       Environment:

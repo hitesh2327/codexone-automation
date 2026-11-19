@@ -290,14 +290,29 @@ def _check_ai_rate(user_id: int) -> None:
         )
     ai_limiter.hit(key)
 
+def _make_gemini_client(genai_mod, types_mod, api_key: str):
+    try:
+        return genai_mod.Client(
+            api_key=api_key,
+            http_options=types_mod.HttpOptions(
+                timeout=10000,
+                retry_options=types_mod.HttpRetryOptions(attempts=1),
+            ),
+        )
+    except TypeError:
+        return genai_mod.Client(api_key=api_key)
+
+
 @router.post("/suggest-schedule")
 def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
     """Ask Gemini for optimal posting times based on the user's niche and platforms."""
     _check_ai_rate(cu.id)
     import json as _json
+    import time as _time
     from src.config import get_env
     try:
         from google import genai
+        from google.genai import types
     except ImportError:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Gemini SDK not available")
 
@@ -333,11 +348,21 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
         out["reasoning"] = "Default peak engagement slots (API key not configured)."
         return out
 
-    candidate_models = [get_env("GEMINI_MODEL", required=False, default="gemini-2.5-flash"), "gemini-flash-latest", "gemini-3.8-flash", "gemini-1.5-flash"]
+    candidate_models = [
+        get_env("GEMINI_MODEL", required=False, default="gemini-3.5-flash-lite"),
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-3.8-flash",
+    ]
     result: dict | None = None
+    deadline = _time.monotonic() + 10.0
     for m in dict.fromkeys(candidate_models):
+        if _time.monotonic() >= deadline:
+            log.warning("suggest-schedule: deadline reached before trying %s", m)
+            break
         try:
-            client = genai.Client(api_key=api_key)
+            client = _make_gemini_client(genai, types, api_key)
             resp = client.models.generate_content(
                 model=m,
                 contents=prompt,
@@ -372,9 +397,11 @@ def suggest_categories(
     """Ask Gemini to suggest 4-6 content categories for the user's niche."""
     _check_ai_rate(cu.id)
     import json as _json
+    import time as _time
     from src.config import get_env
     try:
         from google import genai
+        from google.genai import types
     except ImportError:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Gemini SDK not available")
 
@@ -402,12 +429,22 @@ def suggest_categories(
     )
 
     api_key = get_env("GEMINI_API_KEY", required=False)
-    candidate_models = [get_env("GEMINI_MODEL", required=False, default="gemini-2.5-flash"), "gemini-flash-latest", "gemini-3.8-flash", "gemini-1.5-flash"]
+    candidate_models = [
+        get_env("GEMINI_MODEL", required=False, default="gemini-3.5-flash-lite"),
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-3.8-flash",
+    ]
     result: dict | None = None
     if api_key:
+        deadline = _time.monotonic() + 10.0
         for m in dict.fromkeys(candidate_models):
+            if _time.monotonic() >= deadline:
+                log.warning("suggest-categories: deadline reached before trying %s", m)
+                break
             try:
-                client = genai.Client(api_key=api_key)
+                client = _make_gemini_client(genai, types, api_key)
                 resp = client.models.generate_content(
                     model=m,
                     contents=prompt,

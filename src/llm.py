@@ -15,11 +15,11 @@ from src.logger import get_logger
 log = get_logger("llm")
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_MODEL = "gemini-flash-latest"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 # A long chain matters: the free tier returns 503 "overloaded" in waves, and a whole daily
 # run is lost if every model is busy at once. Unknown names are skipped on their 404.
-DEFAULT_FALLBACKS = ("gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.7-flash,"
-                     "gemini-3.5-flash-lite,gemini-3.6-flash")
+DEFAULT_FALLBACKS = ("gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.8-flash,"
+                     "gemini-3.6-flash,gemini-3.7-flash")
 # Without a timeout one stalled request blocked a Regenerate until GitHub killed the job at 30 minutes
 # (28 Oct). A slow but healthy scene call takes ~2 minutes; a stalled one moves on to the next model.
 TIMEOUT_S = 150
