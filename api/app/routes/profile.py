@@ -295,7 +295,7 @@ def _make_gemini_client(genai_mod, types_mod, api_key: str):
         return genai_mod.Client(
             api_key=api_key,
             http_options=types_mod.HttpOptions(
-                timeout=8,
+                timeout=10000,
                 retry_options=types_mod.HttpRetryOptions(attempts=1),
             ),
         )
@@ -353,14 +353,14 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
     )
 
     candidate_models = [
-        get_env("GEMINI_MODEL", required=False, default="gemini-2.5-flash"),
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-2.5-flash-lite",
+        get_env("GEMINI_MODEL", required=False, default="gemini-3.5-flash-lite"),
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
     ]
     result: dict | None = None
-    deadline = _time.monotonic() + 8.0
+    deadline = _time.monotonic() + 10.0
     for m in dict.fromkeys(candidate_models):
         if _time.monotonic() >= deadline:
             log.warning("suggest-schedule: deadline reached before trying %s", m)
@@ -454,14 +454,14 @@ def suggest_categories(
     )
 
     candidate_models = [
-        get_env("GEMINI_MODEL", required=False, default="gemini-2.5-flash"),
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-2.5-flash-lite",
+        get_env("GEMINI_MODEL", required=False, default="gemini-3.5-flash-lite"),
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
     ]
     result: dict | None = None
-    deadline = _time.monotonic() + 8.0
+    deadline = _time.monotonic() + 10.0
     for m in dict.fromkeys(candidate_models):
         if _time.monotonic() >= deadline:
             log.warning("suggest-categories: deadline reached before trying %s", m)

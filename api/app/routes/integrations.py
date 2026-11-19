@@ -93,6 +93,25 @@ def _effective_yt_client(user_id: int) -> tuple[str | None, str | None]:
     return client_id, client_secret
 
 
+def _effective_ig_client(user_id: int) -> tuple[str | None, str | None]:
+    """Return (app_id, app_secret) for Instagram OAuth."""
+    custom_id = user_config_store.lookup("IG_APP_ID", user_id)
+    custom_sec = user_config_store.lookup("IG_APP_SECRET", user_id)
+    app_id = (
+        custom_id
+        or get_env("INSTAGRAM_APP_ID", required=False)
+        or get_env("META_APP_ID", required=False)
+        or get_env("IG_APP_ID", required=False)
+    )
+    app_secret = (
+        custom_sec
+        or get_env("INSTAGRAM_APP_SECRET", required=False)
+        or get_env("META_APP_SECRET", required=False)
+        or get_env("IG_APP_SECRET", required=False)
+    )
+    return app_id, app_secret
+
+
 def _sign_oauth_state(user_id: int, provider: str = "youtube") -> str:
     nonce = secrets.token_urlsafe(16)
     ts = int(time.time())
@@ -167,6 +186,12 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
     yt_client_id, yt_client_sec = _effective_yt_client(cu.id)
     yt_privacy = data.get("YT_PRIVACY") or "public"
 
+    ig_token = data.get("IG_ACCESS_TOKEN")
+    ig_account = db.get_setting(f"ig_account:{cu.id}") or {}
+    if not isinstance(ig_account, dict):
+        ig_account = {}
+    ig_app_id, ig_app_sec = _effective_ig_client(cu.id)
+
     return {
         "values": {
             k: {"set": data.get(k) is not None, "masked": _mask(k, data.get(k))}
@@ -188,6 +213,14 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
             "channel_thumb": yt_channel.get("thumb"),
             "privacy": yt_privacy,
             "oauth_configured": bool(yt_client_id and yt_client_sec),
+        },
+        "instagram": {
+            "connected": bool(ig_token),
+            "account_id": ig_account.get("user_id") or data.get("IG_USER_ID"),
+            "username": ig_account.get("username"),
+            "name": ig_account.get("name"),
+            "profile_picture": ig_account.get("thumb"),
+            "oauth_configured": bool(ig_app_id and ig_app_sec),
         },
     }
 
@@ -551,6 +584,175 @@ def unlink_youtube(cu: CurrentUser = Depends(current_user)) -> None:
         except Exception:
             pass
     activity.record("integration.youtube.unlinked", "Unlinked YouTube channel", source="integrations", actor=_actor(cu))
+
+
+# --------------------------------------------------------------------------- #
+# Instagram OAuth 1-Click Connect
+# --------------------------------------------------------------------------- #
+@router.post("/instagram/link")
+def create_instagram_link(cu: CurrentUser = Depends(current_user)) -> dict:
+    """Generate Instagram OAuth consent URL for 1-click Instagram Professional/Creator connection."""
+    _rate(cu)
+    app_id, app_secret = _effective_ig_client(cu.id)
+    if not (app_id and app_secret):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "instagram.not_configured",
+                "message": "Instagram 1-click connect is not configured on this server yet. Enter your access token in Custom settings or ask the owner to set INSTAGRAM_APP_ID/INSTAGRAM_APP_SECRET.",
+            },
+        )
+    pub_url = (get_env("PUBLIC_URL", required=False) or "").rstrip("/")
+    if not pub_url:
+        pub_url = f"https://{settings().web_origin}" if settings().web_origin else ""
+    if not pub_url:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "PUBLIC_URL is not configured")
+
+    state = _sign_oauth_state(cu.id, "instagram")
+    redirect_uri = f"{pub_url}/api/integrations/instagram/callback"
+    params = {
+        "enable_fb_login": "0",
+        "force_authentication": "1",
+        "client_id": app_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "instagram_business_basic,instagram_business_content_publish",
+        "state": state,
+    }
+    url = f"https://www.instagram.com/oauth/authorize?{urlencode(params)}"
+    return {"url": url}
+
+
+@public_router.get("/instagram/callback")
+def instagram_oauth_callback(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_reason: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+) -> RedirectResponse:
+    """Meta OAuth callback for 1-click Instagram connection."""
+    pub_url = (get_env("PUBLIC_URL", required=False) or "").rstrip("/")
+    if not pub_url:
+        pub_url = f"https://{settings().web_origin}" if settings().web_origin else ""
+
+    if error:
+        log.warning("instagram oauth access denied: %s %s %s", error, error_reason, error_description)
+        return RedirectResponse(f"{pub_url}/config?error=instagram_access_denied", status_code=303)
+
+    if not (code and state):
+        return RedirectResponse(f"{pub_url}/config?error=instagram_missing_code", status_code=303)
+
+    user_id = _verify_oauth_state(state, "instagram")
+    if user_id is None:
+        log.warning("instagram oauth callback: invalid or expired state")
+        return RedirectResponse(f"{pub_url}/config?error=instagram_invalid_state", status_code=303)
+
+    app_id, app_secret = _effective_ig_client(user_id)
+    if not (app_id and app_secret):
+        log.error("instagram oauth callback: app credentials missing for user %s", user_id)
+        return RedirectResponse(f"{pub_url}/config?error=instagram_not_configured", status_code=303)
+
+    redirect_uri = f"{pub_url}/api/integrations/instagram/callback"
+
+    # Step 1: Exchange auth code for short-lived token
+    try:
+        resp = requests.post(
+            "https://api.instagram.com/oauth/access_token",
+            data={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+                "code": code,
+            },
+            timeout=15,
+        )
+        token_data = resp.json() if resp.ok else {}
+    except Exception as e:
+        log.error("instagram oauth token exchange network error: %s", e)
+        return RedirectResponse(f"{pub_url}/config?error=instagram_network_error", status_code=303)
+
+    if resp.status_code != 200 or "access_token" not in token_data:
+        log.error("instagram oauth code exchange failed: %s %s", resp.status_code, token_data)
+        return RedirectResponse(f"{pub_url}/config?error=instagram_auth_failed", status_code=303)
+
+    short_token = token_data["access_token"]
+    short_user_id = token_data.get("user_id")
+
+    # Step 2: Exchange short-lived token for 60-day long-lived token
+    long_token = short_token
+    try:
+        ll_resp = requests.get(
+            "https://graph.instagram.com/access_token",
+            params={
+                "grant_type": "ig_exchange_token",
+                "client_secret": app_secret,
+                "access_token": short_token,
+            },
+            timeout=15,
+        )
+        if ll_resp.status_code == 200:
+            ll_data = ll_resp.json()
+            if "access_token" in ll_data:
+                long_token = ll_data["access_token"]
+        else:
+            log.warning("instagram long-lived token exchange returned %s; using short-lived token", ll_resp.status_code)
+    except Exception as e:
+        log.warning("failed to exchange for long-lived instagram token: %s", e)
+
+    # Step 3: Fetch Instagram account profile metadata
+    ig_user_id = str(short_user_id or "")
+    username = ""
+    name = ""
+    profile_pic = ""
+    try:
+        me_resp = requests.get(
+            "https://graph.instagram.com/v21.0/me",
+            params={
+                "fields": "user_id,username,name,profile_picture_url",
+                "access_token": long_token,
+            },
+            timeout=15,
+        )
+        if me_resp.status_code == 200:
+            me_data = me_resp.json()
+            ig_user_id = str(me_data.get("user_id") or me_data.get("id") or ig_user_id)
+            username = me_data.get("username") or ""
+            name = me_data.get("name") or ""
+            profile_pic = me_data.get("profile_picture_url") or ""
+    except Exception as e:
+        log.warning("failed to fetch instagram profile metadata: %s", e)
+
+    # Persist credentials and metadata
+    to_save = {"IG_ACCESS_TOKEN": long_token}
+    if ig_user_id:
+        to_save["IG_USER_ID"] = ig_user_id
+    user_config_store.save(user_id, to_save, actor=f"user {user_id}")
+
+    db.set_setting(f"ig_account:{user_id}", {
+        "user_id": ig_user_id,
+        "username": username,
+        "name": name,
+        "thumb": profile_pic,
+        "connected_at": datetime.now(timezone.utc).isoformat(),
+    })
+    activity.record(
+        "integration.instagram.connected",
+        f"Connected Instagram account @{username} ({ig_user_id})",
+        source="integrations",
+        actor=f"user {user_id}",
+    )
+    return RedirectResponse(f"{pub_url}/config?connected=instagram", status_code=303)
+
+
+@router.delete("/instagram", status_code=status.HTTP_204_NO_CONTENT)
+def unlink_instagram(cu: CurrentUser = Depends(current_user)) -> None:
+    """Unlink Instagram account and remove stored tokens."""
+    user_config_store.delete(cu.id, "IG_ACCESS_TOKEN")
+    user_config_store.delete(cu.id, "IG_USER_ID")
+    db.set_setting(f"ig_account:{cu.id}", None)
+    activity.record("integration.instagram.unlinked", "Unlinked Instagram account", source="integrations", actor=_actor(cu))
 
 
 class PutBody(BaseModel):

@@ -11,10 +11,20 @@ function YouTubeIcon({ className }: { className?: string }) {
   );
 }
 
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  );
+}
+
 import { Button } from "@/components/ui/button";
 import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
 import { useAuth } from "@/lib/auth";
-import { createTelegramLink, createYouTubeLink, getUserIntegrations } from "@/lib/config";
+import { createInstagramLink, createTelegramLink, createYouTubeLink, getUserIntegrations } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "mintly_dismiss_quick_connect";
@@ -32,9 +42,11 @@ export function QuickConnectBanner() {
   const [loading, setLoading] = useState(true);
   const [tgConnected, setTgConnected] = useState(false);
   const [igConnected, setIgConnected] = useState(false);
+  const [igAccountInfo, setIgAccountInfo] = useState<string | null>(null);
   const [ytConnected, setYtConnected] = useState(false);
   const [ytChannelInfo, setYtChannelInfo] = useState<string | null>(null);
   const [busyTg, setBusyTg] = useState(false);
+  const [busyIg, setBusyIg] = useState(false);
   const [busyYt, setBusyYt] = useState(false);
   const [botDialogOpen, setBotDialogOpen] = useState(false);
 
@@ -44,7 +56,11 @@ export function QuickConnectBanner() {
     try {
       const data = await getUserIntegrations();
       setTgConnected(Boolean(data.telegram?.connected || data.values?.TG_CHAT_ID?.set));
-      setIgConnected(Boolean(data.values?.IG_USER_ID?.set && data.values?.IG_ACCESS_TOKEN?.set));
+      const igIsConn = Boolean(data.instagram?.connected || (data.values?.IG_USER_ID?.set && data.values?.IG_ACCESS_TOKEN?.set));
+      setIgConnected(igIsConn);
+      if (igIsConn && data.instagram) {
+        setIgAccountInfo(data.instagram.username || null);
+      }
       const ytIsConn = Boolean(data.youtube?.connected || data.values?.YT_REFRESH_TOKEN?.set);
       setYtConnected(ytIsConn);
       if (ytIsConn && data.youtube) {
@@ -73,12 +89,29 @@ export function QuickConnectBanner() {
       params.delete("connected");
       const next = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", next);
+    } else if (params.get("connected") === "instagram") {
+      toast.success("Instagram account connected!", {
+        description: "Your account is ready for auto-publishing approved reels and carousels.",
+      });
+      loadStatus();
+      params.delete("connected");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
     } else if (params.get("error")?.startsWith("youtube")) {
       const err = params.get("error") || "";
       const msg = err.includes("no_youtube_channel")
         ? "No YouTube channel found on this Google account. Please create a channel on youtube.com first."
         : "YouTube connection was cancelled or rejected. Please try again.";
       toast.error("Could not connect YouTube", { description: msg });
+      params.delete("error");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    } else if (params.get("error")?.startsWith("instagram")) {
+      const err = params.get("error") || "";
+      const msg = err.includes("access_denied")
+        ? "Instagram connection permission was declined. Please try again."
+        : "Instagram connection could not be completed. Please try again.";
+      toast.error("Could not connect Instagram", { description: msg });
       params.delete("error");
       const next = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", next);
@@ -218,7 +251,8 @@ export function QuickConnectBanner() {
           <div>
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                📸 Instagram
+                <InstagramIcon className="size-3.5 text-pink-500" />
+                Instagram
               </span>
               {igConnected ? (
                 <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
@@ -231,18 +265,42 @@ export function QuickConnectBanner() {
               )}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Auto-publish 20–25s high-retention Reels &amp; carousels.
+              {igConnected && igAccountInfo
+                ? `Connected as @${igAccountInfo}. Auto-publishes approved Reels.`
+                : "Auto-publish 20–25s high-retention Reels & carousels."}
             </p>
           </div>
           <div className="mt-3">
             {igConnected ? (
               <span className="text-[11px] text-muted-foreground/70">Ready to publish</span>
             ) : (
-              <Button asChild variant="outline" size="sm" className="w-full text-xs font-medium">
-                <Link to="/config">
-                  Connect Instagram
-                  <ArrowRight className="ml-1 size-3" />
-                </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  setBusyIg(true);
+                  try {
+                    const res = await createInstagramLink();
+                    window.location.href = res.url;
+                  } catch (err: any) {
+                    toast.error(err?.message || "Could not initialize Instagram connection.");
+                    setBusyIg(false);
+                  }
+                }}
+                disabled={busyIg}
+                className="w-full text-xs font-medium hover:border-pink-500/40 hover:bg-pink-500/10 hover:text-pink-500"
+              >
+                {busyIg ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                    Opening Meta…
+                  </>
+                ) : (
+                  <>
+                    <InstagramIcon className="mr-1.5 size-3.5 text-pink-500" />
+                    Connect Instagram
+                  </>
+                )}
               </Button>
             )}
           </div>

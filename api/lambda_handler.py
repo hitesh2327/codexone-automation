@@ -1,17 +1,22 @@
 """AWS Lambda entry point (behind CloudFront). Handler: api.lambda_handler.handler
 
-Cold start: make /tmp-backed working folders, load secrets from SSM Parameter Store into the
-environment, then import the app (its settings read the environment on import).
+Cold start: make /tmp-backed working folders. App and secrets are loaded lazily on the first request
+to guarantee container boot stays under AWS Lambda's 10-second INIT timeout ceiling.
 """
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from pathlib import Path
+from typing import Any
 
 # Lambda's filesystem is read-only except /tmp; the image symlinks logs/ data/ output/ here.
 for _d in ("logs", "data", "output"):
     Path("/tmp", _d).mkdir(parents=True, exist_ok=True)
+
+_mangum_app = None
+log = logging.getLogger("codexone.api")
 
 
 def _load_secrets() -> None:
@@ -31,41 +36,40 @@ def _load_secrets() -> None:
             break
 
 
-_load_secrets()
+def _get_mangum_app():
+    global _mangum_app
+    if _mangum_app is not None:
+        return _mangum_app
 
-from mangum import Mangum  # noqa: E402
+    _load_secrets()
 
-from api.app.main import app  # noqa: E402
+    from mangum import Mangum
+    from api.app.main import app, sync_admin
 
-_VERIFY = os.environ.get("ORIGIN_VERIFY", "")
-_admin_initialized = False
+    try:
+        sync_admin()
+    except Exception as e:
+        log.warning("sync_admin failed during lazy init: %s", e)
 
+    _verify = os.environ.get("ORIGIN_VERIFY", "")
 
-def _ensure_admin_initialized() -> None:
-    global _admin_initialized
-    if not _admin_initialized:
-        try:
-            from api.app.main import sync_admin
-            sync_admin()
-        except Exception as e:
-            import logging
-            logging.getLogger("codexone.api").warning("sync_admin failed during lazy init: %s", e)
-        _admin_initialized = True
+    async def guarded(scope, receive, send):
+        """Only CloudFront may call the function URL: it adds X-Origin-Verify, so anyone hitting the
+        raw *.lambda-url.* address directly gets a 403 before the app sees the request."""
+        if scope["type"] == "http" and _verify:
+            sent = dict(scope["headers"]).get(b"x-origin-verify", b"").decode()
+            if not hmac.compare_digest(sent, _verify):
+                await send({"type": "http.response.start", "status": 403,
+                            "headers": [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": b'{"detail":"Forbidden"}'})
+                return
+        await app(scope, receive, send)
 
-
-async def guarded(scope, receive, send):
-    """Only CloudFront may call the function URL: it adds X-Origin-Verify, so anyone hitting the
-    raw *.lambda-url.* address directly gets a 403 before the app sees the request."""
-    if scope["type"] == "http" and _VERIFY:
-        sent = dict(scope["headers"]).get(b"x-origin-verify", b"").decode()
-        if not hmac.compare_digest(sent, _VERIFY):
-            await send({"type": "http.response.start", "status": 403,
-                        "headers": [(b"content-type", b"application/json")]})
-            await send({"type": "http.response.body", "body": b'{"detail":"Forbidden"}'})
-            return
-    if scope["type"] == "http":
-        _ensure_admin_initialized()
-    await app(scope, receive, send)
+    _mangum_app = Mangum(guarded, lifespan="off")
+    return _mangum_app
 
 
-handler = Mangum(guarded, lifespan="off")
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    app_instance = _get_mangum_app()
+    return app_instance(event, context)
+

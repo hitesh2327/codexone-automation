@@ -92,10 +92,19 @@ export type YouTubeMeta = {
   privacy?: string;
   oauth_configured: boolean;
 };
+export type InstagramMeta = {
+  connected: boolean;
+  account_id?: string | null;
+  username?: string | null;
+  name?: string | null;
+  profile_picture?: string | null;
+  oauth_configured: boolean;
+};
 export type UserIntegrationsResponse = {
   values: Record<string, KeyStatus>;
   telegram?: TelegramMeta;
   youtube?: YouTubeMeta;
+  instagram?: InstagramMeta;
 };
 
 export const getUserIntegrations = () => api<UserIntegrationsResponse>("/api/integrations");
@@ -123,3 +132,8 @@ export const createYouTubeLink = () =>
   api<{ url: string; expires_in: number }>("/api/integrations/youtube/link", { method: "POST" });
 export const unlinkYouTube = () =>
   api<null>("/api/integrations/youtube", { method: "DELETE" });
+
+export const createInstagramLink = () =>
+  api<{ url: string }>("/api/integrations/instagram/link", { method: "POST" });
+export const unlinkInstagram = () =>
+  api<null>("/api/integrations/instagram", { method: "DELETE" });

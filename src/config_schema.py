@@ -79,6 +79,8 @@ FIELDS: tuple[Field, ...] = (
     # Not verified from the dashboard yet (listed so status and readiness can show them honestly)
     Field("IG_ACCESS_TOKEN", "instagram", "Access token", True, True, "a long token from the Meta App Dashboard", "", per_user=True),
     Field("IG_USER_ID", "instagram", "Instagram user ID", False, False, "17841400000000000", "", per_user=True),
+    Field("IG_APP_ID", "instagram", "Meta App ID", False, False, "123456789012345", "Optional custom Meta App ID.", per_user=True, advanced=True),
+    Field("IG_APP_SECRET", "instagram", "Meta App Secret", True, False, "a1b2c3d4e5...", "Optional custom Meta App Secret.", per_user=True, advanced=True),
     Field("YT_CLIENT_ID", "youtube", "OAuth client ID", False, True, "....apps.googleusercontent.com", "", per_user=True),
     Field("YT_CLIENT_SECRET", "youtube", "OAuth client secret", True, True, "GOCSPX-...", "", per_user=True),
     Field("YT_REFRESH_TOKEN", "youtube", "Refresh token", True, True, "1//...", "", per_user=True),

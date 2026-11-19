@@ -13,6 +13,16 @@ function YouTubeIcon({ className }: { className?: string }) {
   );
 }
 
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  );
+}
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,8 +30,8 @@ import { Label } from "@/components/ui/label";
 import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
 import { ApiError } from "@/lib/api";
 import {
-  confirmTelegramLink, createTelegramLink, createYouTubeLink, deleteUserIntegration, getUserIntegrations, putUserIntegration,
-  setCustomTelegramBot, setTelegramBotName, unlinkTelegram, unlinkYouTube, type KeyStatus, type TelegramLinkResponse, type TelegramMeta, type YouTubeMeta,
+  confirmTelegramLink, createInstagramLink, createTelegramLink, createYouTubeLink, deleteUserIntegration, getUserIntegrations, putUserIntegration,
+  setCustomTelegramBot, setTelegramBotName, unlinkInstagram, unlinkTelegram, unlinkYouTube, type InstagramMeta, type KeyStatus, type TelegramLinkResponse, type TelegramMeta, type YouTubeMeta,
 } from "@/lib/config";
 
 // ------------------------------------------------------------------------------------------------
@@ -411,117 +421,6 @@ function TelegramSection({
   );
 }
 
-// ------------------------------------------------------------------------------------------------
-// One section (e.g. Instagram) with a set of fields and a single Save button
-// ------------------------------------------------------------------------------------------------
-type SectionField = { key: string; label: string; secret: boolean; placeholder: string; choices?: string[] };
-
-function IntegrationSection({
-  title,
-  fields,
-  statuses,
-  onSaved,
-}: {
-  title: string;
-  fields: SectionField[];
-  statuses: Record<string, KeyStatus>;
-  onSaved: () => void;
-}) {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSave() {
-    const toSave = Object.entries(values).filter(([, v]) => v.trim().length > 0);
-    if (!toSave.length) return;
-    setBusy(true);
-    setError(null);
-    try {
-      for (const [key, value] of toSave) {
-        await putUserIntegration(key, value.trim());
-      }
-      setValues({});
-      onSaved();
-      toast.success(`${title} saved`);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const dirty = fields.some((f) => (values[f.key] ?? "").trim().length > 0);
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {fields.map((f) => {
-          const st = statuses[f.key];
-          return (
-            <div key={f.key} className="grid gap-1.5">
-              <div className="flex items-center gap-2">
-                <Label htmlFor={`ucf-${f.key}`} className="text-sm font-medium">
-                  {f.label}
-                </Label>
-                {st?.set ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-ok">
-                    <Check className="size-3" aria-hidden />
-                    Set{st.masked ? ` · ${st.masked}` : ""}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <CircleDashed className="size-3" aria-hidden />
-                    Not set
-                  </span>
-                )}
-              </div>
-              {f.choices ? (
-                <select
-                  id={`ucf-${f.key}`}
-                  value={values[f.key] ?? ""}
-                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                  disabled={busy}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="" className="bg-popover text-popover-foreground">
-                    {st?.set ? `Current: ${st.masked ?? "set"}` : `Select ${f.label.toLowerCase()} (default: ${f.placeholder})`}
-                  </option>
-                  {f.choices.map((c) => (
-                    <option key={c} value={c} className="bg-popover text-popover-foreground">
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <Input
-                  id={`ucf-${f.key}`}
-                  type={f.secret ? "password" : "text"}
-                  placeholder={st?.set ? "Enter a new value to replace" : f.placeholder}
-                  value={values[f.key] ?? ""}
-                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                  disabled={busy}
-                  autoComplete="off"
-                  spellCheck={false}
-                  autoCapitalize="none"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  className="font-mono text-sm"
-                />
-              )}
-            </div>
-          );
-        })}
-        {error && <p className="text-xs text-bad">{error}</p>}
-        <Button size="sm" onClick={handleSave} disabled={busy || !dirty} className="w-fit">
-          {busy ? "Saving…" : `Save ${title}`}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ------------------------------------------------------------------------------------------------
 // Full component
@@ -829,17 +728,207 @@ function YouTubeSection({
 }
 
 // ------------------------------------------------------------------------------------------------
+// Instagram 1-Click Connect + Disconnect + Profile Display
+// ------------------------------------------------------------------------------------------------
+function InstagramSection({
+  statuses,
+  meta,
+  onSaved,
+}: {
+  statuses: Record<string, KeyStatus>;
+  meta?: InstagramMeta;
+  onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState<null | "link" | "unlink">(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const connected = Boolean(meta?.connected || (statuses.IG_ACCESS_TOKEN?.set && statuses.IG_USER_ID?.set));
+
+  async function handleConnect() {
+    setBusy("link");
+    setError(null);
+    try {
+      const res = await createInstagramLink();
+      window.location.href = res.url;
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not initialize Instagram connection.");
+      setBusy(null);
+    }
+  }
+
+  async function handleUnlink() {
+    setBusy("unlink");
+    setError(null);
+    try {
+      await unlinkInstagram();
+      onSaved();
+      toast.success("Instagram account disconnected");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not disconnect Instagram.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden border-border/80">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-pink-500/10 text-pink-500 dark:bg-pink-500/20 dark:text-pink-400">
+              <InstagramIcon className="size-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-semibold">Instagram Professional</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Auto-publish approved 20–25s Reels and multi-slide carousels directly to your Instagram account.
+              </p>
+            </div>
+          </div>
+          {connected ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-500 dark:text-emerald-400">
+              <Check className="size-3.5" />
+              Connected
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <CircleDashed className="size-3.5" />
+              Not connected
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4 pt-1">
+        {connected ? (
+          <div className="grid gap-4 rounded-xl border border-border/70 bg-card/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {meta?.profile_picture ? (
+                  <img
+                    src={meta.profile_picture}
+                    alt={meta.username || "Instagram Profile"}
+                    className="size-11 rounded-full border border-border object-cover"
+                  />
+                ) : (
+                  <div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <InstagramIcon className="size-5 text-pink-500" />
+                  </div>
+                )}
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground">
+                    {meta?.name || (meta?.username ? `@${meta.username}` : "Connected Instagram Account")}
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    {meta?.username ? `@${meta.username} · ` : ""}ID: {meta?.account_id || statuses.IG_USER_ID?.masked || "Linked"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleUnlink}
+                disabled={busy !== null}
+                className="text-xs text-bad hover:border-bad/40 hover:bg-bad/10"
+              >
+                {busy === "unlink" ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                    Disconnecting…
+                  </>
+                ) : (
+                  <>
+                    <Unlink className="mr-1.5 size-3.5" />
+                    Disconnect
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Connect with Meta in 1 click</p>
+              <p className="text-xs text-muted-foreground">
+                Authorize Mintly to publish approved reels &amp; carousels to your Instagram Creator or Business account.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleConnect}
+              disabled={busy !== null}
+              className="shrink-0 bg-gradient-to-r from-pink-600 to-rose-600 text-white hover:from-pink-700 hover:to-rose-700 font-medium"
+            >
+              {busy === "link" ? (
+                <>
+                  <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                  Opening Meta…
+                </>
+              ) : (
+                <>
+                  <InstagramIcon className="mr-1.5 size-4" />
+                  Connect Instagram
+                  <ExternalLink className="ml-1.5 size-3.5 opacity-70" />
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground">
+            Advanced: Enter custom Meta App credentials or manual access token
+          </summary>
+          <div className="mt-3 grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-3.5">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              If your organization uses its own Meta App or manual long-lived token from Graph API Explorer, you can override platform defaults here.
+            </p>
+            <CustomFieldEditor
+              keyName="IG_APP_ID"
+              label="Custom Meta App ID"
+              placeholder="123456789012345"
+              status={statuses.IG_APP_ID}
+              onSaved={onSaved}
+            />
+            <CustomFieldEditor
+              keyName="IG_APP_SECRET"
+              label="Custom Meta App Secret"
+              placeholder="a1b2c3d4e5..."
+              secret
+              status={statuses.IG_APP_SECRET}
+              onSaved={onSaved}
+            />
+            <CustomFieldEditor
+              keyName="IG_USER_ID"
+              label="Manual Instagram User ID"
+              placeholder="17841400000000000"
+              status={statuses.IG_USER_ID}
+              onSaved={onSaved}
+            />
+            <CustomFieldEditor
+              keyName="IG_ACCESS_TOKEN"
+              label="Manual Access Token"
+              placeholder="EAA..."
+              secret
+              status={statuses.IG_ACCESS_TOKEN}
+              onSaved={onSaved}
+            />
+          </div>
+        </details>
+
+        {error && <p className="text-xs text-bad">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------
 // Full component
 // ------------------------------------------------------------------------------------------------
-const INSTAGRAM_FIELDS: SectionField[] = [
-  { key: "IG_USER_ID", label: "Instagram user ID", secret: false, placeholder: "17841400000000000" },
-  { key: "IG_ACCESS_TOKEN", label: "Access token", secret: true, placeholder: "a long token from the Meta App Dashboard" },
-];
-
 export function UserIntegrations() {
   const [statuses, setStatuses] = useState<Record<string, KeyStatus>>({});
   const [tgMeta, setTgMeta] = useState<TelegramMeta | undefined>(undefined);
   const [ytMeta, setYtMeta] = useState<YouTubeMeta | undefined>(undefined);
+  const [igMeta, setIgMeta] = useState<InstagramMeta | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -848,6 +937,7 @@ export function UserIntegrations() {
         setStatuses(r.values);
         setTgMeta(r.telegram);
         setYtMeta(r.youtube);
+        setIgMeta(r.instagram);
         setLoadError(null);
       })
       .catch((e) => setLoadError(e instanceof ApiError ? e.message : "Couldn't load integration status."));
@@ -865,12 +955,29 @@ export function UserIntegrations() {
       params.delete("connected");
       const next = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", next);
+    } else if (params.get("connected") === "instagram") {
+      toast.success("Instagram account connected!", {
+        description: "Your account is now ready for auto-publishing approved reels and carousels.",
+      });
+      load();
+      params.delete("connected");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
     } else if (params.get("error")?.startsWith("youtube")) {
       const err = params.get("error") || "";
       const msg = err.includes("no_youtube_channel")
         ? "No YouTube channel found on this Google account. Please create a channel on youtube.com first."
         : "YouTube connection was cancelled or rejected. Please try again.";
       toast.error("Could not connect YouTube", { description: msg });
+      params.delete("error");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    } else if (params.get("error")?.startsWith("instagram")) {
+      const err = params.get("error") || "";
+      const msg = err.includes("access_denied")
+        ? "Instagram connection permission was declined. Please try again."
+        : "Instagram connection could not be completed. Please try again.";
+      toast.error("Could not connect Instagram", { description: msg });
       params.delete("error");
       const next = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", next);
@@ -888,7 +995,7 @@ export function UserIntegrations() {
       </div>
       {loadError && <p className="rounded-md border border-bad/40 bg-bad/10 p-4 text-sm text-bad">{loadError}</p>}
       <TelegramSection statuses={statuses} meta={tgMeta} onSaved={load} />
-      <IntegrationSection title="Instagram" fields={INSTAGRAM_FIELDS} statuses={statuses} onSaved={load} />
+      <InstagramSection statuses={statuses} meta={igMeta} onSaved={load} />
       <YouTubeSection statuses={statuses} meta={ytMeta} onSaved={load} />
     </div>
   );
