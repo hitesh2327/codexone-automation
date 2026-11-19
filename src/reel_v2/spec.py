@@ -285,7 +285,7 @@ DIAGRAM
 - Show the problem AND the fix on the same diagram (e.g. a node goes error, then traffic is
   rerouted, a cache starts answering, a queue absorbs a spike...).
 
-BEATS (5-7) — total narration MAX {max_words(language)} words, target duration 18–24s (high-retention sweet spot)
+BEATS (5-7) — total narration MAX {max_words(language)} words, target duration 20–25s (high-retention sweet spot)
 - Beat 1 is the scroll-stopping hook: must deliver curiosity + payload in under 2.5 seconds using one of the proven hook formulas. It must already have flows (motion from the first frame).
 - Middle beats: ONE change each (short beats are fine), the trigger word is the verb that causes
   it (flip, crash, cache...). Two changes in a row = two beats (e.g. 'Found a bug?' then 'Flip back.').

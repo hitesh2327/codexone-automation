@@ -48,6 +48,7 @@ export type User = {
     default_targets?: string[];
     default_language?: "en" | "hi";
     default_post_format?: "carousel" | "image_reel";
+    target_duration?: "16-20" | "20-25" | "25-30";
   };
   cadence?: {
     posts_per_day?: number;

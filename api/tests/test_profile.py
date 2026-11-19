@@ -342,3 +342,9 @@ def test_taste_default_language_and_post_format_validation(client, make_user):
 
     assert client.patch("/api/profile", json={"taste": {"default_language": "fr"}}).status_code == 422
     assert client.patch("/api/profile", json={"taste": {"default_post_format": "story"}}).status_code == 422
+
+    dur_ok = client.patch("/api/profile", json={"taste": {"target_duration": "20-25"}})
+    assert dur_ok.status_code == 200
+    assert dur_ok.json()["taste"]["target_duration"] == "20-25"
+
+    assert client.patch("/api/profile", json={"taste": {"target_duration": "60-90"}}).status_code == 422

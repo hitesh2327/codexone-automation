@@ -181,11 +181,11 @@ def publish_carousel(image_urls: list[str], caption: str, container_id: str | No
 
 def publish_reel(video_url: str, caption: str, container_id: str | None = None,
                  on_container: callable | None = None) -> str:
-    # No cover_url: IG put containers into ERROR with our Cloudinary cover JPEG. The first
-    # frame (thumb_offset 0) is the hook screen, which is designed to be the thumbnail.
+    # thumb_offset: 1000ms (1.0 second) ensures the video thumbnail captured by Instagram
+    # is a fully rendered, bright, and legible frame instead of a black screen.
     if not container_id:
         params = {"media_type": "REELS", "video_url": video_url, "caption": caption,
-                  "share_to_feed": "true", "thumb_offset": "0"}
+                  "share_to_feed": "true", "thumb_offset": "1000"}
         container_id = _call("POST", f"{_user()}/media", **params)["id"]
         log.info("reel container %s, waiting for processing…", container_id)
         if on_container:

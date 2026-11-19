@@ -237,6 +237,11 @@ export function TasteCadenceConfig({
   const [defaultPostFormat, setDefaultPostFormat] = useState<"carousel" | "image_reel">(
     user?.taste?.default_post_format === "image_reel" ? "image_reel" : "carousel"
   );
+  const [targetDuration, setTargetDuration] = useState<"16-20" | "20-25" | "25-30">(
+    user?.taste?.target_duration === "16-20" || user?.taste?.target_duration === "25-30"
+      ? user.taste.target_duration
+      : "20-25"
+  );
 
   const [postsPerDay, setPostsPerDay] = useState<number>(
     user?.cadence?.posts_per_day || 2
@@ -272,6 +277,7 @@ export function TasteCadenceConfig({
       if (user.taste.default_targets) setPlatforms(user.taste.default_targets);
       if (user.taste.default_language === "en" || user.taste.default_language === "hi") setDefaultLanguage(user.taste.default_language);
       if (user.taste.default_post_format === "carousel" || user.taste.default_post_format === "image_reel") setDefaultPostFormat(user.taste.default_post_format);
+      if (user.taste.target_duration === "16-20" || user.taste.target_duration === "20-25" || user.taste.target_duration === "25-30") setTargetDuration(user.taste.target_duration);
     }
     if (user?.cadence) {
       if (user.cadence.posts_per_day) setPostsPerDay(user.cadence.posts_per_day);
@@ -491,6 +497,7 @@ export function TasteCadenceConfig({
         default_targets: platforms,
         default_language: defaultLanguage,
         default_post_format: defaultPostFormat,
+        target_duration: targetDuration,
       },
       cadence: {
         posts_per_day: postsPerDay,
@@ -1144,8 +1151,8 @@ export function TasteCadenceConfig({
             </div>
           </div>
 
-          {/* Default Narration & Post Format */}
-          <div className="grid gap-4 sm:grid-cols-2">
+          {/* Default Narration, Post Format & Reel Duration */}
+          <div className="grid gap-4 sm:grid-cols-3">
             <div className="grid gap-2">
               <label className="text-xs font-medium text-muted-foreground">
                 Default Narration Language
@@ -1201,6 +1208,36 @@ export function TasteCadenceConfig({
               </div>
               <p className="text-[11px] text-muted-foreground/70">
                 Second item paired with the main reel.
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                Target Reel Duration
+              </label>
+              <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-background/50 p-1">
+                {([
+                  { value: "16-20" as const, label: "16–20s" },
+                  { value: "20-25" as const, label: "20–25s" },
+                  { value: "25-30" as const, label: "25–30s" },
+                ]).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setTargetDuration(opt.value)}
+                    className={cn(
+                      "rounded-md px-1.5 py-1.5 text-center text-xs font-medium transition-colors",
+                      targetDuration === opt.value
+                        ? "bg-primary/10 text-primary shadow-sm"
+                        : "text-muted-foreground hover:bg-raised hover:text-foreground"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Optimal retention sweet spot for Shorts and Reels.
               </p>
             </div>
           </div>

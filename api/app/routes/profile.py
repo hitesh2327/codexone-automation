@@ -245,6 +245,9 @@ def _update_profile(body: ProfileBody, cu: CurrentUser) -> dict:
             if "default_post_format" in t_in and t_in["default_post_format"] is not None:
                 if t_in["default_post_format"] not in ("carousel", "image_reel"):
                     raise _bad("Default post format must be 'carousel' or 'image_reel'.")
+            if "target_duration" in t_in and t_in["target_duration"] is not None:
+                if str(t_in["target_duration"]) not in ("16-20", "20-25", "25-30"):
+                    raise _bad("Target duration must be '16-20', '20-25', or '25-30'.")
             if "categories" in t_in and t_in["categories"] is not None:
                 if len(t_in["categories"]) == 0:
                     t_in.pop("categories")

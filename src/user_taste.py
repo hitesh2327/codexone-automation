@@ -187,6 +187,7 @@ class UserTaste:
     categories: list[str]
     default_language: str | None = None
     default_post_format: str | None = None
+    target_duration: str = "20-25"
     category_configs: list[CategoryConfig] = field(default_factory=list)
     sources: list[TopicSourceConfig] = field(default_factory=list)
     handle: str = ""
@@ -281,6 +282,7 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
 
     lang = taste.get("default_language")
     fmt = taste.get("default_post_format")
+    dur = taste.get("target_duration")
     result = UserTaste(
         niche=niche,
         tone=taste.get("tone") or "Educational & Insightful",
@@ -292,6 +294,7 @@ def get_user_taste(user_id: int | None = None) -> UserTaste:
         categories=[c.name for c in configs],
         default_language=lang if lang in ("en", "hi") else None,
         default_post_format=fmt if fmt in ("carousel", "image_reel") else None,
+        target_duration=dur if dur in ("16-20", "20-25", "25-30") else "20-25",
         category_configs=configs,
         sources=sources,
         handle=raw_handle,
@@ -319,6 +322,26 @@ def user_generation_defaults(user_id: int | None = None) -> tuple[str | None, st
         return None, None
     t = get_user_taste(uid)
     return t.default_language, t.default_post_format
+
+
+def user_target_duration(user_id: int | None = None) -> str:
+    """Return target reel duration ('16-20', '20-25', '25-30') from taste or default '20-25'."""
+    uid = user_id if user_id is not None else active_user_id.get()
+    if uid is None:
+        try:
+            from sqlalchemy import select
+            from src import db
+            from src.db.models import User
+            if db.enabled():
+                with db.session() as ses:
+                    owner = ses.scalars(select(User).where(User.role == "owner").order_by(User.id.asc()).limit(1)).first()
+                    if owner:
+                        uid = owner.id
+        except Exception:  # noqa: BLE001
+            return "20-25"
+    if uid is None:
+        return "20-25"
+    return get_user_taste(uid).target_duration
 
 
 def invalidate(user_id: int | None = None) -> None:

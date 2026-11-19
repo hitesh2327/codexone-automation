@@ -92,6 +92,16 @@ def test_render_makes_a_vertical_reel_with_audio(tmp_path, music):
     assert abs(float(probe["format"]["duration"]) - 3) < 0.2
     assert (tmp_path / image_reel.COVER).exists()
 
+    # Frame 0 and cover must not be pure black (no fade-in delay causing black thumbnails)
+    frame0 = tmp_path / "frame0.png"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "0", "-i", str(out),
+                    "-frames:v", "1", str(frame0)], check=True)
+    from PIL import Image, ImageStat
+    stat0 = ImageStat.Stat(Image.open(frame0))
+    assert sum(stat0.mean) > 10.0, "Frame 0 must not be black screen"
+    stat_cover = ImageStat.Stat(Image.open(tmp_path / image_reel.COVER))
+    assert sum(stat_cover.mean) > 10.0, "Cover image must not be black screen"
+
 
 def test_dry_run_renders_nothing(tmp_path):
     assert image_reel.render(tmp_path / "slide.png", tmp_path, None, 3, dry_run=True) is None

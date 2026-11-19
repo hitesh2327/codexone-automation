@@ -85,12 +85,13 @@ def render(slide: Path, out_dir: Path, music: Path | None, seconds: float | None
         return None
     frames = int(seconds * FPS)
     # Background: the slide blown up, blurred and darkened to fill 9:16. Foreground: the slide, slowly
-    # zooming, a little above centre so the app's caption and buttons don't cover it. Fades in and out.
+    # zooming, a little above centre so the app's caption and buttons don't cover it.
+    # Note: no fade-in from black on frame 0 so thumbnail extractions and the first 2 seconds are never a black screen.
     vf = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=40:6,"
           f"eq=brightness=-0.22:saturation=0.8[bg];"
           f"[0:v]scale=w='trunc({SLIDE_W}*(1+{ZOOM}*n/{frames})/2)*2':h=-2:eval=frame[fg];"
           f"[bg][fg]overlay=x='(W-w)/2':y='(H-h)/2-{LIFT}':eval=frame,fps={FPS},"
-          f"fade=t=in:st=0:d=0.4,fade=t=out:st={seconds - 0.6:.2f}:d=0.6,format=yuv420p[v]")
+          f"fade=t=out:st={seconds - 0.6:.2f}:d=0.6,format=yuv420p[v]")
     audio_in = (["-stream_loop", "-1", "-i", str(music)] if music
                 else ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"])
     af = f"[1:a]afade=t=in:d=0.8,afade=t=out:st={seconds - 1.5:.2f}:d=1.5,volume=0.9[a]"

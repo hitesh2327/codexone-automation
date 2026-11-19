@@ -35,8 +35,8 @@ posts_per_day: 2
 post_times_ist: ["10:00", "19:00"]
 reel:
   size: "1080x1920"
-  duration_sec: "18-24"
-  structure: "hook, problem, architecture shift, loop bridge"   # 18-24s high retention
+  duration_sec: "20-25"
+  structure: "hook, problem, architecture shift, loop bridge"   # 20-25s high retention
   # Top outlier formulas in tech engineering (ig-viral / ig-audit)
   preferred_hook_formulas:
     - "Negative Command"

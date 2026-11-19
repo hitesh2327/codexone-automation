@@ -366,7 +366,7 @@ def mark_decided(item: q.Item, note: str) -> None:
     tok = active_user_id.set(item.user_id)
     try:
         asyncio.run(_mark_decided(item, note))
-    except TelegramError as e:
+    except (TelegramError, Exception) as e:
         log.warning("Telegram sync failed for %s: %s", item.id, e)
     finally:
         active_user_id.reset(tok)
@@ -391,7 +391,7 @@ def refresh_preview(item: q.Item) -> None:
     tok = active_user_id.set(item.user_id)
     try:
         asyncio.run(_refresh_preview(item))
-    except TelegramError as e:
+    except (TelegramError, Exception) as e:
         log.warning("Telegram preview refresh failed for %s: %s", item.id, e)
     finally:
         active_user_id.reset(tok)
