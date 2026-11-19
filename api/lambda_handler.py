@@ -38,6 +38,19 @@ from mangum import Mangum  # noqa: E402
 from api.app.main import app  # noqa: E402
 
 _VERIFY = os.environ.get("ORIGIN_VERIFY", "")
+_admin_initialized = False
+
+
+def _ensure_admin_initialized() -> None:
+    global _admin_initialized
+    if not _admin_initialized:
+        try:
+            from api.app.main import sync_admin
+            sync_admin()
+        except Exception as e:
+            import logging
+            logging.getLogger("codexone.api").warning("sync_admin failed during lazy init: %s", e)
+        _admin_initialized = True
 
 
 async def guarded(scope, receive, send):
@@ -50,7 +63,9 @@ async def guarded(scope, receive, send):
                         "headers": [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": b'{"detail":"Forbidden"}'})
             return
+    if scope["type"] == "http":
+        _ensure_admin_initialized()
     await app(scope, receive, send)
 
 
-handler = Mangum(guarded, lifespan="auto")
+handler = Mangum(guarded, lifespan="off")

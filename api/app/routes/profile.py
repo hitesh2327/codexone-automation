@@ -295,11 +295,11 @@ def _make_gemini_client(genai_mod, types_mod, api_key: str):
         return genai_mod.Client(
             api_key=api_key,
             http_options=types_mod.HttpOptions(
-                timeout=10000,
+                timeout=8,
                 retry_options=types_mod.HttpRetryOptions(attempts=1),
             ),
         )
-    except TypeError:
+    except Exception:
         return genai_mod.Client(api_key=api_key)
 
 
@@ -309,12 +309,8 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
     _check_ai_rate(cu.id)
     import json as _json
     import time as _time
+    from src import user_config_store
     from src.config import get_env
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Gemini SDK not available")
 
     with db.session() as ses:
         u = _user(ses, cu)
@@ -326,6 +322,21 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
 
     platform_names = {"ig": "Instagram Reels", "yt": "YouTube Shorts", "li": "LinkedIn"}
     plat_list = ", ".join(platform_names.get(p, p) for p in platforms)
+
+    defaults = {"ig": ["10:00", "19:00"], "yt": ["10:00", "20:00"]}
+    api_key = get_env("GEMINI_API_KEY", required=False) or user_config_store.lookup("GEMINI_API_KEY", cu.id)
+    if not api_key:
+        out = {p: defaults.get(p, ["10:00", "19:00"]) for p in platforms}
+        out["reasoning"] = "Default peak engagement slots (API key not configured)."
+        return out
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        out = {p: defaults.get(p, ["10:00", "19:00"]) for p in platforms}
+        out["reasoning"] = "Default peak engagement slots (Gemini SDK not available)."
+        return out
 
     prompt = (
         f"You are a social media expert optimising posting schedules for maximum organic reach.\n\n"
@@ -341,22 +352,15 @@ def suggest_schedule(cu: CurrentUser = Depends(current_user)) -> dict:
         f'{{"ig": ["HH:MM", "HH:MM"], "yt": ["HH:MM", "HH:MM"], "reasoning": "one sentence"}}'
     )
 
-    api_key = get_env("GEMINI_API_KEY", required=False)
-    defaults = {"ig": ["10:00", "19:00"], "yt": ["10:00", "20:00"]}
-    if not api_key:
-        out = {p: defaults.get(p, ["10:00", "19:00"]) for p in platforms}
-        out["reasoning"] = "Default peak engagement slots (API key not configured)."
-        return out
-
     candidate_models = [
-        get_env("GEMINI_MODEL", required=False, default="gemini-3.5-flash-lite"),
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.5-flash",
-        "gemini-3.8-flash",
+        get_env("GEMINI_MODEL", required=False, default="gemini-2.5-flash"),
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.5-flash-lite",
     ]
     result: dict | None = None
-    deadline = _time.monotonic() + 10.0
+    deadline = _time.monotonic() + 8.0
     for m in dict.fromkeys(candidate_models):
         if _time.monotonic() >= deadline:
             log.warning("suggest-schedule: deadline reached before trying %s", m)
@@ -398,12 +402,9 @@ def suggest_categories(
     _check_ai_rate(cu.id)
     import json as _json
     import time as _time
+    from src import user_config_store
     from src.config import get_env
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Gemini SDK not available")
+    from src.user_taste import default_user_taste, normalize_categories
 
     with db.session() as ses:
         u = _user(ses, cu)
@@ -412,6 +413,30 @@ def suggest_categories(
     niche = (body.niche.strip() if body and body.niche and body.niche.strip() else None) or taste.get("niche") or "Software Engineering & Dev"
     content_type = (body.content_type.strip() if body and body.content_type and body.content_type.strip() else None) or taste.get("content_type") or "Educational & How-To"
     audience = (body.target_audience.strip() if body and body.target_audience and body.target_audience.strip() else None) or taste.get("target_audience") or ""
+
+    api_key = get_env("GEMINI_API_KEY", required=False) or user_config_store.lookup("GEMINI_API_KEY", cu.id)
+    if not api_key:
+        defaults = default_user_taste()["categories"]
+        configs = normalize_categories(defaults)
+        return {
+            "categories": [c.name for c in configs],
+            "category_configs": [c.to_dict() for c in configs],
+            "suggested_subreddits": ["webdev", "programming", "softwarearchitecture"],
+            "reasoning": "Standard high-engagement technical categories for your niche.",
+        }
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        defaults = default_user_taste()["categories"]
+        configs = normalize_categories(defaults)
+        return {
+            "categories": [c.name for c in configs],
+            "category_configs": [c.to_dict() for c in configs],
+            "suggested_subreddits": ["webdev", "programming", "softwarearchitecture"],
+            "reasoning": "Standard high-engagement technical categories for your niche.",
+        }
 
     prompt = (
         f"You are a social media content strategist.\n\n"
@@ -428,38 +453,34 @@ def suggest_categories(
         f'"suggested_subreddits": ["sub1", "sub2"], "reasoning": "one sentence"}}'
     )
 
-    api_key = get_env("GEMINI_API_KEY", required=False)
     candidate_models = [
-        get_env("GEMINI_MODEL", required=False, default="gemini-3.5-flash-lite"),
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.5-flash",
-        "gemini-3.8-flash",
+        get_env("GEMINI_MODEL", required=False, default="gemini-2.5-flash"),
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.5-flash-lite",
     ]
     result: dict | None = None
-    if api_key:
-        deadline = _time.monotonic() + 10.0
-        for m in dict.fromkeys(candidate_models):
-            if _time.monotonic() >= deadline:
-                log.warning("suggest-categories: deadline reached before trying %s", m)
+    deadline = _time.monotonic() + 8.0
+    for m in dict.fromkeys(candidate_models):
+        if _time.monotonic() >= deadline:
+            log.warning("suggest-categories: deadline reached before trying %s", m)
+            break
+        try:
+            client = _make_gemini_client(genai, types, api_key)
+            resp = client.models.generate_content(
+                model=m,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            parsed = _json.loads(resp.text)
+            if isinstance(parsed, dict) and isinstance(parsed.get("categories"), list) and len(parsed["categories"]) >= 2:
+                result = parsed
                 break
-            try:
-                client = _make_gemini_client(genai, types, api_key)
-                resp = client.models.generate_content(
-                    model=m,
-                    contents=prompt,
-                    config={"response_mime_type": "application/json"},
-                )
-                parsed = _json.loads(resp.text)
-                if isinstance(parsed, dict) and isinstance(parsed.get("categories"), list) and len(parsed["categories"]) >= 2:
-                    result = parsed
-                    break
-            except Exception as e:
-                log.warning("suggest-categories: model %s failed: %s", m, e)
+        except Exception as e:
+            log.warning("suggest-categories: model %s failed: %s", m, e)
 
-    from src.user_taste import normalize_categories
     if not result:
-        from src.user_taste import default_user_taste
         defaults = default_user_taste()["categories"]
         configs = normalize_categories(defaults)
         return {

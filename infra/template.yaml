@@ -69,7 +69,7 @@ Resources:
       Code: {ImageUri: !Ref ImageUri}
       Role: !GetAtt ApiRole.Arn
       Timeout: 60
-      MemorySize: 1024
+      MemorySize: 2048
       ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref "AWS::NoValue"]
       Environment:
         Variables:
@@ -173,7 +173,10 @@ Resources:
             S3OriginConfig: {OriginAccessIdentity: ""}
           - Id: api
             DomainName: !Select [2, !Split ["/", !GetAtt ApiUrl.FunctionUrl]]
-            CustomOriginConfig: {OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2]}
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              OriginResponseTimeout: 60
             OriginCustomHeaders:
               - {HeaderName: X-Origin-Verify, HeaderValue: !Ref OriginVerify}
         DefaultCacheBehavior:
