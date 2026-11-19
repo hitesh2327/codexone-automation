@@ -88,11 +88,17 @@ def list_integrations(cu: CurrentUser = Depends(current_user)) -> dict:
         info, _ = tg.get_bot_info(token)
         if isinstance(info, dict) and info.get("username"):
             bot_username = f"@{str(info['username']).lstrip('@')}"
-        name, _ = tg.get_bot_name(token)
-        if name:
-            bot_name = name
-        elif isinstance(info, dict) and info.get("first_name"):
-            bot_name = info.get("first_name")
+        saved_name = db.get_setting(f"tg_bot_name:{cu.id}")
+        if saved_name and isinstance(saved_name, str):
+            bot_name = saved_name
+        else:
+            name, _ = tg.get_bot_name(token)
+            if name and "codexonebyhitesh" not in name.lower():
+                bot_name = name
+            elif isinstance(info, dict) and info.get("first_name") and "codexonebyhitesh" not in str(info.get("first_name")).lower():
+                bot_name = info.get("first_name")
+            else:
+                bot_name = None
 
     return {
         "values": {
@@ -135,6 +141,7 @@ def create_telegram_link(body: CreateTelegramLinkBody | None = Body(default=None
         clean_name = body.bot_name.strip()
         try:
             tg.set_bot_name(token, clean_name)
+            db.set_setting(f"tg_bot_name:{cu.id}", clean_name)
         except Exception as set_err:
             log.warning("failed to set bot name on link creation: %s", set_err)
     try:
@@ -304,6 +311,7 @@ def update_telegram_bot_name(body: TelegramNameRequest, cu: CurrentUser = Depend
             detail={"code": code, "message": info.message if info else f"Telegram rejected the bot name: {code}"},
         )
 
+    db.set_setting(f"tg_bot_name:{cu.id}", clean_name)
     return {
         "ok": True,
         "bot_name": clean_name,
@@ -317,6 +325,7 @@ def unlink_telegram(include_bot: bool = Query(False), cu: CurrentUser = Depends(
     user_config_store.delete(cu.id, "TG_CHAT_ID")
     if include_bot:
         user_config_store.delete(cu.id, "TG_BOT_TOKEN")
+    db.set_setting(f"tg_bot_name:{cu.id}", None)
     with db.session() as s:
         if row := s.get(Setting, _link_key(cu.id)):
             s.delete(row)

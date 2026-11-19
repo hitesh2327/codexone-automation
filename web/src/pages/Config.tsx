@@ -7,6 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { CheckList, GuideSheet, ResultNote, StateDot, StateTag } from "@/components/config/parts";
 import { TasteCadenceConfig } from "@/components/config/taste-cadence";
 import { UserIntegrations } from "@/components/config/user-integrations";
+import { ConnectBotDialog } from "@/components/config/connect-bot-dialog";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -18,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
-  deleteWebhook, detectChat, getOverview, getUiPreferences, save, saveUiPreferences, verify, type DetectedChat, type FieldState, type Integration,
+  deleteWebhook, detectChat, getOverview, getUiPreferences, save, saveUiPreferences, setTelegramBotName, verify, type DetectedChat, type FieldState, type Integration,
   type Overview, type Readiness, type State, type UiPreferences, type VerifyResult,
 
 } from "@/lib/config";
@@ -205,6 +206,8 @@ function Step({ integ, onChanged, onGuide, setConfirm }: {
   const [error, setError] = useState<string | null>(null);
   const [chats, setChats] = useState<DetectedChat[] | null>(null);
   const [unknownSave, setUnknownSave] = useState(false);
+  const [connectTgOpen, setConnectTgOpen] = useState(false);
+  const [connectingTg, setConnectingTg] = useState(false);
 
   const changed = useMemo(() => {
     const out: Record<string, string> = {};
@@ -267,6 +270,21 @@ function Step({ integ, onChanged, onGuide, setConfirm }: {
   const webhookBlocked = shown?.code === "telegram.webhook_set";
   const canSave = Object.keys(changed).length > 0 && !formatError && !busy && integ.editable;
 
+  async function handleConfirmConnectTg(botName: string) {
+    if (!bot) return;
+    setConnectingTg(true);
+    try {
+      await setTelegramBotName(botName);
+      toast.success(`Telegram bot name updated to '${botName}'`);
+    } catch {
+      // Ignored
+    } finally {
+      setConnectingTg(false);
+      setConnectTgOpen(false);
+      window.open(`https://t.me/${bot.replace(/^@/, "")}?start=setup`, "_blank", "noopener,noreferrer");
+    }
+  }
+
   return (
     <section id={integ.name} aria-labelledby={`${integ.name}-h`} className="scroll-mt-24 border-t border-rule pt-8 first:border-t-0 first:pt-0">
       <header className="mb-6 grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-5">
@@ -313,7 +331,17 @@ function Step({ integ, onChanged, onGuide, setConfirm }: {
       {integ.name === "telegram" && (
         <div className="mt-4 grid gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            {bot && <Button variant="outline" size="sm" asChild><a href={`https://t.me/${bot.replace(/^@/, "")}?start=setup`} target="_blank" rel="noopener noreferrer"><Send />Open {bot} in Telegram</a></Button>}
+            {bot && (
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={() => setConnectTgOpen(true)}
+              >
+                <Send className="size-3.5" />
+                Open {bot} in Telegram
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={doDetect} disabled={!!busy || (!changed.TG_BOT_TOKEN && !integ.fields.find((f) => f.name === "TG_BOT_TOKEN")?.is_set)}>
               {busy === "detect" ? <LoaderCircle className="animate-spin" /> : <Radar />}Detect my chat
             </Button>
@@ -333,6 +361,13 @@ function Step({ integ, onChanged, onGuide, setConfirm }: {
               ))}
             </fieldset>
           )}
+
+          <ConnectBotDialog
+            open={connectTgOpen}
+            onOpenChange={setConnectTgOpen}
+            onConfirm={handleConfirmConnectTg}
+            isConnecting={connectingTg}
+          />
         </div>
       )}
 

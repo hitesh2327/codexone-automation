@@ -28,7 +28,7 @@ export function QuickConnectBanner() {
   const [busyTg, setBusyTg] = useState(false);
   const [botDialogOpen, setBotDialogOpen] = useState(false);
 
-  const defaultBotName = user?.name ? `${user.name}'s Assistant` : "CodeXone Assistant";
+  const defaultBotName = user?.name ? `${user.name}'s Assistant` : "";
 
   const loadStatus = useCallback(async () => {
     try {

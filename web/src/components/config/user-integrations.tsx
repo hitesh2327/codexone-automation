@@ -234,7 +234,7 @@ function TelegramSection({
               : "Using Mintly's shared approval bot."}
           </p>
           <p className="text-xs font-medium text-foreground">
-            Bot: {meta?.bot_name || "codeXoneByHitesh"} ({meta?.bot_username || "@codeXoneByHiteshBot"})
+            Bot: {meta?.bot_name && !meta.bot_name.toLowerCase().includes("codexonebyhitesh") ? meta.bot_name : "AI Assistant"} {meta?.bot_username ? `(${meta.bot_username})` : ""}
           </p>
         </div>
 
@@ -320,7 +320,7 @@ function TelegramSection({
               <Input
                 id="ucf-TG_BOT_NAME"
                 type="text"
-                placeholder={meta?.bot_name || "codeXoneByHitesh"}
+                placeholder="e.g. My Content Assistant"
                 value={botNameInput}
                 onChange={(e) => setBotNameInput(e.target.value)}
                 disabled={busy !== null}
@@ -395,7 +395,7 @@ function TelegramSection({
       <ConnectBotDialog
         open={showConnectBotDialog}
         onOpenChange={setShowConnectBotDialog}
-        initialBotName={meta?.bot_name || "CodeXone Assistant"}
+        initialBotName={meta?.bot_name && !meta.bot_name.toLowerCase().includes("codexonebyhitesh") ? meta.bot_name : ""}
         onConfirm={handleConfirmConnect}
         isConnecting={busy === "link"}
       />
