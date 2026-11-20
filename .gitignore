@@ -24,3 +24,13 @@ prototypes/*/out/
 .agents/*
 !.agents/skills/
 .claude
+
+
+# Test automation outputs & reports
+ui-automation/node_modules/
+ui-automation/playwright-report/
+ui-automation/test-results/
+api-automation/reports/
+artifacts_ui_test/
+load_report.html
+api-test-report.html

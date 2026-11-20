@@ -6,13 +6,13 @@
 export const COMPANY = {
   product: "Mintly",
   legalName: "Anjanex Labs",
-  entityType: null as string | null,          // e.g. "a sole proprietorship" or "a private limited company"
-  address: null as string | null,             // registered address, as on GST / incorporation papers
-  email: null as string | null,               // monitored support and grievance inbox
-  phone: null as string | null,
-  grievanceOfficer: null as string | null,    // name of the grievance officer (E-Commerce Rules 2020)
-  courtsCity: null as string | null,          // city whose courts hear disputes, e.g. "Mumbai"
-  gstin: null as string | null,               // once GST-registered
+  entityType: "Private Limited", // e.g. "a sole proprietorship" or "a private limited company"
+  address: "Jodhpur Rajasthan", // registered address, as on GST / incorporation papers
+  email: "anjanexlabs@gmail.com", // monitored support and grievance inbox
+  phone: "+91-6376580714",
+  grievanceOfficer: null as string | null, // name of the grievance officer (E-Commerce Rules 2020)
+  courtsCity: "Jodhpur, Rajasthan", // city whose courts hear disputes, e.g. "Mumbai"
+  gstin: null as string | null, // once GST-registered
 };
 
 export const POLICY_UPDATED = "22 October 2026";
@@ -23,8 +23,12 @@ export const MISSING: string[] = Object.entries(COMPANY)
   .map(([key]) => key);
 
 const LABEL: Record<string, string> = {
-  entityType: "type of business", address: "registered address", email: "contact email", phone: "phone number",
-  grievanceOfficer: "grievance officer", courtsCity: "city for disputes",
+  entityType: "type of business",
+  address: "registered address",
+  email: "contact email",
+  phone: "phone number",
+  grievanceOfficer: "grievance officer",
+  courtsCity: "city for disputes",
 };
 
 /** A company field for running text: its value, or a visible "[… to be added]" while it's missing. */

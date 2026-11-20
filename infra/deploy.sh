@@ -5,7 +5,10 @@
 set -euo pipefail
 export MSYS_NO_PATHCONV=1   # Git Bash on Windows would otherwise rewrite "/codexone/..." into a C:/ path
 
-export AWS_PROFILE="${AWS_PROFILE:-shhh}" AWS_REGION="${AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${AWS_REGION:-us-east-1}"
+if [ -z "${AWS_PROFILE+x}" ] && [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
+  export AWS_PROFILE="shhh"
+fi
+export AWS_REGION="${AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${AWS_REGION:-us-east-1}"
 STACK="${STACK:-codexone-dashboard}"; REPO="codexone-api"; PREFIX="/codexone/"
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
